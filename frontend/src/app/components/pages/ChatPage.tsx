@@ -1,21 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, X, ChevronDown, Bot, User, Layers } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
-
-const knowledgeBases = [
-  { id: 'kb1', name: '港口安全知识库', pages: 45 },
-  { id: 'kb2', name: '安全生产制度库', pages: 28 },
-  { id: 'kb3', name: '消防法规库', pages: 18 },
-];
-
-const models = ['DeepSeek V3 Flash', 'DeepSeek V3 Pro', 'GPT-4o', 'Claude 3.5'];
+import { useApp } from '../../../lib/context';
+import { chatApi } from '../../../lib/api';
+import type { KnowledgeBase } from '../../../lib/types';
 
 const initialMessages = [
   {
     role: 'assistant',
     content: `你好！我是安牛知识助手，可以帮助你查询企业安全知识。
-
-当前已加载 2 个知识库，共 73 个知识页面。
 
 你可以这样问我：
 • 港口火灾应急响应流程是什么？
@@ -26,11 +19,13 @@ const initialMessages = [
 ];
 
 export default function ChatPage() {
-  const [selectedKbs, setSelectedKbs] = useState(['kb1', 'kb2']);
-  const [selectedModel, setSelectedModel] = useState('DeepSeek V3 Flash');
+  const { knowledgeBases, providers, currentModelId } = useApp();
+  const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState(currentModelId);
   const [modelOpen, setModelOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState(initialMessages);
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
 
@@ -46,6 +41,10 @@ export default function ChatPage() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  useEffect(() => {
+    setSelectedModel(currentModelId);
+  }, [currentModelId]);
+
   const toggleKb = (kbId: string) => {
     setSelectedKbs(prev =>
       prev.includes(kbId) ? prev.filter(id => id !== kbId) : [...prev, kbId]
@@ -53,16 +52,46 @@ export default function ChatPage() {
   };
 
   const handleSend = () => {
-    if (!input.trim()) return;
+    if (!input.trim() || selectedKbs.length === 0 || isLoading) return;
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    setMessages(prev => [...prev, { role: 'user', content: input, time }]);
+    const question = input;
+    setMessages(prev => [...prev, { role: 'user', content: question, time }]);
     setInput('');
+    setIsLoading(true);
+
+    // 添加助手占位消息
+    setMessages(prev => [...prev, { role: 'assistant', content: '', time }]);
+
+    chatApi.ask(
+      { question, knowledge_base_ids: selectedKbs, model_id: selectedModel },
+      (chunk) => {
+        setMessages(prev => {
+          const last = prev[prev.length - 1];
+          if (last.role === 'assistant') {
+            return [...prev.slice(0, -1), { ...last, content: last.content + chunk }];
+          }
+          return prev;
+        });
+      },
+      (err) => {
+        setMessages(prev => {
+          const last = prev[prev.length - 1];
+          if (last.role === 'assistant') {
+            return [...prev.slice(0, -1), { ...last, content: `请求失败: ${err.message}` }];
+          }
+          return prev;
+        });
+        setIsLoading(false);
+      }
+    );
+    setIsLoading(false);
   };
 
+  const allModels = providers.flatMap(p => p.models.map(m => m.name));
   const totalPages = selectedKbs.reduce((sum, id) => {
-    const kb = knowledgeBases.find(k => k.id === id);
-    return sum + (kb?.pages ?? 0);
+    const kb = knowledgeBases.find((k: KnowledgeBase) => k.id === id);
+    return sum + (kb?.wiki_page_count ?? 0);
   }, 0);
 
   return (
@@ -116,7 +145,7 @@ export default function ChatPage() {
                     className="w-3.5 h-3.5 rounded accent-indigo-600"
                   />
                   <span className="flex-1 text-sm text-slate-700">{kb.name}</span>
-                  <span className="text-xs text-slate-400">{kb.pages}页</span>
+                  <span className="text-xs text-slate-400">{kb.wiki_page_count}页</span>
                 </label>
               ))}
             </Popover.Content>
@@ -137,7 +166,7 @@ export default function ChatPage() {
           </button>
           {modelOpen && (
             <div className="absolute top-full mt-1.5 left-0 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50 min-w-[180px]">
-              {models.map(m => (
+              {allModels.map((m: string) => (
                 <button
                   key={m}
                   onClick={() => { setSelectedModel(m); setModelOpen(false); }}

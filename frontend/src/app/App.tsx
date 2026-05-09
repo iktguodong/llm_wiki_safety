@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AppProvider } from '../lib/context';
 import Sidebar from './components/Sidebar';
 import StatusBar from './components/StatusBar';
 import ChatPage from './components/pages/ChatPage';
@@ -9,10 +10,8 @@ import SettingsPage from './components/pages/SettingsPage';
 
 type PageType = 'chat' | 'search' | 'knowledge' | 'training' | 'settings';
 
-export default function App() {
+function AppInner() {
   const [currentPage, setCurrentPage] = useState<PageType>('chat');
-  const [currentKnowledgeBase, setCurrentKnowledgeBase] = useState('港口安全知识库');
-  const [currentModel, setCurrentModel] = useState('V3 Flash');
 
   const renderPage = () => {
     switch (currentPage) {
@@ -33,12 +32,15 @@ export default function App() {
           {renderPage()}
         </main>
       </div>
-      <StatusBar
-        currentKnowledgeBase={currentKnowledgeBase}
-        currentModel={currentModel}
-        onKnowledgeBaseChange={setCurrentKnowledgeBase}
-        onModelChange={setCurrentModel}
-      />
+      <StatusBar />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AppProvider>
+      <AppInner />
+    </AppProvider>
   );
 }

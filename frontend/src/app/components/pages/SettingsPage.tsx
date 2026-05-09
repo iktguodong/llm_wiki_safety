@@ -1,24 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Pencil, FlaskConical, FolderOpen, CheckCircle2, ChevronDown } from 'lucide-react';
-
-const modelProviders = [
-  {
-    id: 'deepseek',
-    name: 'DeepSeek',
-    url: 'https://api.deepseek.com',
-    models: 'V3 Flash, V3 Pro',
-    verified: true,
-  },
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    url: 'https://api.openai.com/v1',
-    models: 'GPT-4o, GPT-4o Mini',
-    verified: true,
-  },
-];
-
-const modelOptions = ['DeepSeek V3 Flash', 'DeepSeek V3 Pro', 'GPT-4o'];
+import { useApp } from '../../../lib/context';
+import { configApi } from '../../../lib/api';
+import type { ModelProvider } from '../../../lib/types';
 
 function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -29,14 +13,15 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
   );
 }
 
-function ModelSelect({ defaultValue }: { defaultValue: string }) {
+function ModelSelect({ value, options, onChange }: { value: string; options: string[]; onChange: (v: string) => void }) {
   return (
     <div className="relative">
       <select
-        defaultValue={defaultValue}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
         className="appearance-none pl-3 pr-8 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-700 cursor-pointer"
       >
-        {modelOptions.map(m => (
+        {options.map((m: string) => (
           <option key={m}>{m}</option>
         ))}
       </select>
@@ -46,7 +31,27 @@ function ModelSelect({ defaultValue }: { defaultValue: string }) {
 }
 
 export default function SettingsPage() {
+  const { providers, currentModelId, setCurrentModelId } = useApp();
   const [storagePath] = useState('/Users/xxx/knowledge-bases');
+  const [testing, setTesting] = useState<Record<string, boolean>>({});
+
+  const allModelNames = providers.flatMap(p => p.models.map(m => m.name));
+
+  const handleTest = async (provider: ModelProvider) => {
+    setTesting(prev => ({ ...prev, [provider.id]: true }));
+    try {
+      await configApi.validateModel({
+        provider_id: provider.id,
+        api_key: provider.api_key,
+        base_url: provider.base_url,
+      });
+      alert('连接成功');
+    } catch (err) {
+      alert('连接失败: ' + (err instanceof Error ? err.message : '未知错误'));
+    } finally {
+      setTesting(prev => ({ ...prev, [provider.id]: false }));
+    }
+  };
 
   return (
     <div className="h-full flex flex-col bg-slate-50">
@@ -73,7 +78,7 @@ export default function SettingsPage() {
           </div>
 
           <div className="divide-y divide-slate-100">
-            {modelProviders.map(provider => (
+            {providers.map((provider: ModelProvider) => (
               <div key={provider.id} className="px-6 py-4 hover:bg-slate-50 transition-colors">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
@@ -86,18 +91,22 @@ export default function SettingsPage() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-slate-900" style={{ fontWeight: 500 }}>{provider.name}</span>
-                        {provider.verified && (
+                        {provider.api_key && (
                           <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
                         )}
                       </div>
-                      <div className="text-xs text-slate-400 mt-0.5">{provider.url}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">模型: {provider.models}</div>
+                      <div className="text-xs text-slate-400 mt-0.5">{provider.base_url}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">模型: {provider.models.map(m => m.name).join(', ')}</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button className="flex items-center gap-1 px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors">
+                    <button
+                      onClick={() => handleTest(provider)}
+                      disabled={testing[provider.id]}
+                      className="flex items-center gap-1 px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-50"
+                    >
                       <FlaskConical className="w-3 h-3" />
-                      测试
+                      {testing[provider.id] ? '测试中...' : '测试'}
                     </button>
                     <button className="flex items-center gap-1 px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors">
                       <Pencil className="w-3 h-3" />
@@ -118,13 +127,13 @@ export default function SettingsPage() {
           </div>
           <div className="px-6 py-2">
             <SettingRow label="文档解析模型">
-              <ModelSelect defaultValue="DeepSeek V3 Flash" />
+              <ModelSelect value={currentModelId} options={allModelNames} onChange={setCurrentModelId} />
             </SettingRow>
             <SettingRow label="知识问答模型">
-              <ModelSelect defaultValue="DeepSeek V3 Flash" />
+              <ModelSelect value={currentModelId} options={allModelNames} onChange={setCurrentModelId} />
             </SettingRow>
             <SettingRow label="PPT 生成模型">
-              <ModelSelect defaultValue="DeepSeek V3 Pro" />
+              <ModelSelect value={currentModelId} options={allModelNames} onChange={setCurrentModelId} />
             </SettingRow>
           </div>
           <div className="mx-6 mb-4 mt-1 px-4 py-3 bg-blue-50 border border-blue-100 rounded-lg">

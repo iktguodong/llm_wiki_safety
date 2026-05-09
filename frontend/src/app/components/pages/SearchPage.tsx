@@ -1,35 +1,8 @@
 import { useState } from 'react';
 import { Search as SearchIcon, X, FileText, Clock } from 'lucide-react';
-
-const knowledgeBases = [
-  { id: 'kb1', name: '港口安全知识库', docs: 12 },
-  { id: 'kb2', name: '安全生产制度库', docs: 8 },
-  { id: 'kb3', name: '消防法规库', docs: 5 },
-];
-
-const mockResults = [
-  {
-    kb: '港口安全知识库',
-    file: '绥中港应急预案.pdf',
-    page: 15,
-    relevance: 95,
-    snippet: '...发现火情后，立即启动应急响应程序。第一发现人应当在1分钟内向值班室报告，同时使用就近的灭火器材进行初期扑救。应急指挥小组应当在5分钟内到达现场，组织应急响应...',
-  },
-  {
-    kb: '港口安全知识库',
-    file: '绥中港应急预案.pdf',
-    page: 18,
-    relevance: 88,
-    snippet: '...三级应急响应分级标准：一级响应（特别重大）、二级响应（重大）、三级响应（较大）。各级响应的具体启动条件由应急指挥小组根据实际情况判定...',
-  },
-  {
-    kb: '安全生产制度库',
-    file: '消防安全管理制度.docx',
-    page: 8,
-    relevance: 82,
-    snippet: '...公司建立应急响应机制，明确各部门职责。生产部门负责现场处置，安全部门负责监督响应执行情况...',
-  },
-];
+import { useApp } from '../../../lib/context';
+import { searchApi } from '../../../lib/api';
+import type { SearchResult, SearchMatch } from '../../../lib/types';
 
 type SearchMode = 'fuzzy' | 'exact' | 'regex';
 
@@ -40,9 +13,12 @@ const searchModes: { value: SearchMode; label: string }[] = [
 ];
 
 export default function SearchPage() {
-  const [selectedKbs, setSelectedKbs] = useState(['kb1', 'kb2']);
+  const { knowledgeBases } = useApp();
+  const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
   const [searchMode, setSearchMode] = useState<SearchMode>('fuzzy');
   const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SearchResult | null>(null);
+  const [loading, setLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
 
   const toggleKb = (kbId: string) => {
@@ -51,8 +27,22 @@ export default function SearchPage() {
     );
   };
 
-  const handleSearch = () => {
-    if (query.trim()) setShowResults(true);
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+    setLoading(true);
+    setShowResults(true);
+    try {
+      const res = await searchApi.search({
+        keyword: query,
+        knowledge_base_ids: selectedKbs.length ? selectedKbs : undefined,
+        mode: searchMode,
+      });
+      setResults(res);
+    } catch (err) {
+      setResults({ query: '', total_matches: 0, results: [] });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const highlightText = (text: string) => {
@@ -64,11 +54,12 @@ export default function SearchPage() {
     );
   };
 
-  const grouped = mockResults.reduce((acc, r) => {
-    if (!acc[r.kb]) acc[r.kb] = [];
-    acc[r.kb].push(r);
+  const grouped = (results?.results ?? []).reduce<Record<string, SearchMatch[]>>((acc, r) => {
+    const kbName = knowledgeBases.find(k => selectedKbs.includes(k.id))?.name || '未知知识库';
+    if (!acc[kbName]) acc[kbName] = [];
+    acc[kbName].push(r);
     return acc;
-  }, {} as Record<string, typeof mockResults>);
+  }, {});
 
   return (
     <div className="h-full flex flex-col bg-slate-50">
@@ -103,7 +94,7 @@ export default function SearchPage() {
                   />
                   {kb.name}
                   <span className={`text-xs ${selectedKbs.includes(kb.id) ? 'text-indigo-400' : 'text-slate-400'}`}>
-                    {kb.docs}
+                    {kb.document_count}
                   </span>
                 </button>
               ))}
@@ -164,7 +155,8 @@ export default function SearchPage() {
           <div className="space-y-6">
             <div className="flex items-center gap-2 text-sm text-slate-600">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
-              找到 <span className="font-medium text-slate-900">23</span> 处匹配，耗时 0.15 秒
+              找到 <span className="font-medium text-slate-900">{results?.total_matches ?? 0}</span> 处匹配
+              {loading && <span className="text-xs text-slate-400">搜索中...</span>}
             </div>
 
             {Object.entries(grouped).map(([kbName, results]) => (
@@ -187,10 +179,10 @@ export default function SearchPage() {
                           <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                             <div
                               className="h-full bg-indigo-500 rounded-full"
-                              style={{ width: `${result.relevance}%` }}
+                              style={{ width: `${Math.round((result.score ?? 0) * 100)}%` }}
                             />
                           </div>
-                          <span className="text-xs text-slate-400">{result.relevance}%</span>
+                          <span className="text-xs text-slate-400">{Math.round((result.score ?? 0) * 100)}%</span>
                         </div>
                       </div>
                       <div

@@ -1,14 +1,11 @@
-import { useState } from 'react';
-import { ChevronRight, Upload, BookOpen, ArrowLeft, Check, Download, FolderOpen, Loader } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { ChevronRight, Upload, BookOpen, ArrowLeft, Check, Download, FolderOpen, Loader, FileText, X, File } from 'lucide-react';
+import { useApp } from '../../../lib/context';
+import { trainingApi } from '../../../lib/api';
+import type { TrainingOutline } from '../../../lib/types';
 
 type Step = 1 | 2 | 3;
 type SourceType = 'knowledge' | 'uploaded' | 'new';
-
-const knowledgeBases = [
-  { id: 'kb1', name: '港口安全知识库', docs: 12, pages: 45 },
-  { id: 'kb2', name: '安全生产制度库', docs: 8, pages: 28 },
-  { id: 'kb3', name: '消防法规库', docs: 5, pages: 18 },
-];
 
 const sourceOptions: { value: SourceType; label: string; desc: string; icon: React.ElementType }[] = [
   { value: 'knowledge', label: '从知识库生成', desc: '选择已创建的知识库，提取知识内容', icon: BookOpen },
@@ -19,16 +16,47 @@ const sourceOptions: { value: SourceType; label: string; desc: string; icon: Rea
 const contentFocusItems = ['理论知识', '操作流程', '案例分析', '法规条款', '应急处置'];
 
 export default function TrainingPage() {
+  const { knowledgeBases } = useApp();
   const [step, setStep] = useState<Step>(1);
   const [sourceType, setSourceType] = useState<SourceType>('knowledge');
-  const [selectedKbs, setSelectedKbs] = useState(['kb1', 'kb2']);
-  const [isGenerating] = useState(true);
-  const [progress] = useState(60);
+  const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
+  const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
+  const [newFiles, setNewFiles] = useState<File[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [outline, setOutline] = useState<TrainingOutline | null>(null);
+  const [pptFile, setPptFile] = useState('');
 
   const toggleKb = (kbId: string) => {
     setSelectedKbs(prev =>
       prev.includes(kbId) ? prev.filter(id => id !== kbId) : [...prev, kbId]
     );
+  };
+
+  const toggleDoc = (docId: string) => {
+    setSelectedDocs(prev =>
+      prev.includes(docId) ? prev.filter(id => id !== docId) : [...prev, docId]
+    );
+  };
+
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    setNewFiles(prev => [...prev, ...files]);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      setNewFiles(prev => [...prev, ...files]);
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setNewFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const stepLabels = ['选择来源', '配置参数', '生成预览'];
@@ -84,8 +112,9 @@ export default function TrainingPage() {
 
         {/* Step 1: Source selection */}
         {step === 1 && (
-          <div className="space-y-5 max-w-3xl">
-            <div className="space-y-3">
+          <div className="space-y-5">
+            {/* 3 cards in a row */}
+            <div className="grid grid-cols-3 gap-4">
               {sourceOptions.map(opt => {
                 const Icon = opt.icon;
                 const isSelected = sourceType === opt.value;
@@ -93,43 +122,49 @@ export default function TrainingPage() {
                   <button
                     key={opt.value}
                     onClick={() => setSourceType(opt.value)}
-                    className={`w-full flex items-center gap-4 p-5 rounded-xl border-2 text-left transition-all ${
+                    className={`flex flex-col items-start gap-3 p-5 rounded-xl border-2 text-left transition-all ${
                       isSelected
                         ? 'border-indigo-500 bg-indigo-50'
-                        : 'border-slate-200 bg-white hover:border-slate-300'
+                        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
                     }`}
                   >
-                    <div
-                      className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        isSelected ? 'bg-indigo-100' : 'bg-slate-100'
-                      }`}
-                    >
-                      <Icon className={`w-5 h-5 ${isSelected ? 'text-indigo-600' : 'text-slate-500'}`} />
+                    <div className="flex items-center justify-between w-full">
+                      <div
+                        className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                          isSelected ? 'bg-indigo-100' : 'bg-slate-100'
+                        }`}
+                      >
+                        <Icon className={`w-4 h-4 ${isSelected ? 'text-indigo-600' : 'text-slate-500'}`} />
+                      </div>
+                      <div
+                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${
+                          isSelected ? 'border-indigo-600 bg-indigo-600' : 'border-slate-300'
+                        }`}
+                      >
+                        {isSelected && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <div className={`text-sm ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`} style={{ fontWeight: 500 }}>
+                    <div>
+                      <div
+                        className={`text-sm mb-1 ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`}
+                        style={{ fontWeight: 500 }}
+                      >
                         {opt.label}
                       </div>
-                      <div className={`text-xs mt-0.5 ${isSelected ? 'text-indigo-600' : 'text-slate-500'}`}>
+                      <div className={`text-xs leading-relaxed ${isSelected ? 'text-indigo-500' : 'text-slate-500'}`}>
                         {opt.desc}
                       </div>
-                    </div>
-                    <div
-                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                        isSelected ? 'border-indigo-600 bg-indigo-600' : 'border-slate-300'
-                      }`}
-                    >
-                      {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
                     </div>
                   </button>
                 );
               })}
             </div>
 
+            {/* Knowledge base picker */}
             {sourceType === 'knowledge' && (
               <div className="bg-white rounded-xl border border-slate-200 p-5">
                 <div className="text-sm text-slate-700 mb-3" style={{ fontWeight: 500 }}>选择知识库（可多选）</div>
-                <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-3">
                   {knowledgeBases.map(kb => {
                     const isSelected = selectedKbs.includes(kb.id);
                     return (
@@ -145,16 +180,90 @@ export default function TrainingPage() {
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleKb(kb.id)}
-                          className="w-4 h-4 rounded accent-indigo-600"
+                          className="w-4 h-4 rounded accent-indigo-600 flex-shrink-0"
                         />
-                        <span className={`text-sm flex-1 ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>
-                          {kb.name}
-                        </span>
-                        <span className="text-xs text-slate-400">{kb.docs} 文档 · {kb.pages} 页</span>
+                        <div className="min-w-0">
+                          <div className={`text-sm truncate ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>
+                            {kb.name}
+                          </div>
+                          <div className="text-xs text-slate-400 mt-0.5">{kb.document_count} 文档 · {kb.wiki_page_count} 页</div>
+                        </div>
                       </label>
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {/* Uploaded doc picker - simplified, no standalone uploaded doc list */}
+            {sourceType === 'uploaded' && (
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <div className="text-sm text-slate-500 text-center py-6">
+                  请先选择知识库，系统会自动使用该知识库中的文档
+                </div>
+              </div>
+            )}
+
+            {/* New file upload */}
+            {sourceType === 'new' && (
+              <div className="bg-white rounded-xl border border-slate-200 p-5">
+                <div className="text-sm text-slate-700 mb-3" style={{ fontWeight: 500 }}>上传文档</div>
+
+                {/* Drop zone */}
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onDrop={handleFileDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-xl flex flex-col items-center justify-center py-10 cursor-pointer transition-all ${
+                    isDragOver
+                      ? 'border-indigo-400 bg-indigo-50'
+                      : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${isDragOver ? 'bg-indigo-100' : 'bg-slate-100'}`}>
+                    <Upload className={`w-5 h-5 ${isDragOver ? 'text-indigo-500' : 'text-slate-400'}`} />
+                  </div>
+                  <div className="text-sm text-slate-700" style={{ fontWeight: 500 }}>拖拽文件到此处，或点击选择</div>
+                  <div className="text-xs text-slate-400 mt-1">支持 PDF、Word、TXT，单文件最大 50 MB</div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx,.txt"
+                    className="hidden"
+                    onChange={handleFileSelect}
+                  />
+                </div>
+
+                {/* File list */}
+                {newFiles.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <div className="text-xs text-slate-500 mb-2">已选 {newFiles.length} 个文件</div>
+                    {newFiles.map((file, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-3 px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-lg"
+                      >
+                        <div className="w-7 h-7 rounded bg-indigo-50 flex items-center justify-center flex-shrink-0">
+                          <File className="w-3.5 h-3.5 text-indigo-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-slate-700 truncate">{file.name}</div>
+                          <div className="text-xs text-slate-400 mt-0.5">
+                            {(file.size / 1024 / 1024).toFixed(1)} MB
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
+                          className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-200 transition-colors flex-shrink-0"
+                        >
+                          <X className="w-3.5 h-3.5 text-slate-400" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -172,9 +281,9 @@ export default function TrainingPage() {
 
         {/* Step 2: Configuration */}
         {step === 2 && (
-          <div className="space-y-5 max-w-3xl">
+          <div className="space-y-5">
             <div className="bg-white rounded-xl border border-slate-200 p-6">
-              <div className="text-sm text-slate-700 mb-5" style={{ fontWeight: 500 }}>配置培���参数</div>
+              <div className="text-sm text-slate-700 mb-5" style={{ fontWeight: 500 }}>配置培训参数</div>
 
               <div className="space-y-5">
                 <div>
@@ -186,7 +295,7 @@ export default function TrainingPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm text-slate-600 mb-1.5">目标受众</label>
                     <select className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
@@ -204,11 +313,19 @@ export default function TrainingPage() {
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm text-slate-600 mb-1.5">预计时长（分钟）</label>
+                    <input
+                      type="number"
+                      defaultValue={60}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-sm text-slate-600 mb-2">内容侧重</label>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-4">
                     {contentFocusItems.map(item => (
                       <label key={item} className="flex items-center gap-2 cursor-pointer">
                         <input
@@ -234,8 +351,8 @@ export default function TrainingPage() {
                   <div>
                     <label className="block text-sm text-slate-600 mb-1.5">生成模型</label>
                     <select className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-                      <option>DeepSeek V3 Pro</option>
-                      <option>DeepSeek V3 Flash</option>
+                      <option>DeepSeek V4 Pro</option>
+                      <option>DeepSeek V4 Flash</option>
                       <option>GPT-4o</option>
                     </select>
                   </div>
@@ -252,7 +369,31 @@ export default function TrainingPage() {
                 上一步
               </button>
               <button
-                onClick={() => setStep(3)}
+                onClick={async () => {
+                  setIsGenerating(true);
+                  setProgress(30);
+                  try {
+                    const sourceIds = sourceType === 'knowledge' ? selectedKbs : [];
+                    const res = await trainingApi.generateOutline(
+                      sourceType,
+                      sourceIds,
+                      {
+                        topic: '港口安全生产应急处置培训',
+                        audience: '一线作业人员',
+                        duration: 60,
+                        slide_count: 20,
+                        focus_areas: ['理论知识', '操作流程', '案例分析'],
+                      }
+                    );
+                    setOutline(res);
+                    setProgress(60);
+                    setStep(3);
+                  } catch (err) {
+                    alert('生成大纲失败: ' + (err instanceof Error ? err.message : '未知错误'));
+                  } finally {
+                    setIsGenerating(false);
+                  }
+                }}
                 className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors"
               >
                 生成 PPT 大纲
@@ -264,7 +405,7 @@ export default function TrainingPage() {
 
         {/* Step 3: Generate / Preview */}
         {step === 3 && (
-          <div className="space-y-5 max-w-3xl">
+          <div className="space-y-5">
             {isGenerating ? (
               <div className="bg-white rounded-xl border border-slate-200 p-8">
                 <div className="text-center mb-8">
@@ -272,7 +413,7 @@ export default function TrainingPage() {
                   <div className="text-sm text-slate-500">预计剩余约 1 分钟</div>
                 </div>
 
-                <div className="space-y-5">
+                <div className="max-w-lg mx-auto space-y-6">
                   {/* Step 1: Done */}
                   <div className="flex items-start gap-4">
                     <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -291,7 +432,7 @@ export default function TrainingPage() {
                     </div>
                     <div className="flex-1">
                       <div className="text-sm text-slate-800" style={{ fontWeight: 500 }}>生成 PPT 内容</div>
-                      <div className="text-xs text-slate-500 mt-0.5 mb-2">正在调用 DeepSeek V3 Pro...</div>
+                      <div className="text-xs text-slate-500 mt-0.5 mb-2">正在调用 DeepSeek V4 Pro...</div>
                       <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-indigo-500 rounded-full transition-all duration-500"
@@ -326,7 +467,6 @@ export default function TrainingPage() {
                   <div className="text-slate-900 mb-1" style={{ fontWeight: 500 }}>PPT 生成完成</div>
                   <div className="text-sm text-slate-500 mb-1">港口安全生产应急处置培训.pptx</div>
                   <div className="text-xs text-slate-400 mb-6">20 页 · 15.2 MB · 2026-05-09 15:30</div>
-
                   <div className="flex gap-3">
                     <button className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors">
                       <Download className="w-4 h-4" />

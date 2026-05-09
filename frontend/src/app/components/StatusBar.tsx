@@ -1,15 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { ChevronDown, BookOpen, Cpu } from 'lucide-react';
-
-interface StatusBarProps {
-  currentKnowledgeBase: string;
-  currentModel: string;
-  onKnowledgeBaseChange: (kb: string) => void;
-  onModelChange: (model: string) => void;
-}
-
-const knowledgeBases = ['港口安全知识库', '安全生产制度库', '消防法规库'];
-const models = ['V3 Flash', 'V3 Pro', 'GPT-4o', 'Claude 3.5 Sonnet'];
+import { useApp } from '../../lib/context';
 
 function StatusDropdown({
   value,
@@ -65,18 +56,22 @@ function StatusDropdown({
   );
 }
 
-export default function StatusBar({
-  currentKnowledgeBase,
-  currentModel,
-  onKnowledgeBaseChange,
-  onModelChange,
-}: StatusBarProps) {
+export default function StatusBar() {
+  const { knowledgeBases, providers, currentKbId, currentModelId, setCurrentKbId, setCurrentModelId } = useApp();
+
+  const currentKb = knowledgeBases.find(k => k.id === currentKbId);
+  const kbNames = knowledgeBases.map(k => k.name);
+  const allModels = providers.flatMap(p => p.models.map(m => m.name));
+
   return (
     <div className="h-9 bg-white border-t border-slate-200 px-5 flex items-center justify-between text-xs">
       <StatusDropdown
-        value={currentKnowledgeBase}
-        options={knowledgeBases}
-        onChange={onKnowledgeBaseChange}
+        value={currentKb?.name || '未选择'}
+        options={kbNames.length ? kbNames : ['未选择']}
+        onChange={(name) => {
+          const kb = knowledgeBases.find(k => k.name === name);
+          if (kb) setCurrentKbId(kb.id);
+        }}
         icon={BookOpen}
         label="知识库"
       />
@@ -85,9 +80,9 @@ export default function StatusBar({
         <span className="text-slate-400">已就绪</span>
       </div>
       <StatusDropdown
-        value={currentModel}
-        options={models}
-        onChange={onModelChange}
+        value={currentModelId}
+        options={allModels.length ? allModels : ['未配置']}
+        onChange={setCurrentModelId}
         icon={Cpu}
         label="模型"
       />
