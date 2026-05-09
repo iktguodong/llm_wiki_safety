@@ -16,6 +16,13 @@ from backend.config import (
 from backend.services.llm import llm_service
 
 
+# 加载AGENTS.md工作流规范
+_AGENTS_MD_PATH = Path(__file__).parent.parent / "prompts" / "AGENTS.md"
+_AGENTS_INSTRUCTION = ""
+if _AGENTS_MD_PATH.exists():
+    with open(_AGENTS_MD_PATH, "r", encoding="utf-8") as f:
+        _AGENTS_INSTRUCTION = f.read()
+
 # 文档解析Prompt
 DOC_PARSE_PROMPT = """你是一个专业知识库助手。请阅读以下文档内容，并按照LLM Wiki规范生成结构化知识页面。
 
@@ -151,8 +158,13 @@ class WikiService:
         # 构建Prompt
         prompt = DOC_PARSE_PROMPT.format(document_content=text[:15000])  # 限制长度
         
+        # 使用AGENTS.md作为system prompt
+        system_content = "你是一个专业的知识库助手，擅长将文档转化为结构化的Wiki知识页面。"
+        if _AGENTS_INSTRUCTION:
+            system_content += "\n\n## 工作流规范\n\n" + _AGENTS_INSTRUCTION
+        
         messages = [
-            {"role": "system", "content": "你是一个专业的知识库助手，擅长将文档转化为结构化的Wiki知识页面。"},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": prompt}
         ]
         
