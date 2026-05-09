@@ -133,6 +133,22 @@ class WikiPageListResponse(BaseModel):
     items: List[WikiPage]
 
 
+class WikiLintIssue(BaseModel):
+    """Wiki检查问题项"""
+    type: str  # format, link, orphan, outdated, contradiction, missing_source
+    severity: str  # error, warning, info
+    page: str
+    message: str
+    suggestion: str = ""
+
+
+class WikiLintResult(BaseModel):
+    """Wiki检查结果"""
+    total_pages: int
+    issues: List[WikiLintIssue]
+    summary: str
+
+
 # ==================== 对话模型 ====================
 
 class ChatMessage(BaseModel):

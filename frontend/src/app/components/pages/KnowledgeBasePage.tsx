@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, ChevronDown, FileText, Trash2, Eye, Upload, MoreHorizontal } from 'lucide-react';
+import { Plus, ChevronDown, FileText, Trash2, Eye, Upload, ShieldCheck, X, Sparkles } from 'lucide-react';
 import { useApp } from '../../../lib/context';
-import { kbApi, docApi } from '../../../lib/api';
+import { kbApi, docApi, wikiApi } from '../../../lib/api';
 import type { KnowledgeBase, DocumentInfo } from '../../../lib/types';
 
 export default function KnowledgeBasePage() {
@@ -10,6 +10,8 @@ export default function KnowledgeBasePage() {
   const [documents, setDocuments] = useState<Record<string, DocumentInfo[]>>({});
   const [loadingDocs, setLoadingDocs] = useState<Record<string, boolean>>({});
   const [uploading, setUploading] = useState(false);
+  const [lintResults, setLintResults] = useState<Record<string, { loading: boolean; result?: import('../../../lib/types').WikiLintResult; open: boolean }>>({});
+  const [uploadGuides, setUploadGuides] = useState<Record<string, boolean>>({});
 
   const loadDocs = useCallback(async (kbId: string) => {
     if (loadingDocs[kbId]) return;
@@ -47,11 +49,36 @@ export default function KnowledgeBasePage() {
       await docApi.upload(kbId, file);
       await loadDocs(kbId);
       await refreshKbs();
+      // 显示上传后的操作引导
+      setUploadGuides(prev => ({ ...prev, [kbId]: true }));
+      // 5秒后自动隐藏引导
+      setTimeout(() => {
+        setUploadGuides(prev => ({ ...prev, [kbId]: false }));
+      }, 8000);
     } catch (err) {
       alert('上传失败: ' + (err instanceof Error ? err.message : '未知错误'));
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleLint = async (kbId: string) => {
+    setLintResults(prev => ({ ...prev, [kbId]: { loading: true, open: true } }));
+    try {
+      const result = await wikiApi.lint(kbId);
+      setLintResults(prev => ({ ...prev, [kbId]: { loading: false, result, open: true } }));
+    } catch (err) {
+      alert('检查失败: ' + (err instanceof Error ? err.message : '未知错误'));
+      setLintResults(prev => ({ ...prev, [kbId]: { loading: false, open: false } }));
+    }
+  };
+
+  const closeLint = (kbId: string) => {
+    setLintResults(prev => ({ ...prev, [kbId]: { ...prev[kbId], open: false } }));
+  };
+
+  const dismissGuide = (kbId: string) => {
+    setUploadGuides(prev => ({ ...prev, [kbId]: false }));
   };
 
   const handleDeleteKb = async (kbId: string) => {
@@ -196,10 +223,29 @@ export default function KnowledgeBasePage() {
                     </div>
                   )}
 
+                  {/* 上传后操作引导 */}
+                  {uploadGuides[kb.id] && (
+                    <div className="mb-4 p-3 bg-indigo-50 border border-indigo-100 rounded-lg flex items-start gap-3">
+                      <Sparkles className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm text-indigo-800 font-medium">文档已上传</p>
+                        <p className="text-xs text-indigo-600 mt-0.5">系统正在自动解析生成Wiki页面。解析完成后，你可以前往「对话」页面基于知识库提问，或「检索」页面搜索原文。</p>
+                      </div>
+                      <button onClick={() => dismissGuide(kb.id)} className="text-indigo-400 hover:text-indigo-600">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+
                   {/* Actions */}
                   <div className="flex items-center gap-3 pt-4 border-t border-slate-100">
-                    <button className="px-4 py-2 text-sm text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-                      进入管理
+                    <button
+                      onClick={() => handleLint(kb.id)}
+                      disabled={lintResults[kb.id]?.loading}
+                      className="flex items-center gap-1.5 px-4 py-2 text-sm text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      {lintResults[kb.id]?.loading ? '检查中...' : '检查Wiki'}
                     </button>
                     <button
                       onClick={() => handleDeleteKb(kb.id)}
@@ -208,6 +254,55 @@ export default function KnowledgeBasePage() {
                       删除知识库
                     </button>
                   </div>
+
+                  {/* Lint 结果面板 */}
+                  {lintResults[kb.id]?.open && lintResults[kb.id]?.result && (
+                    <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-medium text-slate-800">Wiki 质量检查结果</h4>
+                        <button onClick={() => closeLint(kb.id)} className="text-slate-400 hover:text-slate-600">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500 mb-3">{lintResults[kb.id].result!.summary}</p>
+                      {lintResults[kb.id].result!.issues.length > 0 ? (
+                        <div className="space-y-2 max-h-60 overflow-y-auto">
+                          {lintResults[kb.id].result!.issues.map((issue, idx) => (
+                            <div key={idx} className={`p-2.5 rounded-lg text-xs border ${
+                              issue.severity === 'error'
+                                ? 'bg-red-50 border-red-100 text-red-800'
+                                : issue.severity === 'warning'
+                                ? 'bg-amber-50 border-amber-100 text-amber-800'
+                                : 'bg-blue-50 border-blue-100 text-blue-800'
+                            }`}>
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                  issue.severity === 'error'
+                                    ? 'bg-red-100 text-red-700'
+                                    : issue.severity === 'warning'
+                                    ? 'bg-amber-100 text-amber-700'
+                                    : 'bg-blue-100 text-blue-700'
+                                }`}>
+                                  {issue.severity === 'error' ? '错误' : issue.severity === 'warning' ? '警告' : '提示'}
+                                </span>
+                                <span className="font-medium">{issue.page}</span>
+                                <span className="text-slate-400">· {issue.type === 'format' ? '格式' : issue.type === 'link' ? '链接' : issue.type === 'orphan' ? '孤儿页' : issue.type === 'missing_source' ? '来源' : issue.type}</span>
+                              </div>
+                              <p className="text-slate-600">{issue.message}</p>
+                              {issue.suggestion && (
+                                <p className="text-slate-400 mt-1">建议：{issue.suggestion}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 p-3 rounded-lg">
+                          <ShieldCheck className="w-4 h-4" />
+                          Wiki 结构健康，未发现质量问题
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

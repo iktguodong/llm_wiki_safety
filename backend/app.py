@@ -12,7 +12,7 @@ from backend.config import config, save_config, get_kb_path
 from backend.models import (
     ApiResponse, KnowledgeBaseCreate, KnowledgeBase, KnowledgeBaseListResponse,
     DocumentInfo, DocumentListResponse, DocumentDeleteRequest, DocumentDeletePreview,
-    WikiPage, WikiPageContent, WikiPageListResponse,
+    WikiPage, WikiPageContent, WikiPageListResponse, WikiLintResult,
     ChatRequest, ChatResponse,
     SearchRequest, SearchResult,
     TrainingOutline, TrainingConfig,
@@ -169,6 +169,13 @@ async def parse_document(kb_id: str, doc_id: str, model_id: Optional[str] = None
     import asyncio
     asyncio.create_task(wiki_service.parse_document(kb_id, doc_id, model_id))
     return ApiResponse(message="文档解析任务已启动")
+
+
+@app.post("/api/knowledge-bases/{kb_id}/wiki-lint", response_model=ApiResponse)
+async def lint_wiki(kb_id: str):
+    """检查Wiki知识库质量问题"""
+    result = await wiki_service.lint_wiki(kb_id)
+    return ApiResponse(data=WikiLintResult(**result))
 
 
 # ==================== 对话API ====================

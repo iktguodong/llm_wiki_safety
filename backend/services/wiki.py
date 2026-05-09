@@ -357,5 +357,138 @@ class WikiService:
         }
 
 
+    @staticmethod
+    async def lint_wiki(kb_id: str) -> Dict:
+        """
+        检查Wiki知识库的质量问题
+        
+        检查项：
+        1. 页面格式：是否包含必需的元数据（Summary, Sources, Last updated）
+        2. 链接完整性：[[wiki-links]]指向的页面是否存在
+        3. 孤儿页面：没有被其他页面引用的页面
+        4. 来源缺失：没有标注Sources的页面
+        5. 索引同步：index.md是否包含所有页面
+        """
+        wiki_path = get_kb_wiki_path(kb_id)
+        if not wiki_path.exists():
+            return {
+                "total_pages": 0,
+                "issues": [],
+                "summary": "Wiki目录不存在"
+            }
+        
+        issues = []
+        all_pages = set()
+        linked_pages = set()
+        page_contents = {}
+        
+        # 收集所有页面
+        for file_path in wiki_path.glob("*.md"):
+            if file_path.name in ["index.md", "log.md"]:
+                continue
+            page_name = file_path.stem
+            all_pages.add(page_name)
+            
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            page_contents[page_name] = content
+            
+            # 检查页面格式
+            if "**Summary**:" not in content:
+                issues.append({
+                    "type": "format",
+                    "severity": "warning",
+                    "page": page_name,
+                    "message": "页面缺少 Summary 元数据",
+                    "suggestion": "在页面顶部添加 '**Summary**: 一句话描述'"
+                })
+            
+            if "**Sources**:" not in content:
+                issues.append({
+                    "type": "missing_source",
+                    "severity": "info",
+                    "page": page_name,
+                    "message": "页面未标注来源文档",
+                    "suggestion": "添加 '**Sources**: 原始文档名.pdf'"
+                })
+            
+            if "**Last updated**:" not in content:
+                issues.append({
+                    "type": "format",
+                    "severity": "warning",
+                    "page": page_name,
+                    "message": "页面缺少 Last updated 元数据",
+                    "suggestion": "添加 '**Last updated**: YYYY-MM-DD'"
+                })
+            
+            # 收集所有wiki-links
+            wiki_links = re.findall(r'\[\[([^\]]+)\]\]', content)
+            for link in wiki_links:
+                # 去除可能的|别名
+                linked_name = link.split("|")[0].strip()
+                linked_pages.add(linked_name)
+        
+        # 检查孤儿页面（index.md中的链接不计入）
+        index_path = get_kb_index_path(kb_id)
+        index_links = set()
+        if index_path.exists():
+            with open(index_path, "r", encoding="utf-8") as f:
+                index_content = f.read()
+            index_links = set(re.findall(r'\[\[([^\]]+)\]\]', index_content))
+            index_links = {link.split("|")[0].strip() for link in index_links}
+        
+        for page in all_pages:
+            # 排除自身引用和index引用
+            inbound = {p for p in linked_pages if p == page}
+            # 检查是否有其他页面引用此页面
+            has_inbound = False
+            for other_page, content in page_contents.items():
+                if other_page == page:
+                    continue
+                links = re.findall(r'\[\[([^\]]+)\]\]', content)
+                for link in links:
+                    if link.split("|")[0].strip() == page:
+                        has_inbound = True
+                        break
+                if has_inbound:
+                    break
+            
+            if not has_inbound and page not in index_links:
+                issues.append({
+                    "type": "orphan",
+                    "severity": "info",
+                    "page": page,
+                    "message": "孤儿页面：未被任何页面或索引引用",
+                    "suggestion": "在其他相关页面中添加 [[" + page + "]] 链接，或将其加入 index.md"
+                })
+        
+        # 检查断链
+        for linked in linked_pages:
+            if linked not in all_pages and linked not in ["index", "log"]:
+                issues.append({
+                    "type": "link",
+                    "severity": "error",
+                    "page": "unknown",
+                    "message": f"断链：[[{linked}]] 指向的页面不存在",
+                    "suggestion": f"创建页面 {linked}.md 或修正链接"
+                })
+        
+        # 生成摘要
+        error_count = sum(1 for i in issues if i["severity"] == "error")
+        warning_count = sum(1 for i in issues if i["severity"] == "warning")
+        info_count = sum(1 for i in issues if i["severity"] == "info")
+        
+        if not issues:
+            summary = f"检查完成，共 {len(all_pages)} 个页面，未发现质量问题。"
+        else:
+            summary = f"检查完成，共 {len(all_pages)} 个页面，发现 {error_count} 个错误、{warning_count} 个警告、{info_count} 个提示。"
+        
+        return {
+            "total_pages": len(all_pages),
+            "issues": issues,
+            "summary": summary
+        }
+
+
 # 服务实例
 wiki_service = WikiService()
