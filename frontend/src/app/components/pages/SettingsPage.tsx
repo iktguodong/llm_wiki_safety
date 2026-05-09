@@ -34,6 +34,7 @@ export default function SettingsPage() {
   const { providers, currentModelId, setCurrentModelId } = useApp();
   const [storagePath] = useState('/Users/xxx/knowledge-bases');
   const [testing, setTesting] = useState<Record<string, boolean>>({});
+  const [editing, setEditing] = useState<string | null>(null);
 
   const allModelNames = providers.flatMap(p => p.models.map(m => m.name));
 
@@ -53,6 +54,16 @@ export default function SettingsPage() {
     }
   };
 
+  const handleAddProvider = () => {
+    alert('正在开发中：添加新的模型服务提供者');
+    // TODO: 打开添加提供者对话框
+  };
+
+  const handleEditProvider = (providerId: string) => {
+    setEditing(editing === providerId ? null : providerId);
+    // TODO: 打开编辑提供者对话框
+  };
+
   return (
     <div className="h-full flex flex-col bg-slate-50">
       {/* Header */}
@@ -66,16 +77,18 @@ export default function SettingsPage() {
 
         {/* Model providers */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-            <div>
-              <div className="text-sm text-slate-900" style={{ fontWeight: 500 }}>模型服务提供者</div>
-              <div className="text-xs text-slate-500 mt-0.5">管理 AI 模型接入配置</div>
-            </div>
-            <button className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
-              <Plus className="w-3.5 h-3.5" />
-              添加服务
-            </button>
-          </div>
+           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+             <div>
+               <div className="text-sm text-slate-900" style={{ fontWeight: 500 }}>模型服务提供者</div>
+               <div className="text-xs text-slate-500 mt-0.5">管理 AI 模型接入配置</div>
+             </div>
+             <button 
+               onClick={handleAddProvider}
+               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors cursor-pointer">
+               <Plus className="w-3.5 h-3.5" />
+               添加服务
+             </button>
+           </div>
 
           <div className="divide-y divide-slate-100">
             {providers.map((provider: ModelProvider) => (
@@ -99,20 +112,22 @@ export default function SettingsPage() {
                       <div className="text-xs text-slate-500 mt-0.5">模型: {provider.models.map(m => m.name).join(', ')}</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleTest(provider)}
-                      disabled={testing[provider.id]}
-                      className="flex items-center gap-1 px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-50"
-                    >
-                      <FlaskConical className="w-3 h-3" />
-                      {testing[provider.id] ? '测试中...' : '测试'}
-                    </button>
-                    <button className="flex items-center gap-1 px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors">
-                      <Pencil className="w-3 h-3" />
-                      编辑
-                    </button>
-                  </div>
+                   <div className="flex items-center gap-2">
+                     <button
+                       onClick={() => handleTest(provider)}
+                       disabled={testing[provider.id]}
+                       className="flex items-center gap-1 px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-50 cursor-pointer"
+                     >
+                       <FlaskConical className="w-3 h-3" />
+                       {testing[provider.id] ? '测试中...' : '测试'}
+                     </button>
+                     <button 
+                       onClick={() => handleEditProvider(provider.id)}
+                       className="flex items-center gap-1 px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer">
+                       <Pencil className="w-3 h-3" />
+                       编辑
+                     </button>
+                   </div>
                 </div>
               </div>
             ))}

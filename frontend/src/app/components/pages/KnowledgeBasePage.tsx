@@ -142,20 +142,20 @@ export default function KnowledgeBasePage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-6">
-                    <div className="flex items-center gap-6 text-sm text-slate-600 mr-4">
-                      <div className="text-center">
-                        <div className="text-slate-900" style={{ fontWeight: 600 }}>{kb.document_count}</div>
-                        <div className="text-xs text-slate-400">文档</div>
+                      <div className="flex items-center gap-6 text-sm text-slate-600 mr-4">
+                        <div className="text-center">
+                          <div className="text-slate-900" style={{ fontWeight: 600 }}>{kb.document_count}</div>
+                          <div className="text-xs text-slate-400">文档</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-slate-900" style={{ fontWeight: 600 }}>{kb.wiki_page_count}</div>
+                          <div className="text-xs text-slate-400">Wiki页</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-slate-900" style={{ fontWeight: 600 }}>{kb.total_size_mb.toFixed(1)} MB</div>
+                          <div className="text-xs text-slate-400">大小</div>
+                        </div>
                       </div>
-                      <div className="text-center">
-                        <div className="text-slate-900" style={{ fontWeight: 600 }}>{kb.wiki_page_count}</div>
-                        <div className="text-xs text-slate-400">Wiki页</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-slate-900" style={{ fontWeight: 600 }}>{kb.size}</div>
-                        <div className="text-xs text-slate-400">大小</div>
-                      </div>
-                    </div>
                     <ChevronDown
                       className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
                         isExpanded ? 'rotate-180' : ''
@@ -190,16 +190,16 @@ export default function KnowledgeBasePage() {
 
                   {kbDocs.length > 0 ? (
                     <div className="space-y-2 mb-5">
-                      {kbDocs.map((doc: DocumentInfo) => (
+                          {kbDocs.map((doc: DocumentInfo) => (
                         <div
                           key={doc.id}
                           className="flex items-center gap-3 px-4 py-3 bg-slate-50 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors group"
                         >
                           <FileText className="w-4 h-4 text-slate-400 flex-shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm text-slate-800 truncate">{doc.filename}</div>
+                            <div className="text-sm text-slate-800 truncate">{doc.file}</div>
                             <div className="text-xs text-slate-400 mt-0.5">
-                              {(doc.size / 1024 / 1024).toFixed(1)} MB · {doc.wiki_pages ?? 0} 个 Wiki 页面 · 上传于 {doc.uploaded_at?.split('T')[0]}
+                              {doc.file_size_mb.toFixed(1)} MB · {doc.wiki_pages.length} 个 Wiki 页面 · 上传于 {doc.uploaded_at?.split('T')[0]}
                             </div>
                           </div>
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

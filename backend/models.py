@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 class ApiResponse(BaseModel):
     """通用API响应"""
+    code: int = 200
     success: bool = True
     message: str = ""
     data: Optional[Any] = None

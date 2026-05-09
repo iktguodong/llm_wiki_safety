@@ -22,7 +22,7 @@ DEFAULT_CONFIG = {
     "version": "1.0.0",
     "app_name": "安牛",
     "current_kb_id": None,
-    "current_model_id": "deepseek-chat",
+    "current_model_id": "deepseek-v4-flash",
     "models": {
         "providers": [
             {
@@ -31,15 +31,15 @@ DEFAULT_CONFIG = {
                 "base_url": "https://api.deepseek.com",
                 "api_key": "",
                 "models": [
-                    {"id": "deepseek-chat", "name": "DeepSeek V3 Flash", "type": "chat"},
-                    {"id": "deepseek-coder", "name": "DeepSeek V3 Pro", "type": "chat"}
+                    {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "type": "chat"},
+                    {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro", "type": "chat"}
                 ]
             }
         ],
         "model_roles": {
-            "doc_parse": "deepseek-chat",
-            "qa_chat": "deepseek-chat",
-            "ppt_gen": "deepseek-coder"
+            "doc_parse": "deepseek-v4-flash",
+            "qa_chat": "deepseek-v4-flash",
+            "ppt_gen": "deepseek-v4-pro"
         }
     },
     "knowledge_bases": {},

@@ -3,9 +3,19 @@
 FastAPI + 所有业务API
 """
 
+import sys
+from pathlib import Path
+
+# 支持从 backend/ 目录直接运行：将项目根目录加入路径
+if __name__ == "__main__":
+    project_root = Path(__file__).parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
 from typing import List, Optional
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from backend.config import config, save_config, get_kb_path
@@ -32,6 +42,20 @@ app = FastAPI(
     title="安牛API",
     description="企业安全知识库后端服务",
     version="1.0.0"
+)
+
+# 添加CORS中间件，支持前端跨域请求
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -109,6 +133,10 @@ async def upload_document(kb_id: str, file: UploadFile = File(...)):
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
     
+    # 检查文件名
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+    
     # 读取文件内容
     content = await file.read()
     
@@ -157,6 +185,10 @@ async def list_wiki_pages(kb_id: str):
 @app.get("/api/knowledge-bases/{kb_id}/wiki-pages/{page_name}", response_model=ApiResponse)
 async def get_wiki_page(kb_id: str, page_name: str):
     """获取Wiki页面内容"""
+    # 防止路径遍历攻击：拒绝不安全的页面名称
+    if ".." in page_name or "/" in page_name or "\\" in page_name or page_name.startswith("."):
+        raise HTTPException(status_code=400, detail="无效的页面名称")
+    
     page = await wiki_service.get_wiki_page(kb_id, page_name)
     if not page:
         raise HTTPException(status_code=404, detail="Wiki页面不存在")
