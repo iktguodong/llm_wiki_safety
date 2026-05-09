@@ -82,6 +82,34 @@ async def validate_model(data: ModelValidateRequest):
     return ApiResponse(data=result)
 
 
+@app.get("/api/config/current-kb", response_model=ApiResponse)
+async def get_current_kb_id():
+    """获取当前知识库ID"""
+    return ApiResponse(data={"id": config.get("current_kb_id")})
+
+
+@app.post("/api/config/current-kb", response_model=ApiResponse)
+async def set_current_kb_id(body: dict):
+    """设置当前知识库"""
+    config["current_kb_id"] = body.get("id")
+    save_config(config)
+    return ApiResponse(message="当前知识库已更新")
+
+
+@app.get("/api/config/current-model", response_model=ApiResponse)
+async def get_current_model_id():
+    """获取当前模型ID"""
+    return ApiResponse(data={"id": config.get("current_model_id", "deepseek-chat")})
+
+
+@app.post("/api/config/current-model", response_model=ApiResponse)
+async def set_current_model_id(body: dict):
+    """设置当前模型"""
+    config["current_model_id"] = body.get("id", "deepseek-chat")
+    save_config(config)
+    return ApiResponse(message="当前模型已更新")
+
+
 # ==================== 知识库API ====================
 
 @app.get("/api/knowledge-bases", response_model=ApiResponse)
@@ -169,6 +197,67 @@ async def delete_document(kb_id: str, doc_id: str, delete_wiki: bool = False):
     if not success:
         raise HTTPException(status_code=404, detail="文档不存在")
     return ApiResponse(message="文档已删除")
+
+
+@app.get("/api/knowledge-bases/{kb_id}/documents/{doc_id}/content", response_model=ApiResponse)
+async def get_document_content(kb_id: str, doc_id: str, page: int = 1):
+    """获取文档内容（分页）"""
+    from backend.config import get_kb_raw_path
+    from backend.services.search import SearchService
+    
+    raw_path = get_kb_raw_path(kb_id)
+    # 通过文档追踪找到文件名
+    tracker_file = raw_path / "文档追踪.json"
+    import json
+    doc_file = None
+    if tracker_file.exists():
+        with open(tracker_file, "r", encoding="utf-8") as f:
+            tracker = json.load(f)
+        for entry in tracker:
+            if entry.get("id") == doc_id:
+                doc_file = raw_path / entry["file"]
+                break
+    
+    if not doc_file or not doc_file.exists():
+        raise HTTPException(status_code=404, detail="文档不存在")
+    
+    pages = SearchService._get_document_pages(doc_file)
+    total_pages = len(pages)
+    
+    if page < 1 or page > total_pages:
+        raise HTTPException(status_code=400, detail="页码超出范围")
+    
+    page_data = pages[page - 1]
+    return ApiResponse(data={
+        "content": page_data["text"],
+        "current_page": page,
+        "total_pages": total_pages,
+        "file_name": doc_file.name
+    })
+
+
+@app.post("/api/knowledge-bases/{kb_id}/documents/{doc_id}/highlights", response_model=ApiResponse)
+async def save_highlights(kb_id: str, doc_id: str, highlights: List[dict]):
+    """保存文档高亮标注"""
+    import json
+    from backend.config import get_kb_path
+    highlights_file = get_kb_path(kb_id) / f"highlights_{doc_id}.json"
+    with open(highlights_file, "w", encoding="utf-8") as f:
+        json.dump(highlights, f, ensure_ascii=False, indent=2)
+    return ApiResponse(message="高亮已保存")
+
+
+@app.get("/api/knowledge-bases/{kb_id}/documents/{doc_id}/highlights", response_model=ApiResponse)
+async def get_highlights(kb_id: str, doc_id: str):
+    """获取文档高亮标注"""
+    import json
+    from backend.config import get_kb_path
+    highlights_file = get_kb_path(kb_id) / f"highlights_{doc_id}.json"
+    if not highlights_file.exists():
+        return ApiResponse(data={"highlights": []})
+    with open(highlights_file, "r", encoding="utf-8") as f:
+        highlights = json.load(f)
+    return ApiResponse(data={"highlights": highlights})
 
 
 # ==================== Wiki API ====================

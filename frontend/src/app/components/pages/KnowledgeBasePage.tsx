@@ -4,7 +4,11 @@ import { useApp } from '../../../lib/context';
 import { kbApi, docApi, wikiApi } from '../../../lib/api';
 import type { KnowledgeBase, DocumentInfo } from '../../../lib/types';
 
-export default function KnowledgeBasePage() {
+interface KnowledgeBasePageProps {
+  openReader?: (kbId: string, docId: string, docName: string) => void;
+}
+
+export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps) {
   const { knowledgeBases, refreshKbs } = useApp();
   const [expandedKb, setExpandedKb] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Record<string, DocumentInfo[]>>({});
@@ -203,7 +207,11 @@ export default function KnowledgeBasePage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+                            <button
+                              onClick={() => openReader && openReader(kb.id, doc.id, doc.file)}
+                              title="查看原文"
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            >
                               <Eye className="w-3.5 h-3.5" />
                             </button>
                             <button

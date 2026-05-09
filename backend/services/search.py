@@ -222,6 +222,7 @@ class SearchService:
                         
                         results.append(SearchMatch(
                             file=file_path.name,
+                            kb_id=kb_id,
                             page=page["page"],
                             snippet=match["snippet"],
                             score=round(score, 2),
@@ -231,10 +232,19 @@ class SearchService:
         # 按相关度排序
         results.sort(key=lambda x: x.score, reverse=True)
         
+        # 构建分组结果
+        results_grouped: dict = {}
+        for result in results:
+            kid = result.kb_id
+            if kid not in results_grouped:
+                results_grouped[kid] = []
+            results_grouped[kid].append(result)
+        
         return SearchResult(
             query=request.keyword,
             total_matches=total_matches,
-            results=results
+            results=results,
+            results_grouped=results_grouped
         )
 
 

@@ -188,6 +188,7 @@ class SearchRequest(BaseModel):
 class SearchMatch(BaseModel):
     """搜索结果匹配项"""
     file: str
+    kb_id: str = ""  # 所属知识库ID
     page: int
     snippet: str
     score: float
@@ -199,6 +200,7 @@ class SearchResult(BaseModel):
     query: str
     total_matches: int
     results: List[SearchMatch]
+    results_grouped: Dict[str, List[SearchMatch]] = {}  # 按知识库ID分组的结果
 
 
 # ==================== 培训模型 ====================

@@ -6,13 +6,17 @@ import type { SearchResult, SearchMatch } from '../../../lib/types';
 
 type SearchMode = 'fuzzy' | 'exact' | 'regex';
 
+interface SearchPageProps {
+  openReader?: (kbId: string, docId: string, docName: string) => void;
+}
+
 const searchModes: { value: SearchMode; label: string }[] = [
   { value: 'fuzzy', label: '模糊匹配' },
   { value: 'exact', label: '精确匹配' },
   { value: 'regex', label: '正则' },
 ];
 
-export default function SearchPage() {
+export default function SearchPage({ openReader }: SearchPageProps) {
   const { knowledgeBases } = useApp();
   const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
   const [searchMode, setSearchMode] = useState<SearchMode>('fuzzy');
@@ -54,12 +58,15 @@ export default function SearchPage() {
     );
   };
 
-  const grouped = (results?.results ?? []).reduce<Record<string, SearchMatch[]>>((acc, r) => {
-    const kbName = knowledgeBases.find(k => selectedKbs.includes(k.id))?.name || '未知知识库';
-    if (!acc[kbName]) acc[kbName] = [];
-    acc[kbName].push(r);
-    return acc;
-  }, {});
+  // 使用后端返回的分组数据，将 kb_id 映射为知识库名称
+  const grouped = Object.entries(results?.results_grouped ?? {}).reduce<Record<string, SearchMatch[]>>(
+    (acc, [kbId, matches]) => {
+      const kbName = knowledgeBases.find(k => k.id === kbId)?.name || kbId || '未知知识库';
+      acc[kbName] = matches;
+      return acc;
+    },
+    {}
+  );
 
   return (
     <div className="h-full flex flex-col bg-slate-50">
@@ -190,7 +197,10 @@ export default function SearchPage() {
                         dangerouslySetInnerHTML={{ __html: highlightText(result.snippet) }}
                       />
                       <div className="flex gap-4">
-                        <button className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors">
+                        <button
+                          onClick={() => openReader && openReader(result.kb_id, result.file, result.file)}
+                          className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
+                        >
                           查看原文
                         </button>
                         <button className="text-xs text-slate-500 hover:text-slate-700 transition-colors">
