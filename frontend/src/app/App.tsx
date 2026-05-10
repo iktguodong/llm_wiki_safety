@@ -53,10 +53,7 @@ function AppInner() {
       case 'assistant': return (
         <AssistantPage
           activeAssistantId={activeAssistant?.id}
-          onStartChat={(assistant) => {
-            setActiveAssistant(assistant);
-            setCurrentPage('chat');
-          }}
+          onStartChat={setActiveAssistant}
         />
       );
       case 'search':    return <SearchPage openReader={openReader} />;

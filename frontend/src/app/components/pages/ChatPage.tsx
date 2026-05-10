@@ -14,6 +14,7 @@ import {
   Download,
   MoreHorizontal,
   Eraser,
+  MessageSquare,
 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { useApp } from '../../../lib/context';
@@ -110,6 +111,7 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatSession[]>(() => readLocal(STORAGE_KEYS.history, []));
+  const [currentSessionTitle, setCurrentSessionTitle] = useState('当前对话');
   const [useWebSearch, setUseWebSearch] = useState(() => readLocal(STORAGE_KEYS.current, {
     messages: initialMessages,
     selectedKbs: [],
@@ -172,6 +174,7 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
     setMessages(initialMessages);
     setInput('');
     setContextCleared(false);
+    setCurrentSessionTitle('当前对话');
     setHistoryOpen(false);
   };
 
@@ -195,6 +198,7 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
     setSelectedModelId(session.modelId || currentModelId);
     setUseWebSearch(session.useWebSearch ?? false);
     setContextCleared(session.contextCleared ?? false);
+    setCurrentSessionTitle(session.title);
     setHistoryOpen(false);
   };
 
@@ -215,6 +219,7 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     setMessages(prev => [...prev, { role: 'user', content: question, time }]);
+    setCurrentSessionTitle(preview(question));
     if (!questionOverride) setInput('');
     setIsLoading(true);
 
@@ -464,134 +469,175 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-              style={{
-                background: msg.role === 'assistant' ? '#EEF2FF' : '#4F46E5',
-              }}
+      <div className="flex-1 min-h-0 flex">
+        <aside className="w-64 flex-shrink-0 border-r border-slate-200 bg-white/70 px-3 py-4 overflow-y-auto">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-sm font-medium text-slate-800">会话</div>
+            <button
+              onClick={newConversation}
+              title="新建对话"
+              className="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
             >
-              {msg.role === 'assistant'
-                ? <Bot className="w-4 h-4 text-indigo-600" />
-                : <User className="w-4 h-4 text-white" />
-              }
-            </div>
-            <div className={`max-w-2xl ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">
-                  {msg.role === 'assistant' ? '安牛助手' : '我'}
-                </span>
-                <span className="text-xs text-slate-300">{msg.time}</span>
-              </div>
-              <div
-                className={`px-4 py-3 rounded-2xl whitespace-pre-wrap text-sm leading-relaxed ${
-                  msg.role === 'user'
-                    ? 'bg-indigo-600 text-white rounded-tr-sm'
-                    : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
-                }`}
-              >
-                {msg.role === 'assistant' ? normalizeAssistantText(msg.content) : msg.content}
-              </div>
-              <div className="flex items-center gap-1 text-slate-400">
-                <button
-                  onClick={() => copyMessage(msg.content)}
-                  title="复制"
-                  className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                </button>
-                {msg.role === 'assistant' && idx > 0 && (
-                  <button
-                    onClick={() => regenerateMessage(idx)}
-                    title="重新生成"
-                    className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {msg.role === 'assistant' && (
-                  <button
-                    onClick={() => exportMessage(msg.content, idx)}
-                    title="导出"
-                    className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                <button
-                  title="更多"
-                  className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
-                >
-                  <MoreHorizontal className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
+              <Plus className="w-4 h-4" />
+            </button>
           </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input area */}
-      <div className="flex-shrink-0 px-6 pb-6">
-        <div className="mb-2 text-xs text-slate-400">
-          {selectedKbs.length === 0
-            ? (useWebSearch ? '已开启联网搜索，Shift + Enter 换行' : '直接使用模型问答，Shift + Enter 换行')
-            : (useWebSearch ? '基于知识库并结合联网搜索，Shift + Enter 换行' : '基于知识库问答，Shift + Enter 换行')}
-        </div>
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden transition-shadow hover:shadow-md focus-within:shadow-md focus-within:border-indigo-300">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            placeholder="输入问题，按 Enter 发送..."
-            className="w-full px-4 pt-4 pb-2 resize-none outline-none text-sm text-slate-700 placeholder-slate-400 bg-transparent"
-            rows={2}
-          />
-          <div className="px-3 pb-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
-              <button
-                onClick={() => setUseWebSearch(prev => !prev)}
-                className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-                  useWebSearch
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                    : 'text-slate-600 border-slate-200 hover:bg-slate-50'
-                }`}
-              >
-                <Globe className="w-3.5 h-3.5" />
-                联网搜索
-              </button>
-              <button
-                onClick={newConversation}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                新建对话
-              </button>
-              <button
-                onClick={clearContext}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                <Eraser className="w-3.5 h-3.5" />
-                清除上下文
-              </button>
+          <button className="w-full text-left rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 mb-2">
+            <div className="flex items-center gap-2 text-sm text-indigo-700">
+              <MessageSquare className="w-4 h-4" />
+              <span className="truncate">{currentSessionTitle}</span>
             </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
+            <div className="mt-1 text-xs text-indigo-400 truncate">{activeAssistant?.name || '默认助手'}</div>
+          </button>
+          <div className="space-y-1">
+            {chatHistory.map(session => (
               <button
-                onClick={handleSend}
-                disabled={!input.trim() || isLoading}
-                title={isLoading ? '正在生成中...' : ''}
-                className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
+                key={session.id}
+                onClick={() => restoreSession(session)}
+                className="w-full text-left rounded-lg px-3 py-2 hover:bg-slate-50 transition-colors"
               >
-                <Send className="w-3.5 h-3.5" />
-                发送
+                <div className="text-sm text-slate-700 truncate">{session.title}</div>
+                <div className="mt-1 text-xs text-slate-400 flex items-center justify-between gap-2">
+                  <span className="truncate">{session.assistantName || '默认助手'}</span>
+                  <span className="flex-shrink-0">{session.time}</span>
+                </div>
               </button>
+            ))}
+            {chatHistory.length === 0 && (
+              <div className="px-3 py-6 text-center text-xs text-slate-400">暂无历史会话</div>
+            )}
+          </div>
+        </aside>
+
+        <div className="flex-1 min-w-0 flex flex-col">
+          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+            {messages.map((msg, idx) => (
+              <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                  style={{
+                    background: msg.role === 'assistant' ? '#EEF2FF' : '#4F46E5',
+                  }}
+                >
+                  {msg.role === 'assistant'
+                    ? <Bot className="w-4 h-4 text-indigo-600" />
+                    : <User className="w-4 h-4 text-white" />
+                  }
+                </div>
+                <div className={`max-w-2xl ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">
+                      {msg.role === 'assistant' ? '安牛助手' : '我'}
+                    </span>
+                    <span className="text-xs text-slate-300">{msg.time}</span>
+                  </div>
+                  <div
+                    className={`px-4 py-3 rounded-2xl whitespace-pre-wrap text-sm leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-indigo-600 text-white rounded-tr-sm'
+                        : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
+                    }`}
+                  >
+                    {msg.role === 'assistant' ? normalizeAssistantText(msg.content) : msg.content}
+                  </div>
+                  <div className="flex items-center gap-1 text-slate-400">
+                    <button
+                      onClick={() => copyMessage(msg.content)}
+                      title="复制"
+                      className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                    {msg.role === 'assistant' && idx > 0 && (
+                      <button
+                        onClick={() => regenerateMessage(idx)}
+                        title="重新生成"
+                        className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {msg.role === 'assistant' && (
+                      <button
+                        onClick={() => exportMessage(msg.content, idx)}
+                        title="导出"
+                        className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      title="更多"
+                      className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                    >
+                      <MoreHorizontal className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+
+          <div className="flex-shrink-0 px-6 pb-6">
+            <div className="mb-2 text-xs text-slate-400">
+              {selectedKbs.length === 0
+                ? (useWebSearch ? '已开启联网搜索，Shift + Enter 换行' : '直接使用模型问答，Shift + Enter 换行')
+                : (useWebSearch ? '基于知识库并结合联网搜索，Shift + Enter 换行' : '基于知识库问答，Shift + Enter 换行')}
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden transition-shadow hover:shadow-md focus-within:shadow-md focus-within:border-indigo-300">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="输入问题，按 Enter 发送..."
+                className="w-full px-4 pt-4 pb-2 resize-none outline-none text-sm text-slate-700 placeholder-slate-400 bg-transparent"
+                rows={2}
+              />
+              <div className="px-3 pb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
+                  <button
+                    onClick={() => setUseWebSearch(prev => !prev)}
+                    className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                      useWebSearch
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                        : 'text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Globe className="w-3.5 h-3.5" />
+                    联网搜索
+                  </button>
+                  <button
+                    onClick={newConversation}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    新建对话
+                  </button>
+                  <button
+                    onClick={clearContext}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                  >
+                    <Eraser className="w-3.5 h-3.5" />
+                    清除上下文
+                  </button>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <button
+                    onClick={handleSend}
+                    disabled={!input.trim() || isLoading}
+                    title={isLoading ? '正在生成中...' : ''}
+                    className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    发送
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
