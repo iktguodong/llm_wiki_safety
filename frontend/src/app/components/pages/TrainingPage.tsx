@@ -467,7 +467,7 @@ export default function TrainingPage() {
                     </div>
                     <div className="flex-1">
                       <div className="text-sm text-slate-800" style={{ fontWeight: 500 }}>生成 PPT 内容</div>
-                      <div className="text-xs text-slate-500 mt-0.5 mb-2">正在调用 DeepSeek V4 Pro...</div>
+                      <div className="text-xs text-slate-500 mt-0.5 mb-2">正在调用 {allModels.find(m => m.id === modelId)?.name || '默认模型'}...</div>
                       <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-indigo-500 rounded-full transition-all duration-500"

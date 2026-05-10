@@ -1,8 +1,26 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, FlaskConical, FolderOpen, CheckCircle2, ChevronDown } from 'lucide-react';
+import { Plus, Pencil, FlaskConical, FolderOpen, CheckCircle2, ChevronDown, X } from 'lucide-react';
 import { useApp } from '../../../lib/context';
 import { configApi } from '../../../lib/api';
-import type { ModelProvider } from '../../../lib/types';
+import type { ModelProvider, AppConfig } from '../../../lib/types';
+
+// 预置的服务商 与 可用模型（用户可在 Dialog 里选择）
+const PROVIDER_PRESETS: Array<{
+  id: string;
+  name: string;
+  base_url: string;
+  available_models: Array<{ id: string; name: string; type: string }>;
+}> = [
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    base_url: 'https://api.deepseek.com',
+    available_models: [
+      { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', type: 'chat' },
+      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', type: 'chat' },
+    ],
+  },
+];
 
 function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -31,10 +49,11 @@ function ModelSelect({ value, options, onChange }: { value: string; options: str
 }
 
 export default function SettingsPage() {
-  const { providers, modelRoles, updateModelRole } = useApp();
+  const { providers, modelRoles, updateModelRole, syncAllConfig } = useApp();
   const [storagePath] = useState('/Users/xxx/knowledge-bases');
   const [testing, setTesting] = useState<Record<string, boolean>>({});
-  const [editing, setEditing] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingProvider, setEditingProvider] = useState<ModelProvider | null>(null);
 
   // 模型名称 ↔ ID 映射
   const allModels = providers.flatMap(p => p.models);
@@ -69,13 +88,29 @@ export default function SettingsPage() {
   };
 
   const handleAddProvider = () => {
-    alert('正在开发中：添加新的模型服务提供者');
-    // TODO: 打开添加提供者对话框
+    setEditingProvider(null);
+    setDialogOpen(true);
   };
 
   const handleEditProvider = (providerId: string) => {
-    setEditing(editing === providerId ? null : providerId);
-    // TODO: 打开编辑提供者对话框
+    const p = providers.find(x => x.id === providerId) || null;
+    setEditingProvider(p);
+    setDialogOpen(true);
+  };
+
+  const handleSaveProvider = async (p: ModelProvider) => {
+    const cfg = await configApi.get();
+    const exists = cfg.models.providers.some(x => x.id === p.id);
+    const nextProviders = exists
+      ? cfg.models.providers.map(x => (x.id === p.id ? p : x))
+      : [...cfg.models.providers, p];
+    await configApi.update({
+      models: {
+        providers: nextProviders,
+        model_roles: cfg.models.model_roles,
+      },
+    } as Partial<AppConfig>);
+    await syncAllConfig();
   };
 
   return (
@@ -249,6 +284,171 @@ export default function SettingsPage() {
           </div>
         </div>
 
+      </div>
+
+      {/* 添加/编辑服务商 Dialog */}
+      {dialogOpen && (
+        <ProviderDialog
+          initial={editingProvider}
+          onClose={() => setDialogOpen(false)}
+          onSave={handleSaveProvider}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProviderDialog({
+  initial,
+  onClose,
+  onSave,
+}: {
+  initial: ModelProvider | null;
+  onClose: () => void;
+  onSave: (p: ModelProvider) => Promise<void>;
+}) {
+  const isEdit = !!initial;
+  const initialPresetId = initial?.id && PROVIDER_PRESETS.some(p => p.id === initial.id)
+    ? initial.id
+    : PROVIDER_PRESETS[0].id;
+  const [presetId, setPresetId] = useState(initialPresetId);
+  const preset = PROVIDER_PRESETS.find(p => p.id === presetId) || PROVIDER_PRESETS[0];
+  const [name, setName] = useState(initial?.name || preset.name);
+  const [baseUrl, setBaseUrl] = useState(initial?.base_url || preset.base_url);
+  const [apiKey, setApiKey] = useState(initial?.api_key || '');
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>(
+    initial?.models.map(m => m.id) || preset.available_models.map(m => m.id)
+  );
+  const [saving, setSaving] = useState(false);
+
+  // 切换预设时（仅新建时）重填默认值
+  useEffect(() => {
+    if (!isEdit) {
+      setName(preset.name);
+      setBaseUrl(preset.base_url);
+      setSelectedModelIds(preset.available_models.map(m => m.id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetId]);
+
+  const handleSave = async () => {
+    if (!selectedModelIds.length) return;
+    setSaving(true);
+    try {
+      const models = preset.available_models.filter(m => selectedModelIds.includes(m.id));
+      await onSave({
+        id: initial?.id || preset.id,
+        name,
+        base_url: baseUrl,
+        api_key: apiKey,
+        models,
+      });
+      onClose();
+    } catch (err) {
+      alert('保存失败: ' + (err instanceof Error ? err.message : '未知错误'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="bg-white rounded-xl shadow-xl border border-slate-200 w-[480px] max-w-[90vw]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div className="text-slate-900" style={{ fontWeight: 500 }}>
+            {isEdit ? '编辑服务商' : '添加模型服务商'}
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          <div>
+            <label className="block text-xs text-slate-500 mb-1.5">服务商</label>
+            <select
+              value={presetId}
+              onChange={(e) => setPresetId(e.target.value)}
+              disabled={isEdit}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-500"
+            >
+              {PROVIDER_PRESETS.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1.5">名称</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1.5">Base URL</label>
+            <input
+              type="text"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1.5">API Key</label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="sk-..."
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1.5">可用模型（至少选择一个）</label>
+            <div className="space-y-1.5">
+              {preset.available_models.map(m => (
+                <label
+                  key={m.id}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-100 hover:bg-slate-50 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedModelIds.includes(m.id)}
+                    onChange={(e) => {
+                      setSelectedModelIds(prev =>
+                        e.target.checked ? [...prev, m.id] : prev.filter(x => x !== m.id)
+                      );
+                    }}
+                    className="w-3.5 h-3.5 rounded accent-indigo-600"
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm text-slate-700">{m.name}</div>
+                    <div className="text-xs text-slate-400">{m.id}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t border-slate-100 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+          >
+            取消
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !selectedModelIds.length}
+            className="px-4 py-1.5 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? '保存中...' : '保存'}
+          </button>
+        </div>
       </div>
     </div>
   );

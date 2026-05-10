@@ -23,7 +23,7 @@ const initialMessages = [
 export default function ChatPage() {
   const { knowledgeBases, providers, currentModelId } = useApp();
   const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
-  const [selectedModel, setSelectedModel] = useState(currentModelId);
+  const [selectedModelId, setSelectedModelId] = useState(currentModelId);
   const [modelOpen, setModelOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState(initialMessages);
@@ -44,7 +44,7 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    setSelectedModel(currentModelId);
+    setSelectedModelId(currentModelId);
   }, [currentModelId]);
 
   const toggleKb = (kbId: string) => {
@@ -66,7 +66,7 @@ export default function ChatPage() {
     setMessages(prev => [...prev, { role: 'assistant', content: '', time }]);
 
     chatApi.ask(
-      { question, knowledge_base_ids: selectedKbs, model_id: selectedModel },
+      { question, knowledge_base_ids: selectedKbs, model_id: selectedModelId },
       (chunk) => {
         setMessages(prev => {
           const last = prev[prev.length - 1];
@@ -90,7 +90,8 @@ export default function ChatPage() {
     setIsLoading(false);
   };
 
-  const allModels = providers.flatMap(p => p.models.map(m => m.name));
+  const allModels = providers.flatMap(p => p.models);
+  const currentModelName = allModels.find(m => m.id === selectedModelId)?.name || selectedModelId || '默认模型';
   const totalPages = selectedKbs.reduce((sum, id) => {
     const kb = knowledgeBases.find((k: KnowledgeBase) => k.id === id);
     return sum + (kb?.wiki_page_count ?? 0);
@@ -163,20 +164,20 @@ export default function ChatPage() {
             onClick={() => setModelOpen(!modelOpen)}
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-slate-200 rounded-md hover:border-slate-300 text-slate-700 transition-colors"
           >
-            <span>{selectedModel}</span>
+            <span>{currentModelName}</span>
             <ChevronDown className="w-3 h-3 text-slate-400" />
           </button>
           {modelOpen && (
             <div className="absolute top-full mt-1.5 left-0 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50 min-w-[180px]">
-              {allModels.map((m: string) => (
+              {allModels.map((m) => (
                 <button
-                  key={m}
-                  onClick={() => { setSelectedModel(m); setModelOpen(false); }}
+                  key={m.id}
+                  onClick={() => { setSelectedModelId(m.id); setModelOpen(false); }}
                   className={`w-full text-left px-3 py-1.5 text-sm transition-colors hover:bg-slate-50 ${
-                    m === selectedModel ? 'text-indigo-600' : 'text-slate-700'
+                    m.id === selectedModelId ? 'text-indigo-600' : 'text-slate-700'
                   }`}
                 >
-                  {m}
+                  {m.name}
                 </button>
               ))}
             </div>
