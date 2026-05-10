@@ -4,24 +4,15 @@ import { useApp } from '../../../lib/context';
 import { searchApi } from '../../../lib/api';
 import type { SearchResult, SearchMatch } from '../../../lib/types';
 
-type SearchMode = 'fuzzy' | 'exact' | 'regex';
-
 interface SearchPageProps {
   openReader?: (kbId: string, docId: string, docName: string) => void;
 }
-
-const searchModes: { value: SearchMode; label: string }[] = [
-  { value: 'fuzzy', label: '模糊匹配' },
-  { value: 'exact', label: '精确匹配' },
-  { value: 'regex', label: '正则' },
-];
 
 const PAGE_SIZE = 10;
 
 export default function SearchPage({ openReader }: SearchPageProps) {
   const { knowledgeBases } = useApp();
   const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
-  const [searchMode, setSearchMode] = useState<SearchMode>('fuzzy');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -43,7 +34,6 @@ export default function SearchPage({ openReader }: SearchPageProps) {
       const res = await searchApi.search({
         keyword: query,
         knowledge_base_ids: selectedKbs.length ? selectedKbs : undefined,
-        mode: searchMode,
       });
       setResults(res);
     } catch (err) {
@@ -145,23 +135,8 @@ export default function SearchPage({ openReader }: SearchPageProps) {
             )}
           </div>
 
-          {/* Search mode + button */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
-              {searchModes.map(mode => (
-                <button
-                  key={mode.value}
-                  onClick={() => setSearchMode(mode.value)}
-                  className={`px-3 py-1 rounded-md text-sm transition-all ${
-                    searchMode === mode.value
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  {mode.label}
-                </button>
-              ))}
-            </div>
+          {/* Search action */}
+          <div className="flex items-center justify-end">
             <button
               onClick={handleSearch}
               disabled={!query.trim()}

@@ -1,126 +1,108 @@
-# LLM Wiki
+# Anniu Wiki Rules
 
+This wiki is the structured knowledge layer for the Anniu enterprise safety assistant.
+Its purpose is to turn uploaded safety documents into a small, high-quality wiki that works well for question answering and document retrieval.
 
-A personal knowledge base maintained by LLM.
-Based on Andrej Karpathy's LLM Wiki pattern.
+## Domain
 
-
-## Purpose
-
-
-This wiki is a structured, interlinked knowledge base for Software Development.
-LLM maintains the wiki. The human curates sources, asks questions, and guides the analysis.
-
-
-## Folder structure
-
-
-```
-raw/          -- source documents (immutable -- never modify these)
-wiki/         -- markdown pages maintained by LLM
-wiki/index.md -- table of contents for the entire wiki
-wiki/log.md   -- append-only record of all operations
-```
-
+- Primary domain: enterprise safety, emergency response, operations, compliance, training, and document management.
+- Write for safety managers, compliance staff, and operations personnel.
+- Prefer clear Chinese and practical language.
+- Avoid software-development-centric wording unless the source document is actually about software.
 
 ## Ingest workflow
 
+When a new source document is ingested, build the wiki in a way that makes future Q&A easier.
 
-When the user adds a new source to `raw/` and asks you to ingest it:
+1. Read the whole source carefully.
+2. Identify the document's main theme, key procedures, roles, risks, thresholds, and exceptions.
+3. Create one summary page for the source document.
+4. Create only the concept pages that are genuinely useful for search and question answering.
+5. Link related pages with `[[wiki-links]]`.
+6. Update `wiki/index.md` so the pages are easy to discover.
+7. Append a clear entry to `wiki/log.md`.
 
+Do not over-split content. Prefer a small set of strong pages over many thin pages.
 
-1. Read the full source document
-2. Discuss key takeaways with the user before writing anything
-3. Create a summary page in `wiki/` named after the source
-4. Create or update concept pages for each major idea or entity
-5. Add wiki-links ([[page-name]]) to connect related pages
-6. Update `wiki/index.md` with new pages and one-line descriptions
-7. Append an entry to `wiki/log.md` with the date, source name, and what changed
+## Output contract
 
+Return only a valid JSON array.
+Do not add explanations, markdown fences, or extra commentary outside the JSON.
 
-A single source may touch 10-15 wiki pages. That is normal.
+Each item must have:
 
-
-## Page format
-
-
-Every wiki page should follow this structure:
-
-
-```markdown
-# Page Title
-
-
-**Summary**: One to two sentences describing this page.
-
-
-**Sources**: List of raw source files this page draws from.
-
-
-**Last updated**: Date of most recent update.
-
-
----
-
-
-Main content goes here. Use clear headings and short paragraphs.
-
-
-Link to related concepts using [[wiki-links]] throughout the text.
-
-
-## Related pages
-
-
-- [[related-concept-1]]
-- [[related-concept-2]]
+```json
+{
+  "file": "wiki/page-name.md",
+  "content": "# Page Title\n\n**Summary**: ...\n\n**Sources**: ...\n\n**Last updated**: YYYY-MM-DD\n\n---\n\n..."
+}
 ```
 
+## Page selection
 
-## Citation rules
+- Create a summary page for the source document.
+- Create concept pages only for major ideas that users are likely to ask about later.
+- Good concept pages usually cover one of these:
+  - a procedure
+  - an emergency response stage
+  - a role or responsibility
+  - a risk type
+  - a threshold, condition, or trigger
+  - a checklist or operating rule
+- If a topic is small or only mentioned once, keep it inside a broader page instead of creating a separate file.
+- Avoid creating pages for `index.md` and `log.md`.
 
+## Page writing style
 
-- Every factual claim should reference its source file
-- Use the format (source: filename.pdf) after the claim
-- If two sources disagree, note the contradiction explicitly
-- If a claim has no source, mark it as needing verification
+Every page should be written so it is easy to answer questions from later.
 
+- Use a short, clear title that matches how users would search for it.
+- Put the most important definition or conclusion near the top.
+- Use headings for structure, but keep the page concise.
+- Prefer bullets, steps, and tables when they improve scanning.
+- Use plain language and avoid vague generalities.
+- If a page describes a process, write it in the order users would perform it.
+- If a page describes a role, include what the role does, when it acts, and what it coordinates with.
+- If a page describes a risk or incident, include common triggers, symptoms, immediate actions, and escalation conditions.
 
-## Question answering
+## Sources and traceability
 
+- Every page must include a `Sources` section.
+- Each page should cite the raw document file it is based on.
+- If a statement is not clearly supported by the source, mark it as uncertain or omit it.
+- Do not invent facts, thresholds, phone numbers, timelines, or responsibilities.
+- If multiple source documents disagree, note the difference explicitly instead of forcing a single answer.
 
-When the user asks a question:
+## Wiki links
 
+- Use `[[wiki-links]]` for important related concepts.
+- Link to the pages a user is most likely to jump to next.
+- Prefer links that help future questions find the right page quickly.
+- Do not over-link every sentence; keep links purposeful.
 
-1. Read `wiki/index.md` first to find relevant pages
-2. Read those pages and synthesize an answer
-3. Cite specific wiki pages in your response
-4. If the answer is not in the wiki, say so clearly
-5. If the answer is valuable, offer to save it as a new wiki page
+## Index and log
 
+- Update `wiki/index.md` after creating or changing pages.
+- Update `wiki/log.md` with the source name, date, and the pages that changed.
+- Keep the index concise and useful for navigation.
 
-Good answers should be filed back into the wiki so they compound over time.
+## Answerability rules
 
+The wiki should be optimized for future questions.
 
-## Lint
+- Favor question-friendly page names and titles.
+- Keep one page focused on one question or one concept cluster.
+- Write in a way that makes retrieval and summarization easier.
+- Include the exact terms that a user would likely ask about.
+- Add cross-links between procedure pages, role pages, and incident pages.
+- If a document contains multiple independent topics, split them only where it improves search and answer quality.
 
+## Quality checks
 
-When the user asks you to lint or audit the wiki:
+Before finalizing the wiki content:
 
-
-- Check for contradictions between pages
-- Find orphan pages (no inbound links from other pages)
-- Identify concepts mentioned in pages that lack their own page
-- Flag claims that may be outdated based on newer sources
-- Check that all pages follow the page format above
-- Report findings as a numbered list with suggested fixes
-
-
-## Rules
-
-
-- Never modify anything in the `raw/` folder
-- Always update `wiki/index.md` and `wiki/log.md` after changes
-- Keep page names lowercase with hyphens (e.g. `machine-learning.md`)
-- Write in clear, plain language
-- When uncertain about how to categorize something, ask the user
+- Check that the summary page captures the source document's main purpose.
+- Check that concept pages are complete enough to answer common questions.
+- Check that the page structure is consistent across files.
+- Check that links, titles, and sources are coherent.
+- If uncertain, choose the simpler and more useful structure.

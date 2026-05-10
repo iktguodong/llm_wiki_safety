@@ -13,7 +13,7 @@ if __name__ == "__main__":
         sys.path.insert(0, str(project_root))
 
 from typing import List, Optional
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Body
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -99,13 +99,13 @@ async def set_current_kb_id(body: dict):
 @app.get("/api/config/current-model", response_model=ApiResponse)
 async def get_current_model_id():
     """获取当前模型ID"""
-    return ApiResponse(data={"id": config.get("current_model_id", "deepseek-chat")})
+    return ApiResponse(data={"id": config.get("current_model_id", "deepseek-v4-flash")})
 
 
 @app.post("/api/config/current-model", response_model=ApiResponse)
 async def set_current_model_id(body: dict):
     """设置当前模型"""
-    config["current_model_id"] = body.get("id", "deepseek-chat")
+    config["current_model_id"] = body.get("id", "deepseek-v4-flash")
     save_config(config)
     return ApiResponse(message="当前模型已更新")
 
@@ -207,16 +207,9 @@ async def get_document_content(kb_id: str, doc_id: str, page: int = 1):
     
     raw_path = get_kb_raw_path(kb_id)
     # 通过文档追踪找到文件名
-    tracker_file = raw_path / "文档追踪.json"
-    import json
-    doc_file = None
-    if tracker_file.exists():
-        with open(tracker_file, "r", encoding="utf-8") as f:
-            tracker = json.load(f)
-        for entry in tracker:
-            if entry.get("id") == doc_id:
-                doc_file = raw_path / entry["file"]
-                break
+    track = doc_service._load_doc_track(kb_id)
+    doc_info = track.get("documents", {}).get(doc_id)
+    doc_file = raw_path / doc_info["file"] if doc_info else None
     
     if not doc_file or not doc_file.exists():
         raise HTTPException(status_code=404, detail="文档不存在")
@@ -338,12 +331,11 @@ async def search(data: SearchRequest):
 # ==================== 培训API ====================
 
 @app.post("/api/training/outline", response_model=ApiResponse)
-async def generate_training_outline(
-    source_type: str,
-    source_ids: List[str],
-    config: TrainingConfig
-):
+async def generate_training_outline(payload: dict = Body(...)):
     """生成培训大纲"""
+    source_type = payload.get("source_type")
+    source_ids = payload.get("source_ids", [])
+    config = TrainingConfig(**payload.get("config", {}))
     outline = await training_service.generate_outline(
         source_type=source_type,
         source_ids=source_ids,
@@ -358,13 +350,12 @@ async def generate_training_outline(
 
 
 @app.post("/api/training/generate")
-async def generate_training_ppt(
-    source_type: str,
-    source_ids: List[str],
-    config: TrainingConfig,
-    outline: dict
-):
+async def generate_training_ppt(payload: dict = Body(...)):
     """生成培训PPT"""
+    source_type = payload.get("source_type")
+    source_ids = payload.get("source_ids", [])
+    config = TrainingConfig(**payload.get("config", {}))
+    outline = payload.get("outline", {})
     file_path = await training_service.generate_ppt(
         outline=outline,
         topic=config.topic,

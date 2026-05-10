@@ -69,6 +69,27 @@ class LLMService:
         }
         
         try:
+            if not stream:
+                response = await self.client.post(
+                    f"{provider['base_url']}/chat/completions",
+                    headers=headers,
+                    json=payload
+                )
+                if response.status_code != 200:
+                    yield f"API错误 ({response.status_code}): {response.text}"
+                    return
+
+                try:
+                    data = response.json()
+                except json.JSONDecodeError:
+                    yield f"API错误：无法解析返回内容：{response.text[:500]}"
+                    return
+
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if content:
+                    yield content
+                return
+
             async with self.client.stream(
                 "POST",
                 f"{provider['base_url']}/chat/completions",

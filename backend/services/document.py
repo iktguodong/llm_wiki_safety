@@ -230,9 +230,9 @@ class DocumentService:
         track = DocumentService._load_doc_track(kb_id)
         if doc_id in track.get("documents", {}):
             track["documents"][doc_id]["parse_status"] = status
-            if wiki_pages:
+            if wiki_pages is not None:
                 track["documents"][doc_id]["wiki_pages"] = wiki_pages
-            if page_count:
+            if page_count is not None:
                 track["documents"][doc_id]["page_count"] = page_count
             if error_message is not None:
                 track["documents"][doc_id]["error_message"] = error_message

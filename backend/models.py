@@ -38,9 +38,9 @@ class ModelProvider(BaseModel):
 
 class ModelRoles(BaseModel):
     """模型用途分配"""
-    doc_parse: str = "deepseek-chat"
-    qa_chat: str = "deepseek-chat"
-    ppt_gen: str = "deepseek-coder"
+    doc_parse: str = "deepseek-v4-flash"
+    qa_chat: str = "deepseek-v4-flash"
+    ppt_gen: str = "deepseek-v4-pro"
 
 
 class AppConfig(BaseModel):
@@ -48,7 +48,7 @@ class AppConfig(BaseModel):
     version: str = "1.0.0"
     app_name: str = "安牛"
     current_kb_id: Optional[str] = None
-    current_model_id: str = "deepseek-chat"
+    current_model_id: str = "deepseek-v4-flash"
     models: Dict[str, Any] = {}
     knowledge_bases: Dict[str, Any] = {}
 
@@ -183,7 +183,6 @@ class SearchRequest(BaseModel):
     """检索请求"""
     keyword: str = Field(..., min_length=1, description="搜索关键词")
     knowledge_base_ids: List[str] = Field(default=[], description="搜索范围知识库ID列表")
-    mode: str = "fuzzy"  # fuzzy, exact, regex
 
 
 class SearchMatch(BaseModel):
