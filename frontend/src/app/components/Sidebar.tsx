@@ -1,6 +1,6 @@
-import { MessageSquare, Search, Database, GraduationCap, Settings } from 'lucide-react';
+import { Bot, MessageSquare, Search, Database, GraduationCap, Settings } from 'lucide-react';
 
-type PageType = 'chat' | 'search' | 'knowledge' | 'training' | 'settings';
+type PageType = 'chat' | 'assistant' | 'search' | 'knowledge' | 'training' | 'settings';
 
 interface SidebarProps {
   currentPage: PageType;
@@ -9,6 +9,7 @@ interface SidebarProps {
 
 const navItems = [
   { id: 'chat' as const, icon: MessageSquare, label: '对话' },
+  { id: 'assistant' as const, icon: Bot, label: '助手' },
   { id: 'search' as const, icon: Search, label: '检索' },
   { id: 'knowledge' as const, icon: Database, label: '知识库' },
   { id: 'training' as const, icon: GraduationCap, label: '培训' },

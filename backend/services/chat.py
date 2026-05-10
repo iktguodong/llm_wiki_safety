@@ -198,6 +198,12 @@ class ChatService:
             },
             {"role": "user", "content": question}
         ]
+
+    @staticmethod
+    def _merge_system_prompt(base_prompt: str, assistant_prompt: Optional[str] = None) -> str:
+        if not assistant_prompt or not assistant_prompt.strip():
+            return base_prompt
+        return f"{assistant_prompt.strip()}\n\n{base_prompt}"
     
     @staticmethod
     def _find_related_pages(kb_id: str, question: str, max_pages: int = 5) -> List[Dict]:
@@ -266,7 +272,8 @@ class ChatService:
         question: str,
         knowledge_base_ids: List[str],
         model_id: Optional[str] = None,
-        use_web_search: bool = False
+        use_web_search: bool = False,
+        assistant_prompt: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         """
         回答问题
@@ -290,7 +297,10 @@ class ChatService:
                     messages = [
                         {
                             "role": "system",
-                            "content": "你是一个专业的企业安全知识助手。请基于联网检索结果回答，不要编造。"
+                            "content": ChatService._merge_system_prompt(
+                                "你是一个专业的企业安全知识助手。请基于联网检索结果回答，不要编造。",
+                                assistant_prompt
+                            )
                         },
                         {"role": "user", "content": prompt}
                     ]
@@ -301,6 +311,7 @@ class ChatService:
                     return
 
             messages = ChatService._build_general_messages(question)
+            messages[0]["content"] = ChatService._merge_system_prompt(messages[0]["content"], assistant_prompt)
             async for chunk in llm_service.chat(messages, model_id=model_id, stream=True):
                 if chunk is None:
                     continue
@@ -336,7 +347,10 @@ class ChatService:
                     messages = [
                         {
                             "role": "system",
-                            "content": "你是一个专业的企业安全知识助手。请基于联网检索结果回答，不要编造。"
+                            "content": ChatService._merge_system_prompt(
+                                "你是一个专业的企业安全知识助手。请基于联网检索结果回答，不要编造。",
+                                assistant_prompt
+                            )
                         },
                         {"role": "user", "content": prompt}
                     ]
@@ -369,7 +383,10 @@ class ChatService:
         messages = [
             {
                 "role": "system",
-                "content": "你是一个专业的企业安全知识库问答助手。若提供了联网检索结果，请结合知识库与联网信息作答，不要编造。"
+                "content": ChatService._merge_system_prompt(
+                    "你是一个专业的企业安全知识库问答助手。若提供了联网检索结果，请结合知识库与联网信息作答，不要编造。",
+                    assistant_prompt
+                )
             },
             {"role": "user", "content": prompt}
         ]
@@ -385,11 +402,12 @@ class ChatService:
         question: str,
         knowledge_base_ids: List[str],
         model_id: Optional[str] = None,
-        use_web_search: bool = False
+        use_web_search: bool = False,
+        assistant_prompt: Optional[str] = None
     ) -> str:
         """同步回答问题，返回完整文本"""
         result = []
-        async for chunk in ChatService.ask(question, knowledge_base_ids, model_id, use_web_search):
+        async for chunk in ChatService.ask(question, knowledge_base_ids, model_id, use_web_search, assistant_prompt):
             if chunk is None:
                 continue
             result.append(chunk)

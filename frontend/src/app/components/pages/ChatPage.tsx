@@ -1,9 +1,25 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, X, ChevronDown, Bot, User, Layers, History, Plus, Globe } from 'lucide-react';
+import {
+  Send,
+  X,
+  ChevronDown,
+  Bot,
+  User,
+  Layers,
+  History,
+  Plus,
+  Globe,
+  Copy,
+  RefreshCw,
+  Download,
+  MoreHorizontal,
+  Eraser,
+} from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { useApp } from '../../../lib/context';
 import { chatApi } from '../../../lib/api';
 import type { KnowledgeBase } from '../../../lib/types';
+import type { AssistantDefinition } from '../../data/assistants';
 
 const initialMessages = [
   {
@@ -37,9 +53,16 @@ type ChatSession = {
   selectedKbs: string[];
   modelId: string;
   useWebSearch: boolean;
+  assistantId?: string | null;
+  assistantName?: string;
+  contextCleared: boolean;
   title: string;
   time: string;
 };
+
+interface ChatPageProps {
+  activeAssistant?: AssistantDefinition | null;
+}
 
 function readLocal<T>(key: string, fallback: T): T {
   try {
@@ -63,7 +86,7 @@ function preview(text: string, max = 28) {
   return clean.length > max ? `${clean.slice(0, max)}…` : clean;
 }
 
-export default function ChatPage() {
+export default function ChatPage({ activeAssistant }: ChatPageProps) {
   const { knowledgeBases, providers, currentModelId } = useApp();
   const [selectedKbs, setSelectedKbs] = useState<string[]>(() => readLocal(STORAGE_KEYS.current, {
     messages: initialMessages,
@@ -93,6 +116,13 @@ export default function ChatPage() {
     modelId: currentModelId,
     useWebSearch: false,
   }).useWebSearch ?? false);
+  const [contextCleared, setContextCleared] = useState(() => readLocal(STORAGE_KEYS.current, {
+    messages: initialMessages,
+    selectedKbs: [],
+    modelId: currentModelId,
+    useWebSearch: false,
+    contextCleared: false,
+  }).contextCleared ?? false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef(messages);
@@ -118,8 +148,15 @@ export default function ChatPage() {
   }, [currentModelId]);
 
   useEffect(() => {
-    writeLocal(STORAGE_KEYS.current, { messages, selectedKbs, modelId: selectedModelId, useWebSearch });
-  }, [messages, selectedKbs, selectedModelId, useWebSearch]);
+    writeLocal(STORAGE_KEYS.current, {
+      messages,
+      selectedKbs,
+      modelId: selectedModelId,
+      useWebSearch,
+      assistantId: activeAssistant?.id ?? null,
+      contextCleared,
+    });
+  }, [messages, selectedKbs, selectedModelId, useWebSearch, activeAssistant, contextCleared]);
 
   useEffect(() => {
     writeLocal(STORAGE_KEYS.history, chatHistory);
@@ -134,7 +171,22 @@ export default function ChatPage() {
   const newConversation = () => {
     setMessages(initialMessages);
     setInput('');
+    setContextCleared(false);
     setHistoryOpen(false);
+  };
+
+  const clearContext = () => {
+    const now = new Date();
+    const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    setContextCleared(true);
+    setMessages(prev => [
+      ...prev,
+      {
+        role: 'assistant',
+        content: '已清除当前上下文。接下来的回答将从新的上下文开始。',
+        time,
+      },
+    ]);
   };
 
   const restoreSession = (session: ChatSession) => {
@@ -142,23 +194,42 @@ export default function ChatPage() {
     setSelectedKbs(session.selectedKbs);
     setSelectedModelId(session.modelId || currentModelId);
     setUseWebSearch(session.useWebSearch ?? false);
+    setContextCleared(session.contextCleared ?? false);
     setHistoryOpen(false);
   };
 
-  const handleSend = () => {
-    if (!input.trim() || isLoading) return;
+  useEffect(() => {
+    if (!activeAssistant) return;
+    if (activeAssistant.default_model_id) {
+      setSelectedModelId(activeAssistant.default_model_id);
+    }
+    if (activeAssistant.default_knowledge_base_ids.length > 0) {
+      setSelectedKbs(activeAssistant.default_knowledge_base_ids);
+    }
+    setUseWebSearch(activeAssistant.use_web_search);
+  }, [activeAssistant]);
+
+  const handleSend = (questionOverride?: string) => {
+    const question = (questionOverride ?? input).trim();
+    if (!question || isLoading) return;
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const question = input;
     setMessages(prev => [...prev, { role: 'user', content: question, time }]);
-    setInput('');
+    if (!questionOverride) setInput('');
     setIsLoading(true);
 
     // 添加助手占位消息
     setMessages(prev => [...prev, { role: 'assistant', content: '', time }]);
 
     chatApi.ask(
-      { question, knowledge_base_ids: selectedKbs, model_id: selectedModelId, use_web_search: useWebSearch },
+      {
+        question,
+        knowledge_base_ids: selectedKbs,
+        model_id: selectedModelId,
+        use_web_search: useWebSearch,
+        assistant_id: activeAssistant?.id,
+        assistant_prompt: activeAssistant?.system_prompt,
+      },
       (chunk) => {
         setMessages(prev => {
           const last = prev[prev.length - 1];
@@ -188,6 +259,9 @@ export default function ChatPage() {
               selectedKbs: [...selectedKbs],
               modelId: selectedModelId,
               useWebSearch,
+              assistantId: activeAssistant?.id ?? null,
+              assistantName: activeAssistant?.name,
+              contextCleared,
               title: preview(question),
               time,
             };
@@ -202,6 +276,30 @@ export default function ChatPage() {
     );
     // 一秒后恢复发送能力（流式输出不阻止输入）
     setTimeout(() => setIsLoading(false), 1000);
+  };
+
+  const copyMessage = (text: string) => {
+    navigator.clipboard?.writeText(normalizeAssistantText(text));
+  };
+
+  const exportMessage = (text: string, idx: number) => {
+    const blob = new Blob([normalizeAssistantText(text)], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `安牛回答-${idx + 1}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const regenerateMessage = (idx: number) => {
+    for (let i = idx - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (msg.role === 'user') {
+        handleSend(msg.content);
+        return;
+      }
+    }
   };
 
   const allModels = providers.flatMap(p => p.models);
@@ -268,6 +366,16 @@ export default function ChatPage() {
               </Popover.Content>
             </Popover.Portal>
           </Popover.Root>
+
+          <div className="h-4 w-px bg-slate-200 flex-shrink-0"></div>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Bot className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-500">助手</span>
+            <span className="px-2.5 py-1 text-xs rounded-md bg-slate-50 border border-slate-200 text-slate-700">
+              {activeAssistant?.name || '默认助手'}
+            </span>
+          </div>
 
           <div className="h-4 w-px bg-slate-200 flex-shrink-0"></div>
 
@@ -338,6 +446,7 @@ export default function ChatPage() {
                     <div className="mt-1 text-xs text-slate-400 flex items-center justify-between gap-2">
                       <span className="truncate">
                         {[
+                          session.assistantName || '默认助手',
                           session.selectedKbs.map(id => knowledgeBases.find(k => k.id === id)?.name || id).join('、') || '纯模型问答',
                           session.useWebSearch ? '联网搜索' : '',
                         ].filter(Boolean).join(' · ')}
@@ -385,6 +494,39 @@ export default function ChatPage() {
               >
                 {msg.role === 'assistant' ? normalizeAssistantText(msg.content) : msg.content}
               </div>
+              <div className="flex items-center gap-1 text-slate-400">
+                <button
+                  onClick={() => copyMessage(msg.content)}
+                  title="复制"
+                  className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+                {msg.role === 'assistant' && idx > 0 && (
+                  <button
+                    onClick={() => regenerateMessage(idx)}
+                    title="重新生成"
+                    className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {msg.role === 'assistant' && (
+                  <button
+                    onClick={() => exportMessage(msg.content, idx)}
+                    title="导出"
+                    className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  title="更多"
+                  className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                >
+                  <MoreHorizontal className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           </div>
         ))}
@@ -431,6 +573,13 @@ export default function ChatPage() {
               >
                 <Plus className="w-3.5 h-3.5" />
                 新建对话
+              </button>
+              <button
+                onClick={clearContext}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                <Eraser className="w-3.5 h-3.5" />
+                清除上下文
               </button>
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">

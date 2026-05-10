@@ -8,8 +8,10 @@ import KnowledgeBasePage from './components/pages/KnowledgeBasePage';
 import TrainingPage from './components/pages/TrainingPage';
 import SettingsPage from './components/pages/SettingsPage';
 import ReaderPage from './components/pages/ReaderPage';
+import AssistantPage from './components/pages/AssistantPage';
+import type { AssistantDefinition } from './data/assistants';
 
-type PageType = 'chat' | 'search' | 'knowledge' | 'training' | 'settings';
+type PageType = 'chat' | 'assistant' | 'search' | 'knowledge' | 'training' | 'settings';
 
 interface ReaderContext {
   kbId: string;
@@ -21,6 +23,7 @@ interface ReaderContext {
 function AppInner() {
   const [currentPage, setCurrentPage] = useState<PageType>('chat');
   const [readerCtx, setReaderCtx] = useState<ReaderContext | null>(null);
+  const [activeAssistant, setActiveAssistant] = useState<AssistantDefinition | null>(null);
 
   /** 展开阅读器 */
   const openReader = (kbId: string, docId: string, docName: string, page = 1) => {
@@ -46,7 +49,16 @@ function AppInner() {
       );
     }
     switch (currentPage) {
-      case 'chat':      return <ChatPage />;
+      case 'chat':      return <ChatPage activeAssistant={activeAssistant} />;
+      case 'assistant': return (
+        <AssistantPage
+          activeAssistantId={activeAssistant?.id}
+          onStartChat={(assistant) => {
+            setActiveAssistant(assistant);
+            setCurrentPage('chat');
+          }}
+        />
+      );
       case 'search':    return <SearchPage openReader={openReader} />;
       case 'knowledge': return <KnowledgeBasePage openReader={openReader} />;
       case 'training':  return <TrainingPage />;

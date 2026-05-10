@@ -169,6 +169,8 @@ class ChatRequest(BaseModel):
     knowledge_base_ids: List[str] = Field(default_factory=list, description="引用的知识库ID列表")
     model_id: Optional[str] = None
     use_web_search: bool = False
+    assistant_id: Optional[str] = None
+    assistant_prompt: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
