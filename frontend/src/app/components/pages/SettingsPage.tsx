@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, FlaskConical, FolderOpen, CheckCircle2, ChevronDown, X } from 'lucide-react';
+import { Plus, Pencil, FlaskConical, CheckCircle2, ChevronDown, X } from 'lucide-react';
 import { useApp } from '../../../lib/context';
 import { configApi } from '../../../lib/api';
 import type { ModelProvider, AppConfig } from '../../../lib/types';
@@ -49,8 +49,7 @@ function ModelSelect({ value, options, onChange }: { value: string; options: str
 }
 
 export default function SettingsPage() {
-  const { providers, modelRoles, updateModelRole, syncAllConfig } = useApp();
-  const [storagePath] = useState('/Users/xxx/knowledge-bases');
+  const { providers, modelRoles, updateModelRole, syncAllConfig, knowledgeBases } = useApp();
   const [testing, setTesting] = useState<Record<string, boolean>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ModelProvider | null>(null);
@@ -60,6 +59,8 @@ export default function SettingsPage() {
   const allModelNames = allModels.map(m => m.name);
   const nameToId = new Map(allModels.map(m => [m.name, m.id]));
   const idToName = new Map(allModels.map(m => [m.id, m.name]));
+  const totalStorageMb = knowledgeBases.reduce((sum, kb) => sum + (kb.total_size_mb || 0), 0);
+  const totalDocuments = knowledgeBases.reduce((sum, kb) => sum + (kb.document_count || 0), 0);
 
   const getRoleModelName = (role: string): string => {
     const modelId = modelRoles[role];
@@ -224,46 +225,21 @@ export default function SettingsPage() {
             <div className="text-xs text-slate-500 mt-0.5">知识库存储配置与统计</div>
           </div>
           <div className="px-6 py-4 space-y-4">
-            <div>
-              <div className="text-sm text-slate-600 mb-2">知识库存储路径</div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={storagePath}
-                  readOnly
-                  className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 bg-slate-50"
-                />
-                <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm hover:bg-slate-50 transition-colors">
-                  <FolderOpen className="w-4 h-4" />
-                  修改
-                </button>
-              </div>
+            <div className="text-sm text-slate-500">
+              知识库存储由系统自动管理，无需手工配置路径。
             </div>
 
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               {[
-                { label: '总占用空间', value: '265 MB' },
-                { label: '知识库数量', value: '3' },
-                { label: '文档总数', value: '25' },
-                { label: 'Wiki 页面', value: '91' },
+                { label: '总占用空间', value: `${totalStorageMb.toFixed(1)} MB` },
+                { label: '知识库数量', value: `${knowledgeBases.length}` },
+                { label: '文档总数', value: `${totalDocuments}` },
               ].map(stat => (
                 <div key={stat.label} className="bg-slate-50 rounded-lg p-3 text-center border border-slate-100">
                   <div className="text-slate-900" style={{ fontWeight: 600, fontSize: '18px' }}>{stat.value}</div>
                   <div className="text-xs text-slate-500 mt-0.5">{stat.label}</div>
                 </div>
               ))}
-            </div>
-
-            <div className="flex gap-3">
-              <button className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm hover:bg-slate-50 transition-colors">
-                清理缓存
-              </button>
-              <button className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm hover:bg-slate-50 transition-colors">
-                备份数据
-              </button>
-              <button className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm hover:bg-slate-50 transition-colors">
-                导入数据
-              </button>
             </div>
           </div>
         </div>

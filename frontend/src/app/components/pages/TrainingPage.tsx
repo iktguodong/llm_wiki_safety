@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { ChevronRight, Upload, BookOpen, ArrowLeft, Check, Download, FolderOpen, Loader, FileText, X, File } from 'lucide-react';
+import { ChevronRight, Upload, BookOpen, ArrowLeft, Check, Loader, FileText, X, File, FolderOpen } from 'lucide-react';
 import { useApp } from '../../../lib/context';
 import { trainingApi } from '../../../lib/api';
 import type { TrainingOutline } from '../../../lib/types';
@@ -27,7 +27,6 @@ export default function TrainingPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [outline, setOutline] = useState<TrainingOutline | null>(null);
-  const [pptFile, setPptFile] = useState('');
 
   // Step 2 受控表单 state
   const [topic, setTopic] = useState('港口安全生产应急处置培训');
@@ -456,7 +455,9 @@ export default function TrainingPage() {
                     </div>
                     <div>
                       <div className="text-sm text-slate-800" style={{ fontWeight: 500 }}>提取知识点</div>
-                      <div className="text-xs text-slate-500 mt-0.5">已提取 73 个 Wiki 页面的核心内容</div>
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        正在汇总所选内容中的关键知识点
+                      </div>
                     </div>
                   </div>
 
@@ -492,26 +493,41 @@ export default function TrainingPage() {
               </div>
             ) : (
               <div className="bg-white rounded-xl border border-slate-200 p-8">
-                <div className="flex flex-col items-center py-6">
+                <div className="flex flex-col items-center py-6 text-center">
                   <div
                     className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
                     style={{ background: '#EEF2FF' }}
                   >
                     <Check className="w-8 h-8 text-indigo-600" />
                   </div>
-                  <div className="text-slate-900 mb-1" style={{ fontWeight: 500 }}>PPT 生成完成</div>
-                  <div className="text-sm text-slate-500 mb-1">港口安全生产应急处置培训.pptx</div>
-                  <div className="text-xs text-slate-400 mb-6">20 页 · 15.2 MB · 2026-05-09 15:30</div>
-                  <div className="flex gap-3">
-                    <button className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors">
-                      <Download className="w-4 h-4" />
-                      下载文件
-                    </button>
-                    <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm hover:bg-slate-50 transition-colors">
-                      <FolderOpen className="w-4 h-4" />
-                      打开目录
-                    </button>
+                  <div className="text-slate-900 mb-1" style={{ fontWeight: 500 }}>
+                    {outline ? '大纲预览已生成' : '等待生成大纲'}
                   </div>
+                  <div className="text-sm text-slate-500 mb-4">
+                    {outline
+                      ? `${outline.title} · ${outline.total_slides} 页 · 预计 ${outline.estimated_duration} 分钟`
+                      : '生成大纲后，这里会显示章节结构和页数。'}
+                  </div>
+                  {outline && (
+                    <div className="w-full max-w-xl text-left space-y-3">
+                      <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+                        <div className="text-xs text-slate-400 mb-1">章节数量</div>
+                        <div className="text-sm text-slate-800" style={{ fontWeight: 500 }}>
+                          {outline.chapters.length} 个章节
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        {outline.chapters.slice(0, 5).map((chapter, idx) => (
+                          <div key={`${chapter.title}-${idx}`} className="rounded-lg border border-slate-100 px-4 py-3">
+                            <div className="text-sm text-slate-800" style={{ fontWeight: 500 }}>{chapter.title}</div>
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              {chapter.pages} 页 · {chapter.points.length} 个要点
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
