@@ -126,7 +126,29 @@ class WikiService:
             model_id: 使用的模型ID
         """
         from backend.services.document import doc_service
-        
+        from backend.config import config
+
+        # 前置检查：API Key 必须非空，否则立即失败（避免卡在 parsing）
+        target_model_id = model_id or config.get("current_model_id")
+        providers = config.get("models", {}).get("providers", [])
+        provider_of_model = None
+        for p in providers:
+            if any(m.get("id") == target_model_id for m in p.get("models", [])):
+                provider_of_model = p
+                break
+        if not provider_of_model:
+            await doc_service.update_parse_status(
+                kb_id, doc_id, "failed",
+                error_message=f"未找到模型 {target_model_id} 的服务商配置"
+            )
+            return
+        if not provider_of_model.get("api_key"):
+            await doc_service.update_parse_status(
+                kb_id, doc_id, "failed",
+                error_message=f"服务商 {provider_of_model.get('name', provider_of_model.get('id'))} 的 API Key 未配置，请在「设置」页填写 API Key 后重试。"
+            )
+            return
+
         # 更新状态为解析中
         await doc_service.update_parse_status(kb_id, doc_id, "parsing")
         
@@ -137,7 +159,7 @@ class WikiService:
         
         doc_info = track["documents"].get(doc_id)
         if not doc_info:
-            await doc_service.update_parse_status(kb_id, doc_id, "failed")
+            await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message="文档信息不存在")
             return
         
         # 提取文本
@@ -145,14 +167,14 @@ class WikiService:
         file_path = raw_path / doc_info["file"]
         
         if not file_path.exists():
-            await doc_service.update_parse_status(kb_id, doc_id, "failed")
+            await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message=f"文件不存在：{doc_info['file']}")
             return
         
         text = await WikiService.extract_text(file_path)
         
-        if text.startswith("[") and text.endswith("]"):
-            # 解析错误
-            await doc_service.update_parse_status(kb_id, doc_id, "failed")
+        if text.startswith("[") and text.endswith("]") and len(text) < 200:
+            # 提取错误（形如 [PDF解析错误: ...]）
+            await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message=text.strip("[]"))
             return
         
         # 构建Prompt
@@ -171,6 +193,11 @@ class WikiService:
         try:
             # 调用LLM生成Wiki
             response = await llm_service.chat_sync(messages, model_id=model_id, temperature=0.3)
+
+            # 如果 LLM 返回的是错误文本（形如 "API错误 (401): ..." 或 "请求错误: ..."）—— 直接失败
+            if response and (response.startswith("API错误") or response.startswith("请求错误") or response.startswith("错误：")):
+                await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message=response[:500])
+                return
             
             # 解析JSON响应
             # 提取JSON部分
@@ -212,8 +239,8 @@ class WikiService:
             )
             
         except Exception as e:
-            await doc_service.update_parse_status(kb_id, doc_id, "failed")
-            raise e
+            await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message=str(e)[:500])
+            # 不再 raise，避免在 fire-and-forget 任务里形成未捕获异常警告
     
     @staticmethod
     async def _update_index(kb_id: str, wiki_files: List[Dict], source_file: str):

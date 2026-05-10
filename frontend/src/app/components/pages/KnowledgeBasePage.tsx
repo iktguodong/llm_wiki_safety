@@ -201,10 +201,29 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
                         >
                           <FileText className="w-4 h-4 text-slate-400 flex-shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm text-slate-800 truncate">{doc.file}</div>
+                            <div className="text-sm text-slate-800 truncate flex items-center gap-2">
+                              <span className="truncate">{doc.file}</span>
+                              {doc.parse_status === 'parsing' && (
+                                <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-amber-50 text-amber-700 border border-amber-100">解析中</span>
+                              )}
+                              {doc.parse_status === 'pending' && (
+                                <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600 border border-slate-200">待解析</span>
+                              )}
+                              {doc.parse_status === 'failed' && (
+                                <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-red-50 text-red-700 border border-red-100">解析失败</span>
+                              )}
+                              {doc.parse_status === 'completed' && (
+                                <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-emerald-50 text-emerald-700 border border-emerald-100">已完成</span>
+                              )}
+                            </div>
                             <div className="text-xs text-slate-400 mt-0.5">
                               {doc.file_size_mb.toFixed(1)} MB · {doc.wiki_pages.length} 个 Wiki 页面 · 上传于 {doc.uploaded_at?.split('T')[0]}
                             </div>
+                            {doc.parse_status === 'failed' && doc.error_message && (
+                              <div className="text-xs text-red-600 mt-1 break-all">
+                                失败原因：{doc.error_message}
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button

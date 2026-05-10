@@ -1,105 +1,12 @@
-import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, BookOpen, Cpu } from 'lucide-react';
-import { useApp } from '../../lib/context';
-
-function StatusDropdown({
-  value,
-  options,
-  onChange,
-  icon: Icon,
-  label,
-}: {
-  value: string;
-  options: string[];
-  onChange: (v: string) => void;
-  icon: React.ElementType;
-  label: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  return (
-    <div ref={ref} className="relative flex items-center gap-1.5">
-      <Icon className="w-3.5 h-3.5 text-slate-400" />
-      <span className="text-slate-500">{label}:</span>
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 text-slate-700 hover:text-slate-900 transition-colors"
-      >
-        <span>{value}</span>
-        <ChevronDown className="w-3 h-3 text-slate-400" />
-      </button>
-      {open && (
-        <div className="absolute bottom-full mb-1.5 left-0 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50 min-w-[160px]">
-          {options.map((opt) => (
-            <button
-              key={opt}
-              onClick={() => { onChange(opt); setOpen(false); }}
-              className={`w-full text-left px-3 py-1.5 text-sm transition-colors hover:bg-slate-50 ${
-                opt === value ? 'text-indigo-600' : 'text-slate-700'
-              }`}
-            >
-              {opt}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
+// 底部状态栏：仅保留全局状态指示（已就绪）。
+// 知识库与模型切换统一由各页面顶部的选择区负责，避免上下重复。
 export default function StatusBar() {
-  const { knowledgeBases, providers, currentKbId, currentModelId, switchKnowledgeBase, switchModel } = useApp();
-
-  const currentKb = knowledgeBases.find(k => k.id === currentKbId);
-  const kbNames = knowledgeBases.map(k => k.name);
-
-  // 模型名称 ↔ ID 映射
-  const modelNameToId = new Map<string, string>();
-  const modelIdToName = new Map<string, string>();
-  for (const p of providers) {
-    for (const m of p.models) {
-      modelNameToId.set(m.name, m.id);
-      modelIdToName.set(m.id, m.name);
-    }
-  }
-  const modelNames = [...modelNameToId.keys()];
-  const currentModelName = modelIdToName.get(currentModelId) || currentModelId;
-
   return (
-    <div className="h-9 bg-white border-t border-slate-200 px-5 flex items-center justify-between text-xs">
-      <StatusDropdown
-        value={currentKb?.name || '未选择'}
-        options={kbNames.length ? kbNames : ['未选择']}
-        onChange={(name) => {
-          const kb = knowledgeBases.find(k => k.name === name);
-          if (kb) switchKnowledgeBase(kb.id);
-        }}
-        icon={BookOpen}
-        label="知识库"
-      />
+    <div className="h-9 bg-white border-t border-slate-200 px-5 flex items-center justify-center text-xs">
       <div className="flex items-center gap-1.5">
         <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
         <span className="text-slate-400">已就绪</span>
       </div>
-      <StatusDropdown
-        value={currentModelName}
-        options={modelNames.length ? modelNames : ['未配置']}
-        onChange={(name) => {
-          const modelId = modelNameToId.get(name);
-          if (modelId) switchModel(modelId);
-        }}
-        icon={Cpu}
-        label="模型"
-      />
     </div>
   );
 }

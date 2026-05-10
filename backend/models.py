@@ -90,6 +90,7 @@ class DocumentInfo(BaseModel):
     page_count: int = 0
     wiki_pages: List[str] = []
     parse_status: str = "pending"  # pending, parsing, completed, failed
+    error_message: Optional[str] = None  # 解析失败时的错误信息
 
 
 class DocumentListResponse(BaseModel):

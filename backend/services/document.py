@@ -121,7 +121,8 @@ class DocumentService:
             file_size_mb=doc_info["file_size_mb"],
             page_count=doc_info["page_count"],
             wiki_pages=doc_info["wiki_pages"],
-            parse_status=doc_info["parse_status"]
+            parse_status=doc_info["parse_status"],
+            error_message=doc_info.get("error_message"),
         )
     
     @staticmethod
@@ -138,7 +139,8 @@ class DocumentService:
                 file_size_mb=doc_info["file_size_mb"],
                 page_count=doc_info.get("page_count", 0),
                 wiki_pages=doc_info.get("wiki_pages", []),
-                parse_status=doc_info.get("parse_status", "pending")
+                parse_status=doc_info.get("parse_status", "pending"),
+                error_message=doc_info.get("error_message"),
             ))
         
         return sorted(result, key=lambda x: x.uploaded_at, reverse=True)
@@ -223,7 +225,7 @@ class DocumentService:
         return True
     
     @staticmethod
-    async def update_parse_status(kb_id: str, doc_id: str, status: str, wiki_pages: List[str] = None, page_count: int = None):
+    async def update_parse_status(kb_id: str, doc_id: str, status: str, wiki_pages: List[str] = None, page_count: int = None, error_message: Optional[str] = None):
         """更新文档解析状态"""
         track = DocumentService._load_doc_track(kb_id)
         if doc_id in track.get("documents", {}):
@@ -232,6 +234,11 @@ class DocumentService:
                 track["documents"][doc_id]["wiki_pages"] = wiki_pages
             if page_count:
                 track["documents"][doc_id]["page_count"] = page_count
+            if error_message is not None:
+                track["documents"][doc_id]["error_message"] = error_message
+            elif status == "parsing" or status == "completed":
+                # 成功或重新开始解析时清理之前的错误
+                track["documents"][doc_id].pop("error_message", None)
             DocumentService._save_doc_track(kb_id, track)
             
             # 同步更新元信息

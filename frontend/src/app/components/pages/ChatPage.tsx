@@ -87,7 +87,8 @@ export default function ChatPage() {
         setIsLoading(false);
       }
     );
-    setIsLoading(false);
+    // 一秒后恢复发送能力（流式输出不阻止输入）
+    setTimeout(() => setIsLoading(false), 1000);
   };
 
   const allModels = providers.flatMap(p => p.models);
@@ -246,10 +247,15 @@ export default function ChatPage() {
             rows={2}
           />
           <div className="px-3 pb-3 flex items-center justify-between">
-            <span className="text-xs text-slate-400">Shift + Enter 换行</span>
+            <span className="text-xs text-slate-400">
+              {selectedKbs.length === 0
+                ? '← 请先在顶部选择知识库再发送'
+                : 'Shift + Enter 换行'}
+            </span>
             <button
               onClick={handleSend}
-              disabled={!input.trim()}
+              disabled={!input.trim() || selectedKbs.length === 0 || isLoading}
+              title={selectedKbs.length === 0 ? '请先选择至少一个知识库' : (isLoading ? '正在生成中...' : '')}
               className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
             >
               <Send className="w-3.5 h-3.5" />

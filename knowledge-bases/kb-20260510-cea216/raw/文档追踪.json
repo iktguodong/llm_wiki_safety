@@ -7,7 +7,8 @@
       "file_size_mb": 2.38,
       "page_count": 0,
       "wiki_pages": [],
-      "parse_status": "parsing"
+      "parse_status": "failed",
+      "error_message": "后端进程中断导致任务未完成；通常是因为 DeepSeek API Key 未配置。请在「设置」页填入 API Key 后，删除该文档重新上传。"
     }
   }
 }

@@ -46,7 +46,7 @@ class LLMService:
         Yields:
             流式输出文本片段
         """
-        model_id = model_id or config.get("current_model_id", "deepseek-chat")
+        model_id = model_id or config.get("current_model_id", "deepseek-v4-flash")
         model_config = self._get_model_config(model_id)
         
         if not model_config:
