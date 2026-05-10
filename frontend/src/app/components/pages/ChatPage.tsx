@@ -393,6 +393,11 @@ export default function ChatPage() {
 
       {/* Input area */}
       <div className="flex-shrink-0 px-6 pb-6">
+        <div className="mb-2 text-xs text-slate-400">
+          {selectedKbs.length === 0
+            ? (useWebSearch ? '已开启联网搜索，Shift + Enter 换行' : '直接使用模型问答，Shift + Enter 换行')
+            : (useWebSearch ? '基于知识库并结合联网搜索，Shift + Enter 换行' : '基于知识库问答，Shift + Enter 换行')}
+        </div>
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden transition-shadow hover:shadow-md focus-within:shadow-md focus-within:border-indigo-300">
           <textarea
             value={input}
@@ -429,11 +434,6 @@ export default function ChatPage() {
               </button>
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">
-              <span className="text-xs text-slate-400 text-right max-w-[320px]">
-                {selectedKbs.length === 0
-                  ? (useWebSearch ? '已开启联网搜索，Shift + Enter 换行' : '直接使用模型问答，Shift + Enter 换行')
-                  : (useWebSearch ? '基于知识库并结合联网搜索，Shift + Enter 换行' : '基于知识库问答，Shift + Enter 换行')}
-              </span>
               <button
                 onClick={handleSend}
                 disabled={!input.trim() || isLoading}
