@@ -16,7 +16,7 @@ const sourceOptions: { value: SourceType; label: string; desc: string; icon: Rea
 const contentFocusItems = ['理论知识', '操作流程', '案例分析', '法规条款', '应急处置'];
 
 export default function TrainingPage() {
-  const { knowledgeBases } = useApp();
+  const { knowledgeBases, providers } = useApp();
   const [step, setStep] = useState<Step>(1);
   const [sourceType, setSourceType] = useState<SourceType>('knowledge');
   const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
@@ -28,6 +28,18 @@ export default function TrainingPage() {
   const [progress, setProgress] = useState(0);
   const [outline, setOutline] = useState<TrainingOutline | null>(null);
   const [pptFile, setPptFile] = useState('');
+
+  // Step 2 受控表单 state
+  const [topic, setTopic] = useState('港口安全生产应急处置培训');
+  const [audience, setAudience] = useState('一线作业人员');
+  const [slideCount, setSlideCount] = useState(20);
+  const [duration, setDuration] = useState(60);
+  const [focusAreas, setFocusAreas] = useState<string[]>(['理论知识', '操作流程', '案例分析', '应急处置']);
+  const [template, setTemplate] = useState('公司标准模板');
+  const [modelId, setModelId] = useState<string>('');
+
+  // 模型名称 ↔ ID 映射
+  const allModels = providers.flatMap(p => p.models);
 
   const toggleKb = (kbId: string) => {
     setSelectedKbs(prev =>
@@ -290,7 +302,8 @@ export default function TrainingPage() {
                   <label className="block text-sm text-slate-600 mb-1.5">培训主题</label>
                   <input
                     type="text"
-                    defaultValue="港口安全生产应急处置培训"
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   />
                 </div>
@@ -298,7 +311,11 @@ export default function TrainingPage() {
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm text-slate-600 mb-1.5">目标受众</label>
-                    <select className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                    <select
+                      value={audience}
+                      onChange={(e) => setAudience(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                    >
                       <option>一线作业人员</option>
                       <option>安全管理人员</option>
                       <option>新员工</option>
@@ -309,7 +326,8 @@ export default function TrainingPage() {
                     <label className="block text-sm text-slate-600 mb-1.5">幻灯片数量</label>
                     <input
                       type="number"
-                      defaultValue={20}
+                      value={slideCount}
+                      onChange={(e) => setSlideCount(Number(e.target.value) || 0)}
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
@@ -317,7 +335,8 @@ export default function TrainingPage() {
                     <label className="block text-sm text-slate-600 mb-1.5">预计时长（分钟）</label>
                     <input
                       type="number"
-                      defaultValue={60}
+                      value={duration}
+                      onChange={(e) => setDuration(Number(e.target.value) || 0)}
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
@@ -330,7 +349,12 @@ export default function TrainingPage() {
                       <label key={item} className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
-                          defaultChecked={item !== '法规条款'}
+                          checked={focusAreas.includes(item)}
+                          onChange={(e) => {
+                            setFocusAreas(prev =>
+                              e.target.checked ? [...prev, item] : prev.filter(x => x !== item)
+                            );
+                          }}
                           className="w-3.5 h-3.5 rounded accent-indigo-600"
                         />
                         <span className="text-sm text-slate-700">{item}</span>
@@ -342,7 +366,11 @@ export default function TrainingPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-slate-600 mb-1.5">PPT 模板</label>
-                    <select className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                    <select
+                      value={template}
+                      onChange={(e) => setTemplate(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                    >
                       <option>公司标准模板</option>
                       <option>简约商务模板</option>
                       <option>安全教育模板</option>
@@ -350,10 +378,15 @@ export default function TrainingPage() {
                   </div>
                   <div>
                     <label className="block text-sm text-slate-600 mb-1.5">生成模型</label>
-                    <select className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-                      <option>DeepSeek V4 Pro</option>
-                      <option>DeepSeek V4 Flash</option>
-                      <option>GPT-4o</option>
+                    <select
+                      value={modelId}
+                      onChange={(e) => setModelId(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                    >
+                      <option value="">使用默认模型</option>
+                      {allModels.map(m => (
+                        <option key={m.id} value={m.id}>{m.name}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -373,16 +406,18 @@ export default function TrainingPage() {
                   setIsGenerating(true);
                   setProgress(30);
                   try {
-                    const sourceIds = sourceType === 'knowledge' ? selectedKbs : [];
+                    const sourceIds = sourceType === 'knowledge' ? selectedKbs : selectedDocs;
                     const res = await trainingApi.generateOutline(
                       sourceType,
                       sourceIds,
                       {
-                        topic: '港口安全生产应急处置培训',
-                        audience: '一线作业人员',
-                        duration: 60,
-                        slide_count: 20,
-                        focus_areas: ['理论知识', '操作流程', '案例分析'],
+                        topic,
+                        audience,
+                        duration,
+                        slide_count: slideCount,
+                        focus_areas: focusAreas,
+                        template,
+                        model_id: modelId || undefined,
                       }
                     );
                     setOutline(res);

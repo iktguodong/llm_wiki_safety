@@ -188,6 +188,7 @@ class SearchRequest(BaseModel):
 class SearchMatch(BaseModel):
     """搜索结果匹配项"""
     file: str
+    doc_id: str = ""  # 文档ID
     kb_id: str = ""  # 所属知识库ID
     page: int
     snippet: str

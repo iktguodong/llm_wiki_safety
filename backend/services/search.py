@@ -4,10 +4,11 @@
 """
 
 import re
+import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from backend.config import get_kb_raw_path
+from backend.config import get_kb_raw_path, get_kb_doc_track_path
 from backend.models import SearchRequest, SearchResult, SearchMatch
 
 
@@ -187,10 +188,21 @@ class SearchService:
             if not raw_path.exists():
                 continue
             
+            # 构建文件名 → doc_id 映射
+            file_to_doc = {}
+            track_path = get_kb_doc_track_path(kb_id)
+            if track_path.exists():
+                with open(track_path, "r", encoding="utf-8") as f:
+                    tracker = json.load(f)
+                for doc_id, info in tracker.get("documents", {}).items():
+                    file_to_doc[info.get("file", "")] = doc_id
+
             # 遍历所有文档
             for file_path in raw_path.iterdir():
                 if not file_path.is_file() or file_path.suffix == ".json":
                     continue
+                
+                doc_id = file_to_doc.get(file_path.name, "")
                 
                 # 提取文档内容
                 pages = SearchService._get_document_pages(file_path)
@@ -222,6 +234,7 @@ class SearchService:
                         
                         results.append(SearchMatch(
                             file=file_path.name,
+                            doc_id=doc_id,
                             kb_id=kb_id,
                             page=page["page"],
                             snippet=match["snippet"],

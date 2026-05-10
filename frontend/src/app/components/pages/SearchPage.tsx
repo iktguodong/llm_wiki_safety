@@ -16,6 +16,8 @@ const searchModes: { value: SearchMode; label: string }[] = [
   { value: 'regex', label: '正则' },
 ];
 
+const PAGE_SIZE = 10;
+
 export default function SearchPage({ openReader }: SearchPageProps) {
   const { knowledgeBases } = useApp();
   const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
@@ -24,6 +26,7 @@ export default function SearchPage({ openReader }: SearchPageProps) {
   const [results, setResults] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const toggleKb = (kbId: string) => {
     setSelectedKbs(prev =>
@@ -35,6 +38,7 @@ export default function SearchPage({ openReader }: SearchPageProps) {
     if (!query.trim()) return;
     setLoading(true);
     setShowResults(true);
+    setCurrentPage(1);
     try {
       const res = await searchApi.search({
         keyword: query,
@@ -43,7 +47,7 @@ export default function SearchPage({ openReader }: SearchPageProps) {
       });
       setResults(res);
     } catch (err) {
-      setResults({ query: '', total_matches: 0, results: [] });
+      setResults({ query: '', total_matches: 0, results: [], results_grouped: {} });
     } finally {
       setLoading(false);
     }
@@ -58,15 +62,27 @@ export default function SearchPage({ openReader }: SearchPageProps) {
     );
   };
 
-  // 使用后端返回的分组数据，将 kb_id 映射为知识库名称
-  const grouped = Object.entries(results?.results_grouped ?? {}).reduce<Record<string, SearchMatch[]>>(
-    (acc, [kbId, matches]) => {
-      const kbName = knowledgeBases.find(k => k.id === kbId)?.name || kbId || '未知知识库';
-      acc[kbName] = matches;
-      return acc;
-    },
-    {}
-  );
+  // 基于扁平列表做分页，然后再按 kb_id 分组展示
+  const flatResults = results?.results ?? [];
+  const totalPages = Math.max(1, Math.ceil(flatResults.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pageStart = (safePage - 1) * PAGE_SIZE;
+  const pageItems = flatResults.slice(pageStart, pageStart + PAGE_SIZE);
+
+  const grouped = pageItems.reduce<Record<string, SearchMatch[]>>((acc, match) => {
+    const kbName = knowledgeBases.find(k => k.id === match.kb_id)?.name || match.kb_id || '未知知识库';
+    if (!acc[kbName]) acc[kbName] = [];
+    acc[kbName].push(match);
+    return acc;
+  }, {});
+
+  // 计算分页按钮窗口（最多显示 5 个页码）
+  const pageNumbers: number[] = [];
+  const windowSize = 5;
+  let winStart = Math.max(1, safePage - Math.floor(windowSize / 2));
+  const winEnd = Math.min(totalPages, winStart + windowSize - 1);
+  winStart = Math.max(1, winEnd - windowSize + 1);
+  for (let i = winStart; i <= winEnd; i++) pageNumbers.push(i);
 
   return (
     <div className="h-full flex flex-col bg-slate-50">
@@ -198,8 +214,9 @@ export default function SearchPage({ openReader }: SearchPageProps) {
                       />
                       <div className="flex gap-4">
                         <button
-                          onClick={() => openReader && openReader(result.kb_id, result.file, result.file)}
-                          className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
+                          onClick={() => openReader && openReader(result.kb_id, result.doc_id, result.file)}
+                          disabled={!result.doc_id}
+                          className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors disabled:text-slate-300 disabled:cursor-not-allowed"
                         >
                           查看原文
                         </button>
@@ -214,26 +231,37 @@ export default function SearchPage({ openReader }: SearchPageProps) {
             ))}
 
             {/* Pagination */}
-            <div className="flex items-center justify-center gap-1 pt-2">
-              <button className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors">
-                上一页
-              </button>
-              {[1, 2, 3].map(p => (
+            {flatResults.length > PAGE_SIZE && (
+              <div className="flex items-center justify-center gap-1 pt-2">
                 <button
-                  key={p}
-                  className={`w-8 h-8 text-sm rounded-lg transition-colors ${
-                    p === 1
-                      ? 'bg-indigo-600 text-white'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  }`}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={safePage <= 1}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors disabled:text-slate-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
                 >
-                  {p}
+                  上一页
                 </button>
-              ))}
-              <button className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors">
-                下一页
-              </button>
-            </div>
+                {pageNumbers.map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setCurrentPage(p)}
+                    className={`w-8 h-8 text-sm rounded-lg transition-colors ${
+                      p === safePage
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={safePage >= totalPages}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors disabled:text-slate-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                >
+                  下一页
+                </button>
+              </div>
+            )}
           </div>
         )}
 

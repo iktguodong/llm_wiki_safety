@@ -57,11 +57,22 @@ function StatusDropdown({
 }
 
 export default function StatusBar() {
-  const { knowledgeBases, providers, currentKbId, currentModelId, setCurrentKbId, setCurrentModelId } = useApp();
+  const { knowledgeBases, providers, currentKbId, currentModelId, switchKnowledgeBase, switchModel } = useApp();
 
   const currentKb = knowledgeBases.find(k => k.id === currentKbId);
   const kbNames = knowledgeBases.map(k => k.name);
-  const allModels = providers.flatMap(p => p.models.map(m => m.name));
+
+  // 模型名称 ↔ ID 映射
+  const modelNameToId = new Map<string, string>();
+  const modelIdToName = new Map<string, string>();
+  for (const p of providers) {
+    for (const m of p.models) {
+      modelNameToId.set(m.name, m.id);
+      modelIdToName.set(m.id, m.name);
+    }
+  }
+  const modelNames = [...modelNameToId.keys()];
+  const currentModelName = modelIdToName.get(currentModelId) || currentModelId;
 
   return (
     <div className="h-9 bg-white border-t border-slate-200 px-5 flex items-center justify-between text-xs">
@@ -70,7 +81,7 @@ export default function StatusBar() {
         options={kbNames.length ? kbNames : ['未选择']}
         onChange={(name) => {
           const kb = knowledgeBases.find(k => k.name === name);
-          if (kb) setCurrentKbId(kb.id);
+          if (kb) switchKnowledgeBase(kb.id);
         }}
         icon={BookOpen}
         label="知识库"
@@ -80,9 +91,12 @@ export default function StatusBar() {
         <span className="text-slate-400">已就绪</span>
       </div>
       <StatusDropdown
-        value={currentModelId}
-        options={allModels.length ? allModels : ['未配置']}
-        onChange={setCurrentModelId}
+        value={currentModelName}
+        options={modelNames.length ? modelNames : ['未配置']}
+        onChange={(name) => {
+          const modelId = modelNameToId.get(name);
+          if (modelId) switchModel(modelId);
+        }}
         icon={Cpu}
         label="模型"
       />

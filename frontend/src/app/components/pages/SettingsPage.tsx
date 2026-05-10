@@ -31,12 +31,26 @@ function ModelSelect({ value, options, onChange }: { value: string; options: str
 }
 
 export default function SettingsPage() {
-  const { providers, currentModelId, setCurrentModelId } = useApp();
+  const { providers, modelRoles, updateModelRole } = useApp();
   const [storagePath] = useState('/Users/xxx/knowledge-bases');
   const [testing, setTesting] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState<string | null>(null);
 
-  const allModelNames = providers.flatMap(p => p.models.map(m => m.name));
+  // 模型名称 ↔ ID 映射
+  const allModels = providers.flatMap(p => p.models);
+  const allModelNames = allModels.map(m => m.name);
+  const nameToId = new Map(allModels.map(m => [m.name, m.id]));
+  const idToName = new Map(allModels.map(m => [m.id, m.name]));
+
+  const getRoleModelName = (role: string): string => {
+    const modelId = modelRoles[role];
+    return (modelId && idToName.get(modelId)) || allModelNames[0] || '';
+  };
+
+  const handleRoleChange = (role: string) => (name: string) => {
+    const modelId = nameToId.get(name);
+    if (modelId) updateModelRole(role, modelId);
+  };
 
   const handleTest = async (provider: ModelProvider) => {
     setTesting(prev => ({ ...prev, [provider.id]: true }));
@@ -142,13 +156,25 @@ export default function SettingsPage() {
           </div>
           <div className="px-6 py-2">
             <SettingRow label="文档解析模型">
-              <ModelSelect value={currentModelId} options={allModelNames} onChange={setCurrentModelId} />
+              <ModelSelect
+                value={getRoleModelName('doc_parse')}
+                options={allModelNames}
+                onChange={handleRoleChange('doc_parse')}
+              />
             </SettingRow>
             <SettingRow label="知识问答模型">
-              <ModelSelect value={currentModelId} options={allModelNames} onChange={setCurrentModelId} />
+              <ModelSelect
+                value={getRoleModelName('qa_chat')}
+                options={allModelNames}
+                onChange={handleRoleChange('qa_chat')}
+              />
             </SettingRow>
             <SettingRow label="PPT 生成模型">
-              <ModelSelect value={currentModelId} options={allModelNames} onChange={setCurrentModelId} />
+              <ModelSelect
+                value={getRoleModelName('ppt_gen')}
+                options={allModelNames}
+                onChange={handleRoleChange('ppt_gen')}
+              />
             </SettingRow>
           </div>
           <div className="mx-6 mb-4 mt-1 px-4 py-3 bg-blue-50 border border-blue-100 rounded-lg">
