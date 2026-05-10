@@ -6,7 +6,8 @@
 - FastAPI
 - Pydantic
 - PyMuPDF (PDF解析)
-- python-docx (Word解析)
+- python-docx (Word .docx 解析)
+- olefile (Word .doc 解析)
 - python-pptx (PPT生成)
 
 ## 目录结构
@@ -49,7 +50,7 @@ backend/
 | 方法 | 端点 | 说明 |
 |------|------|------|
 | GET | `/api/knowledge-bases/{id}/documents` | 列出文档 |
-| POST | `/api/knowledge-bases/{id}/documents` | 上传文档（自动解析） |
+| POST | `/api/knowledge-bases/{id}/documents` | 上传文档（支持 PDF、Word、TXT、Markdown，自动解析） |
 | GET | `/api/knowledge-bases/{id}/documents/{doc_id}/delete-preview` | 删除预览 |
 | DELETE | `/api/knowledge-bases/{id}/documents/{doc_id}` | 删除文档 |
 
@@ -98,3 +99,10 @@ uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 - **配置**: `~/.anniu/config.json`
 - **知识库**: `./knowledge-bases/`
 - **输出文件**: `./output/`
+
+### 支持的文档格式
+
+- PDF：仅支持可提取文字的文本版 PDF
+- Word：支持 `.docx` 和 `.doc`
+- 文本：支持 `.txt` 和 `.md`
+- 扫描版 PDF：不支持 OCR 兜底，会直接提示不支持

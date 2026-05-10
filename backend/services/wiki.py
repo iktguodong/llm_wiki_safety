@@ -14,6 +14,7 @@ from backend.config import (
     get_kb_doc_track_path, get_kb_meta_path
 )
 from backend.services.llm import llm_service
+from backend.services.text_extraction import extract_document_text
 
 
 # 加载AGENTS.md工作流规范
@@ -96,53 +97,9 @@ class WikiService:
         return stem in {"index", "log"}
     
     @staticmethod
-    def _extract_text_from_pdf(file_path: Path) -> str:
-        """从PDF提取文本"""
-        try:
-            import fitz  # PyMuPDF
-            text = ""
-            with fitz.open(file_path) as doc:
-                for page in doc:
-                    text += page.get_text() + "\n\n"
-            return text
-        except Exception as e:
-            return f"[PDF解析错误: {str(e)}]"
-    
-    @staticmethod
-    def _extract_text_from_docx(file_path: Path) -> str:
-        """从Word提取文本"""
-        try:
-            from docx import Document
-            doc = Document(file_path)
-            text = ""
-            for para in doc.paragraphs:
-                text += para.text + "\n"
-            return text
-        except Exception as e:
-            return f"[Word解析错误: {str(e)}]"
-    
-    @staticmethod
-    def _extract_text_from_markdown(file_path: Path) -> str:
-        """从Markdown读取文本"""
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                return f.read()
-        except Exception as e:
-            return f"[Markdown读取错误: {str(e)}]"
-    
-    @staticmethod
     async def extract_text(file_path: Path) -> str:
         """提取文档文本内容"""
-        suffix = file_path.suffix.lower()
-        
-        if suffix == ".pdf":
-            return WikiService._extract_text_from_pdf(file_path)
-        elif suffix in [".docx", ".doc"]:
-            return WikiService._extract_text_from_docx(file_path)
-        elif suffix in [".md", ".markdown"]:
-            return WikiService._extract_text_from_markdown(file_path)
-        else:
-            return f"[不支持的文件格式: {suffix}]"
+        return extract_document_text(file_path)
     
     @staticmethod
     async def parse_document(kb_id: str, doc_id: str, model_id: Optional[str] = None):
@@ -202,6 +159,13 @@ class WikiService:
                 return
 
             text = await WikiService.extract_text(file_path)
+
+            if not text.strip():
+                await doc_service.update_parse_status(
+                    kb_id, doc_id, "failed",
+                    error_message="文档未提取到可读文本，请确认文件内容不是空白"
+                )
+                return
 
             if text.startswith("[") and text.endswith("]") and len(text) < 200:
                 # 提取错误（形如 [PDF解析错误: ...]）

@@ -10,64 +10,11 @@ from typing import Dict, List, Optional
 
 from backend.config import get_kb_raw_path, get_kb_doc_track_path
 from backend.models import SearchRequest, SearchResult, SearchMatch
+from backend.services.text_extraction import extract_document_pages
 
 
 class SearchService:
     """检索服务"""
-    
-    @staticmethod
-    def _extract_text_from_pdf(file_path: Path) -> List[Dict]:
-        """从PDF提取按页分的文本"""
-        try:
-            import fitz
-            pages = []
-            with fitz.open(file_path) as doc:
-                for i, page in enumerate(doc):
-                    text = page.get_text()
-                    if text.strip():
-                        pages.append({
-                            "page": i + 1,
-                            "text": text
-                        })
-            return pages
-        except Exception as e:
-            return [{"page": 1, "text": f"[PDF解析错误: {str(e)}]"}]
-    
-    @staticmethod
-    def _extract_text_from_docx(file_path: Path) -> List[Dict]:
-        """从Word提取文本（按段落分）"""
-        try:
-            from docx import Document
-            doc = Document(file_path)
-            # 将所有段落合并为一个"页面"
-            text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
-            return [{"page": 1, "text": text}]
-        except Exception as e:
-            return [{"page": 1, "text": f"[Word解析错误: {str(e)}]"}]
-    
-    @staticmethod
-    def _extract_text_from_markdown(file_path: Path) -> List[Dict]:
-        """从Markdown读取文本"""
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                text = f.read()
-            return [{"page": 1, "text": text}]
-        except Exception as e:
-            return [{"page": 1, "text": f"[Markdown读取错误: {str(e)}]"}]
-    
-    @staticmethod
-    def _get_document_pages(file_path: Path) -> List[Dict]:
-        """获取文档的分页文本"""
-        suffix = file_path.suffix.lower()
-        
-        if suffix == ".pdf":
-            return SearchService._extract_text_from_pdf(file_path)
-        elif suffix in [".docx", ".doc"]:
-            return SearchService._extract_text_from_docx(file_path)
-        elif suffix in [".md", ".markdown"]:
-            return SearchService._extract_text_from_markdown(file_path)
-        else:
-            return [{"page": 1, "text": f"[不支持的格式: {suffix}]"}]
     
     @staticmethod
     def _fuzzy_search(text: str, keyword: str) -> List[Dict]:
@@ -113,11 +60,14 @@ class SearchService:
         # 确定搜索范围
         kb_ids = request.knowledge_base_ids if request.knowledge_base_ids else []
         
-        # 如果没有指定知识库，搜索所有知识库
+        # 如果没有指定知识库，不执行跨库搜索，直接返回空结果
         if not kb_ids:
-            from backend.config import KB_ROOT
-            if KB_ROOT.exists():
-                kb_ids = [d.name for d in KB_ROOT.iterdir() if d.is_dir()]
+            return SearchResult(
+                query=request.keyword,
+                total_matches=0,
+                results=[],
+                results_grouped={}
+            )
         
         for kb_id in kb_ids:
             raw_path = get_kb_raw_path(kb_id)
@@ -141,7 +91,7 @@ class SearchService:
                 doc_id = file_to_doc.get(file_path.name, "")
                 
                 # 提取文档内容
-                pages = SearchService._get_document_pages(file_path)
+                pages = extract_document_pages(file_path)
                 
                 for page in pages:
                     text = page["text"]

@@ -236,12 +236,12 @@ export default function TrainingPage() {
                     <Upload className={`w-5 h-5 ${isDragOver ? 'text-indigo-500' : 'text-slate-400'}`} />
                   </div>
                   <div className="text-sm text-slate-700" style={{ fontWeight: 500 }}>拖拽文件到此处，或点击选择</div>
-                  <div className="text-xs text-slate-400 mt-1">支持 PDF、Word、TXT，单文件最大 50 MB</div>
+                  <div className="text-xs text-slate-400 mt-1">支持 PDF、Word（.doc/.docx）、TXT、Markdown，单文件最大 50 MB；扫描版 PDF 不支持</div>
                   <input
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept=".pdf,.doc,.docx,.txt"
+                    accept=".pdf,.doc,.docx,.txt,.md,.markdown"
                     className="hidden"
                     onChange={handleFileSelect}
                   />

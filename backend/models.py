@@ -166,8 +166,9 @@ class ChatRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     
     question: str = Field(..., min_length=1, description="用户问题")
-    knowledge_base_ids: List[str] = Field(..., min_length=1, description="引用的知识库ID列表")
+    knowledge_base_ids: List[str] = Field(default_factory=list, description="引用的知识库ID列表")
     model_id: Optional[str] = None
+    use_web_search: bool = False
 
 
 class ChatResponse(BaseModel):

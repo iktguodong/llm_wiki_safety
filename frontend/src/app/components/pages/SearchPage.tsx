@@ -1,23 +1,95 @@
-import { useState } from 'react';
-import { Search as SearchIcon, X, FileText, Clock } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Search as SearchIcon, X, FileText, Clock, ChevronDown, Layers, History } from 'lucide-react';
+import * as Popover from '@radix-ui/react-popover';
 import { useApp } from '../../../lib/context';
 import { searchApi } from '../../../lib/api';
 import type { SearchResult, SearchMatch } from '../../../lib/types';
 
 interface SearchPageProps {
-  openReader?: (kbId: string, docId: string, docName: string) => void;
+  openReader?: (kbId: string, docId: string, docName: string, page?: number) => void;
 }
 
 const PAGE_SIZE = 10;
+const STORAGE_KEYS = {
+  state: 'search-page-state-v1',
+  history: 'search-page-history-v1',
+};
+
+type SearchState = {
+  query: string;
+  selectedKbs: string[];
+  results: SearchResult | null;
+  showResults: boolean;
+  currentPage: number;
+};
+
+type SearchHistoryItem = {
+  id: string;
+  query: string;
+  selectedKbs: string[];
+  totalMatches: number;
+  time: string;
+};
+
+function readLocal<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLocal<T>(key: string, value: T) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore
+  }
+}
 
 export default function SearchPage({ openReader }: SearchPageProps) {
   const { knowledgeBases } = useApp();
-  const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchResult | null>(null);
+  const [selectedKbs, setSelectedKbs] = useState<string[]>(() => readLocal<SearchState>(STORAGE_KEYS.state, {
+    query: '',
+    selectedKbs: [],
+    results: null,
+    showResults: false,
+    currentPage: 1,
+  }).selectedKbs);
+  const [query, setQuery] = useState(() => readLocal<SearchState>(STORAGE_KEYS.state, {
+    query: '',
+    selectedKbs: [],
+    results: null,
+    showResults: false,
+    currentPage: 1,
+  }).query);
+  const [results, setResults] = useState<SearchResult | null>(() => readLocal<SearchState>(STORAGE_KEYS.state, {
+    query: '',
+    selectedKbs: [],
+    results: null,
+    showResults: false,
+    currentPage: 1,
+  }).results);
   const [loading, setLoading] = useState(false);
-  const [showResults, setShowResults] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [showResults, setShowResults] = useState(() => readLocal<SearchState>(STORAGE_KEYS.state, {
+    query: '',
+    selectedKbs: [],
+    results: null,
+    showResults: false,
+    currentPage: 1,
+  }).showResults);
+  const [currentPage, setCurrentPage] = useState(() => readLocal<SearchState>(STORAGE_KEYS.state, {
+    query: '',
+    selectedKbs: [],
+    results: null,
+    showResults: false,
+    currentPage: 1,
+  }).currentPage);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>(
+    () => readLocal<SearchHistoryItem[]>(STORAGE_KEYS.history, [])
+  );
 
   const toggleKb = (kbId: string) => {
     setSelectedKbs(prev =>
@@ -25,21 +97,67 @@ export default function SearchPage({ openReader }: SearchPageProps) {
     );
   };
 
+  useEffect(() => {
+    if (selectedKbs.length === 0) {
+      setShowResults(false);
+      setResults(null);
+      setCurrentPage(1);
+    }
+  }, [selectedKbs.length]);
+
+  useEffect(() => {
+    writeLocal(STORAGE_KEYS.state, { query, selectedKbs, results, showResults, currentPage });
+  }, [query, selectedKbs, results, showResults, currentPage]);
+
+  useEffect(() => {
+    writeLocal(STORAGE_KEYS.history, searchHistory);
+  }, [searchHistory]);
+
   const handleSearch = async () => {
-    if (!query.trim()) return;
+    if (!query.trim() || selectedKbs.length === 0) return;
     setLoading(true);
     setShowResults(true);
     setCurrentPage(1);
     try {
       const res = await searchApi.search({
         keyword: query,
-        knowledge_base_ids: selectedKbs.length ? selectedKbs : undefined,
+        knowledge_base_ids: selectedKbs,
       });
       setResults(res);
+      setSearchHistory(prev => {
+        const next = [
+          {
+            id: `${Date.now()}`,
+            query,
+            selectedKbs: [...selectedKbs],
+            totalMatches: res.total_matches,
+            time: new Date().toLocaleString(),
+          },
+          ...prev.filter(item => item.query !== query || item.selectedKbs.join(',') !== selectedKbs.join(',')),
+        ];
+        return next.slice(0, 12);
+      });
     } catch (err) {
       setResults({ query: '', total_matches: 0, results: [], results_grouped: {} });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const restoreHistory = async (item: SearchHistoryItem) => {
+    setSelectedKbs(item.selectedKbs);
+    setQuery(item.query);
+    setShowResults(true);
+    setCurrentPage(1);
+    setHistoryOpen(false);
+    try {
+      const res = await searchApi.search({
+        keyword: item.query,
+        knowledge_base_ids: item.selectedKbs,
+      });
+      setResults(res);
+    } catch {
+      // keep current state
     }
   };
 
@@ -77,53 +195,74 @@ export default function SearchPage({ openReader }: SearchPageProps) {
   return (
     <div className="h-full flex flex-col bg-slate-50">
       {/* Header */}
-      <div className="flex-shrink-0 bg-white border-b border-slate-200 px-8 py-5">
-        <h1 className="text-slate-900">原文检索</h1>
-        <p className="text-sm text-slate-500 mt-0.5">在知识库文档中精确搜索原文内容</p>
+      <div className="flex-shrink-0 bg-white border-b border-slate-200 px-8 py-5 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-slate-900">原文检索</h1>
+          <p className="text-sm text-slate-500 mt-0.5">在选定知识库文档中搜索原文内容</p>
+        </div>
+        <Popover.Root open={historyOpen} onOpenChange={setHistoryOpen}>
+          <Popover.Trigger asChild>
+            <button className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+              <History className="w-4 h-4" />
+              历史记录
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              align="end"
+              sideOffset={8}
+              className="z-50 w-96 rounded-xl border border-slate-200 bg-white p-3 shadow-lg"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-medium text-slate-800">搜索历史</div>
+                <button
+                  onClick={() => setSearchHistory([])}
+                  className="text-xs text-slate-400 hover:text-slate-600"
+                >
+                  清空
+                </button>
+              </div>
+              <div className="max-h-72 overflow-auto space-y-2">
+                {searchHistory.length > 0 ? searchHistory.map(item => {
+                  const kbNames = item.selectedKbs
+                    .map(id => knowledgeBases.find(k => k.id === id)?.name || id)
+                    .join('、');
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => restoreHistory(item)}
+                      className="w-full text-left rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="text-sm text-slate-800 truncate">{item.query}</div>
+                      <div className="mt-1 text-xs text-slate-400 flex items-center justify-between gap-2">
+                        <span className="truncate">{kbNames || '未选择知识库'}</span>
+                        <span className="flex-shrink-0">{item.totalMatches} 条 · {item.time}</span>
+                      </div>
+                    </button>
+                  );
+                }) : (
+                  <div className="py-8 text-center text-sm text-slate-400">暂无搜索历史</div>
+                )}
+              </div>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-auto px-8 py-6">
         {/* Search panel */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6 shadow-sm">
-          {/* KB selection */}
-          <div className="mb-5">
-            <div className="text-sm text-slate-600 mb-3">搜索范围</div>
-            <div className="flex flex-wrap gap-2">
-              {knowledgeBases.map(kb => (
-                <button
-                  key={kb.id}
-                  onClick={() => toggleKb(kb.id)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border transition-all ${
-                    selectedKbs.includes(kb.id)
-                      ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                      : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                  }`}
-                >
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      selectedKbs.includes(kb.id) ? 'bg-indigo-500' : 'bg-slate-300'
-                    }`}
-                  />
-                  {kb.name}
-                  <span className={`text-xs ${selectedKbs.includes(kb.id) ? 'text-indigo-400' : 'text-slate-400'}`}>
-                    {kb.document_count}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Search input */}
-          <div className="relative mb-5">
-            <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <div className="relative">
+            <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               placeholder="输入关键词搜索，如：应急响应流程"
-              className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-700 placeholder-slate-400"
+              className="w-full pl-11 pr-10 py-3.5 border border-slate-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-700 placeholder-slate-400"
             />
             {query && (
               <button
@@ -135,12 +274,82 @@ export default function SearchPage({ openReader }: SearchPageProps) {
             )}
           </div>
 
+          {/* Search scope */}
+          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm text-slate-700" style={{ fontWeight: 500 }}>搜索范围</div>
+              </div>
+              <Popover.Root>
+                <Popover.Trigger asChild>
+                  <button className="flex items-center gap-2 px-3 py-2 text-sm text-indigo-600 border border-indigo-200 rounded-lg bg-white hover:bg-indigo-50 transition-colors">
+                    <Layers className="w-4 h-4" />
+                    选择知识库
+                    <ChevronDown className="w-3.5 h-3.5 text-indigo-400" />
+                  </button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content
+                    sideOffset={8}
+                    align="end"
+                    className="z-50 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-lg"
+                  >
+                    {knowledgeBases.length > 0 ? (
+                      <div className="max-h-64 overflow-auto">
+                        {knowledgeBases.map(kb => {
+                          const isSelected = selectedKbs.includes(kb.id);
+                          return (
+                            <button
+                              key={kb.id}
+                              onClick={() => toggleKb(kb.id)}
+                              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
+                                isSelected ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700'
+                              }`}
+                            >
+                              <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-indigo-500' : 'bg-slate-300'}`} />
+                              <span className="flex-1 text-sm">{kb.name}</span>
+                              <span className="text-xs text-slate-400">{kb.document_count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="px-3 py-4 text-center text-sm text-slate-400">暂无可选知识库</div>
+                    )}
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+            </div>
+            <div className="mt-3">
+              {selectedKbs.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {selectedKbs.map(kbId => {
+                    const kb = knowledgeBases.find(item => item.id === kbId);
+                    return kb ? (
+                      <button
+                        key={kb.id}
+                        onClick={() => toggleKb(kb.id)}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
+                      >
+                        <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                        {kb.name}
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    ) : null;
+                  })}
+                </div>
+              ) : (
+                <div className="text-xs text-slate-400">当前未选择知识库，请先选择范围后再搜索。</div>
+              )}
+            </div>
+          </div>
+
           {/* Search action */}
-          <div className="flex items-center justify-end">
+          <div className="flex items-center justify-end mt-5">
             <button
               onClick={handleSearch}
-              disabled={!query.trim()}
-              className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              disabled={!query.trim() || selectedKbs.length === 0}
+              className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <SearchIcon className="w-3.5 h-3.5" />
               搜索
@@ -189,7 +398,7 @@ export default function SearchPage({ openReader }: SearchPageProps) {
                       />
                       <div className="flex gap-4">
                         <button
-                          onClick={() => openReader && openReader(result.kb_id, result.doc_id, result.file)}
+                          onClick={() => openReader && openReader(result.kb_id, result.doc_id, result.file, result.page)}
                           disabled={!result.doc_id}
                           className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors disabled:text-slate-300 disabled:cursor-not-allowed"
                         >

@@ -5,7 +5,7 @@ import { kbApi, docApi, wikiApi } from '../../../lib/api';
 import type { KnowledgeBase, DocumentInfo } from '../../../lib/types';
 
 interface KnowledgeBasePageProps {
-  openReader?: (kbId: string, docId: string, docName: string) => void;
+  openReader?: (kbId: string, docId: string, docName: string, page?: number) => void;
 }
 
 export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps) {
@@ -173,23 +173,28 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
               {isExpanded && (
                 <div className="border-t border-slate-100 px-6 py-5">
                   {/* Document list header */}
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-sm text-slate-600">文档列表（{kbDocs.length}）</span>
-                    <label className={`flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer ${uploading ? 'opacity-50' : ''}`}>
-                      <Upload className="w-3.5 h-3.5" />
-                      添加文档
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.doc,.docx,.txt,.md"
-                        disabled={uploading}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleUpload(kb.id, file);
-                          e.target.value = '';
-                        }}
-                      />
-                    </label>
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-sm text-slate-600">文档列表（{kbDocs.length}）</span>
+                      <label className={`flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer ${uploading ? 'opacity-50' : ''}`}>
+                        <Upload className="w-3.5 h-3.5" />
+                        添加文档
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept=".pdf,.doc,.docx,.txt,.md,.markdown"
+                          disabled={uploading}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleUpload(kb.id, file);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-400">
+                      支持 PDF、Word（.doc/.docx）、TXT、Markdown；扫描版 PDF 不支持
+                    </p>
                   </div>
 
                   {kbDocs.length > 0 ? (
@@ -227,7 +232,7 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
                           </div>
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
-                              onClick={() => openReader && openReader(kb.id, doc.id, doc.file)}
+                              onClick={() => openReader && openReader(kb.id, doc.id, doc.file, 1)}
                               title="查看原文"
                               className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                             >

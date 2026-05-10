@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, X, ChevronDown, Bot, User, Layers } from 'lucide-react';
+import { Send, X, ChevronDown, Bot, User, Layers, History, Plus, Globe } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { useApp } from '../../../lib/context';
 import { chatApi } from '../../../lib/api';
@@ -9,9 +9,6 @@ const initialMessages = [
   {
     role: 'assistant',
     content: `你好！我是安牛知识助手，可以帮助你查询企业安全知识。
-
-**工作机制**：基于知识库提问时，我会优先读取 wiki/index.md 索引了解知识库结构，再结合相关 Wiki 页面为你回答。
-
 你可以这样问我：
 • 港口火灾应急响应流程是什么？
 • 淹溺事故的现场处置方法有哪些？
@@ -20,19 +17,92 @@ const initialMessages = [
   },
 ];
 
+function normalizeAssistantText(text: string) {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\[\[([^\]]+)\]\]/g, '$1')
+    .replace(/\(\s*来源:\s*([^)]+)\s*\)/g, '来源：$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+const STORAGE_KEYS = {
+  current: 'chat-current-state-v1',
+  history: 'chat-history-v1',
+};
+
+type ChatSession = {
+  id: string;
+  messages: typeof initialMessages;
+  selectedKbs: string[];
+  modelId: string;
+  useWebSearch: boolean;
+  title: string;
+  time: string;
+};
+
+function readLocal<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLocal<T>(key: string, value: T) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore
+  }
+}
+
+function preview(text: string, max = 28) {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+}
+
 export default function ChatPage() {
   const { knowledgeBases, providers, currentModelId } = useApp();
-  const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
-  const [selectedModelId, setSelectedModelId] = useState(currentModelId);
+  const [selectedKbs, setSelectedKbs] = useState<string[]>(() => readLocal(STORAGE_KEYS.current, {
+    messages: initialMessages,
+    selectedKbs: [],
+    modelId: currentModelId,
+  }).selectedKbs);
+  const [selectedModelId, setSelectedModelId] = useState(() => readLocal(STORAGE_KEYS.current, {
+    messages: initialMessages,
+    selectedKbs: [],
+    modelId: currentModelId,
+    useWebSearch: false,
+  }).modelId || currentModelId);
   const [modelOpen, setModelOpen] = useState(false);
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState(initialMessages);
+  const [messages, setMessages] = useState(() => readLocal(STORAGE_KEYS.current, {
+    messages: initialMessages,
+    selectedKbs: [],
+    modelId: currentModelId,
+    useWebSearch: false,
+  }).messages || initialMessages);
   const [isLoading, setIsLoading] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [chatHistory, setChatHistory] = useState<ChatSession[]>(() => readLocal(STORAGE_KEYS.history, []));
+  const [useWebSearch, setUseWebSearch] = useState(() => readLocal(STORAGE_KEYS.current, {
+    messages: initialMessages,
+    selectedKbs: [],
+    modelId: currentModelId,
+    useWebSearch: false,
+  }).useWebSearch ?? false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef(messages);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
   }, [messages]);
 
   useEffect(() => {
@@ -47,14 +117,36 @@ export default function ChatPage() {
     setSelectedModelId(currentModelId);
   }, [currentModelId]);
 
+  useEffect(() => {
+    writeLocal(STORAGE_KEYS.current, { messages, selectedKbs, modelId: selectedModelId, useWebSearch });
+  }, [messages, selectedKbs, selectedModelId, useWebSearch]);
+
+  useEffect(() => {
+    writeLocal(STORAGE_KEYS.history, chatHistory);
+  }, [chatHistory]);
+
   const toggleKb = (kbId: string) => {
     setSelectedKbs(prev =>
       prev.includes(kbId) ? prev.filter(id => id !== kbId) : [...prev, kbId]
     );
   };
 
+  const newConversation = () => {
+    setMessages(initialMessages);
+    setInput('');
+    setHistoryOpen(false);
+  };
+
+  const restoreSession = (session: ChatSession) => {
+    setMessages(session.messages);
+    setSelectedKbs(session.selectedKbs);
+    setSelectedModelId(session.modelId || currentModelId);
+    setUseWebSearch(session.useWebSearch ?? false);
+    setHistoryOpen(false);
+  };
+
   const handleSend = () => {
-    if (!input.trim() || selectedKbs.length === 0 || isLoading) return;
+    if (!input.trim() || isLoading) return;
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const question = input;
@@ -66,7 +158,7 @@ export default function ChatPage() {
     setMessages(prev => [...prev, { role: 'assistant', content: '', time }]);
 
     chatApi.ask(
-      { question, knowledge_base_ids: selectedKbs, model_id: selectedModelId },
+      { question, knowledge_base_ids: selectedKbs, model_id: selectedModelId, use_web_search: useWebSearch },
       (chunk) => {
         setMessages(prev => {
           const last = prev[prev.length - 1];
@@ -85,6 +177,27 @@ export default function ChatPage() {
           return prev;
         });
         setIsLoading(false);
+      },
+      () => {
+        setTimeout(() => {
+          const snapshotMessages = messagesRef.current;
+          setChatHistory(prev => {
+            const snapshot: ChatSession = {
+              id: `${Date.now()}`,
+              messages: snapshotMessages,
+              selectedKbs: [...selectedKbs],
+              modelId: selectedModelId,
+              useWebSearch,
+              title: preview(question),
+              time,
+            };
+            const next = [
+              snapshot,
+              ...prev.filter(item => item.title !== snapshot.title || item.time !== snapshot.time),
+            ];
+            return next.slice(0, 12);
+          });
+        }, 0);
       }
     );
     // 一秒后恢复发送能力（流式输出不阻止输入）
@@ -101,96 +214,144 @@ export default function ChatPage() {
   return (
     <div className="h-full flex flex-col bg-slate-50">
       {/* Top config bar */}
-      <div className="flex-shrink-0 bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-4">
-        {/* Knowledge base selector */}
-        <Popover.Root>
-          <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-slate-400" />
-            <span className="text-sm text-slate-500">引用知识库</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {selectedKbs.map(kbId => {
-              const kb = knowledgeBases.find(k => k.id === kbId);
-              return kb ? (
-                <div
-                  key={kbId}
-                  className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md text-xs"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0"></span>
-                  <span>{kb.name}</span>
-                  <button
-                    onClick={() => toggleKb(kbId)}
-                    className="ml-0.5 text-indigo-400 hover:text-indigo-600 transition-colors"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ) : null;
-            })}
-            <Popover.Trigger className="px-2.5 py-1 text-xs text-slate-500 border border-dashed border-slate-300 rounded-md hover:border-indigo-400 hover:text-indigo-600 transition-colors">
-              + 添加
-            </Popover.Trigger>
-          </div>
-          <Popover.Portal>
-            <Popover.Content
-              align="start"
-              sideOffset={6}
-              className="bg-white rounded-xl shadow-lg border border-slate-200 p-1.5 w-52 z-50"
-            >
-              {knowledgeBases.map(kb => (
-                <label
-                  key={kb.id}
-                  className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-lg cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedKbs.includes(kb.id)}
-                    onChange={() => toggleKb(kb.id)}
-                    className="w-3.5 h-3.5 rounded accent-indigo-600"
-                  />
-                  <span className="flex-1 text-sm text-slate-700">{kb.name}</span>
-                  <span className="text-xs text-slate-400">{kb.wiki_page_count}页</span>
-                </label>
-              ))}
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-
-        <div className="h-4 w-px bg-slate-200"></div>
-
-        {/* Model selector */}
-        <div ref={modelRef} className="relative flex items-center gap-2">
-          <span className="text-sm text-slate-500">模型</span>
-          <button
-            onClick={() => setModelOpen(!modelOpen)}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-slate-200 rounded-md hover:border-slate-300 text-slate-700 transition-colors"
-          >
-            <span>{currentModelName}</span>
-            <ChevronDown className="w-3 h-3 text-slate-400" />
-          </button>
-          {modelOpen && (
-            <div className="absolute top-full mt-1.5 left-0 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50 min-w-[180px]">
-              {allModels.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => { setSelectedModelId(m.id); setModelOpen(false); }}
-                  className={`w-full text-left px-3 py-1.5 text-sm transition-colors hover:bg-slate-50 ${
-                    m.id === selectedModelId ? 'text-indigo-600' : 'text-slate-700'
-                  }`}
-                >
-                  {m.name}
-                </button>
-              ))}
+      <div className="flex-shrink-0 bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4 min-w-0 flex-1">
+          <Popover.Root>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Layers className="w-4 h-4 text-slate-400" />
+              <span className="text-sm text-slate-500">引用知识库</span>
             </div>
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              {selectedKbs.map(kbId => {
+                const kb = knowledgeBases.find(k => k.id === kbId);
+                return kb ? (
+                  <div
+                    key={kbId}
+                    className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md text-xs"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0"></span>
+                    <span>{kb.name}</span>
+                    <button
+                      onClick={() => toggleKb(kbId)}
+                      className="ml-0.5 text-indigo-400 hover:text-indigo-600 transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : null;
+              })}
+              <Popover.Trigger className="px-2.5 py-1 text-xs text-slate-500 border border-dashed border-slate-300 rounded-md hover:border-indigo-400 hover:text-indigo-600 transition-colors">
+                + 添加
+              </Popover.Trigger>
+            </div>
+            <Popover.Portal>
+              <Popover.Content
+                align="start"
+                sideOffset={6}
+                className="bg-white rounded-xl shadow-lg border border-slate-200 p-1.5 w-52 z-50"
+              >
+                {knowledgeBases.map(kb => (
+                  <label
+                    key={kb.id}
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-lg cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedKbs.includes(kb.id)}
+                      onChange={() => toggleKb(kb.id)}
+                      className="w-3.5 h-3.5 rounded accent-indigo-600"
+                    />
+                    <span className="flex-1 text-sm text-slate-700">{kb.name}</span>
+                    <span className="text-xs text-slate-400">{kb.wiki_page_count}页</span>
+                  </label>
+                ))}
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+
+          <div className="h-4 w-px bg-slate-200 flex-shrink-0"></div>
+
+          <div ref={modelRef} className="relative flex items-center gap-2 flex-shrink-0">
+            <span className="text-sm text-slate-500">模型</span>
+            <button
+              onClick={() => setModelOpen(!modelOpen)}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-slate-200 rounded-md hover:border-slate-300 text-slate-700 transition-colors"
+            >
+              <span>{currentModelName}</span>
+              <ChevronDown className="w-3 h-3 text-slate-400" />
+            </button>
+            {modelOpen && (
+              <div className="absolute top-full mt-1.5 left-0 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50 min-w-[180px]">
+                {allModels.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => { setSelectedModelId(m.id); setModelOpen(false); }}
+                    className={`w-full text-left px-3 py-1.5 text-sm transition-colors hover:bg-slate-50 ${
+                      m.id === selectedModelId ? 'text-indigo-600' : 'text-slate-700'
+                    }`}
+                  >
+                    {m.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {selectedKbs.length > 0 && (
+            <>
+              <div className="h-4 w-px bg-slate-200 flex-shrink-0"></div>
+              <span className="text-xs text-slate-400 flex-shrink-0">共 {totalPages} 个知识页面</span>
+            </>
           )}
         </div>
 
-        {selectedKbs.length > 0 && (
-          <>
-            <div className="h-4 w-px bg-slate-200"></div>
-            <span className="text-xs text-slate-400">共 {totalPages} 个知识页面</span>
-          </>
-        )}
+        <Popover.Root open={historyOpen} onOpenChange={setHistoryOpen}>
+          <Popover.Trigger asChild>
+            <button className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors flex-shrink-0">
+              <History className="w-4 h-4" />
+              历史记录
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              align="end"
+              sideOffset={8}
+              className="z-50 w-96 rounded-xl border border-slate-200 bg-white p-3 shadow-lg"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-medium text-slate-800">对话历史</div>
+                <button
+                  onClick={() => setChatHistory([])}
+                  className="text-xs text-slate-400 hover:text-slate-600"
+                >
+                  清空
+                </button>
+              </div>
+              <div className="max-h-72 overflow-auto space-y-2">
+                {chatHistory.length > 0 ? chatHistory.map(session => (
+                  <button
+                    key={session.id}
+                    onClick={() => restoreSession(session)}
+                    className="w-full text-left rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="text-sm text-slate-800 truncate">{session.title}</div>
+                    <div className="mt-1 text-xs text-slate-400 flex items-center justify-between gap-2">
+                      <span className="truncate">
+                        {[
+                          session.selectedKbs.map(id => knowledgeBases.find(k => k.id === id)?.name || id).join('、') || '纯模型问答',
+                          session.useWebSearch ? '联网搜索' : '',
+                        ].filter(Boolean).join(' · ')}
+                      </span>
+                      <span className="flex-shrink-0">{session.time}</span>
+                    </div>
+                  </button>
+                )) : (
+                  <div className="py-8 text-center text-sm text-slate-400">暂无对话历史</div>
+                )}
+              </div>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
       </div>
 
       {/* Messages */}
@@ -222,7 +383,7 @@ export default function ChatPage() {
                     : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
                 }`}
               >
-                {msg.content}
+                {msg.role === 'assistant' ? normalizeAssistantText(msg.content) : msg.content}
               </div>
             </div>
           </div>
@@ -246,21 +407,43 @@ export default function ChatPage() {
             className="w-full px-4 pt-4 pb-2 resize-none outline-none text-sm text-slate-700 placeholder-slate-400 bg-transparent"
             rows={2}
           />
-          <div className="px-3 pb-3 flex items-center justify-between">
-            <span className="text-xs text-slate-400">
-              {selectedKbs.length === 0
-                ? '← 请先在顶部选择知识库再发送'
-                : 'Shift + Enter 换行'}
-            </span>
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || selectedKbs.length === 0 || isLoading}
-              title={selectedKbs.length === 0 ? '请先选择至少一个知识库' : (isLoading ? '正在生成中...' : '')}
-              className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
-            >
-              <Send className="w-3.5 h-3.5" />
-              发送
-            </button>
+          <div className="px-3 pb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
+              <button
+                onClick={() => setUseWebSearch(prev => !prev)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                  useWebSearch
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                    : 'text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                联网搜索
+              </button>
+              <button
+                onClick={newConversation}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                新建对话
+              </button>
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <span className="text-xs text-slate-400 text-right max-w-[320px]">
+                {selectedKbs.length === 0
+                  ? (useWebSearch ? '已开启联网搜索，Shift + Enter 换行' : '直接使用模型问答，Shift + Enter 换行')
+                  : (useWebSearch ? '基于知识库并结合联网搜索，Shift + Enter 换行' : '基于知识库问答，Shift + Enter 换行')}
+              </span>
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || isLoading}
+                title={isLoading ? '正在生成中...' : ''}
+                className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
+              >
+                <Send className="w-3.5 h-3.5" />
+                发送
+              </button>
+            </div>
           </div>
         </div>
       </div>

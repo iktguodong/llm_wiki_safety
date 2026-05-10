@@ -36,6 +36,7 @@ from backend.services.chat import chat_service
 from backend.services.search import search_service
 from backend.services.training import training_service
 from backend.services.llm import llm_service
+from backend.services.text_extraction import SUPPORTED_TEXT_EXTENSIONS, extract_document_pages
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -164,6 +165,13 @@ async def upload_document(kb_id: str, file: UploadFile = File(...)):
     # 检查文件名
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
+
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in SUPPORTED_TEXT_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="暂不支持该文件类型，请上传 PDF、Word（.doc/.docx）、TXT 或 Markdown 文件"
+        )
     
     # 读取文件内容
     content = await file.read()
@@ -203,8 +211,7 @@ async def delete_document(kb_id: str, doc_id: str, delete_wiki: bool = False):
 async def get_document_content(kb_id: str, doc_id: str, page: int = 1):
     """获取文档内容（分页）"""
     from backend.config import get_kb_raw_path
-    from backend.services.search import SearchService
-    
+
     raw_path = get_kb_raw_path(kb_id)
     # 通过文档追踪找到文件名
     track = doc_service._load_doc_track(kb_id)
@@ -214,7 +221,7 @@ async def get_document_content(kb_id: str, doc_id: str, page: int = 1):
     if not doc_file or not doc_file.exists():
         raise HTTPException(status_code=404, detail="文档不存在")
     
-    pages = SearchService._get_document_pages(doc_file)
+    pages = extract_document_pages(doc_file)
     total_pages = len(pages)
     
     if page < 1 or page > total_pages:
@@ -301,7 +308,8 @@ async def chat(data: ChatRequest):
         async for chunk in chat_service.ask(
             data.question,
             data.knowledge_base_ids,
-            data.model_id
+            data.model_id,
+            data.use_web_search
         ):
             yield chunk
     
@@ -314,7 +322,8 @@ async def chat_sync(data: ChatRequest):
     answer = await chat_service.ask_sync(
         data.question,
         data.knowledge_base_ids,
-        data.model_id
+        data.model_id,
+        data.use_web_search
     )
     return ApiResponse(data=ChatResponse(answer=answer))
 

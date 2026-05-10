@@ -15,6 +15,7 @@ interface ReaderContext {
   kbId: string;
   docId: string;
   docName: string;
+  page?: number;
 }
 
 function AppInner() {
@@ -22,8 +23,8 @@ function AppInner() {
   const [readerCtx, setReaderCtx] = useState<ReaderContext | null>(null);
 
   /** 展开阅读器 */
-  const openReader = (kbId: string, docId: string, docName: string) => {
-    setReaderCtx({ kbId, docId, docName });
+  const openReader = (kbId: string, docId: string, docName: string, page = 1) => {
+    setReaderCtx({ kbId, docId, docName, page });
   };
 
   /** 关闭阅读器，返回之前页面 */
@@ -39,6 +40,7 @@ function AppInner() {
           kbId={readerCtx.kbId}
           docId={readerCtx.docId}
           docName={readerCtx.docName}
+          initialPage={readerCtx.page ?? 1}
           onBack={closeReader}
         />
       );

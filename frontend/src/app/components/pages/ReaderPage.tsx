@@ -21,6 +21,7 @@ interface ReaderPageProps {
   kbId: string;
   docId: string;
   docName: string;
+  initialPage?: number;
   onBack?: () => void;
 }
 
@@ -39,10 +40,10 @@ const HIGHLIGHT_COLORS = [
   { label: '粉色', value: 'bg-pink-200 text-pink-900' },
 ];
 
-export default function ReaderPage({ kbId, docId, docName, onBack }: ReaderPageProps) {
+export default function ReaderPage({ kbId, docId, docName, initialPage = 1, onBack }: ReaderPageProps) {
   const [content, setContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(initialPage);
   const [totalPages, setTotalPages] = useState(0);
   const [fileName, setFileName] = useState(docName);
 
@@ -85,6 +86,10 @@ export default function ReaderPage({ kbId, docId, docName, onBack }: ReaderPageP
       // 忽略高亮加载错误
     }
   }, [kbId, docId]);
+
+  useEffect(() => {
+    setCurrentPage(initialPage);
+  }, [initialPage, kbId, docId]);
 
   useEffect(() => {
     loadDocument(currentPage);
