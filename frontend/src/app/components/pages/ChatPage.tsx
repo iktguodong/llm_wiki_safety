@@ -15,12 +15,12 @@ import {
   MoreHorizontal,
   Eraser,
   MessageSquare,
+  Trash2,
 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { useApp } from '../../../lib/context';
 import { chatApi } from '../../../lib/api';
 import type { KnowledgeBase } from '../../../lib/types';
-import type { AssistantDefinition } from '../../data/assistants';
 
 const initialMessages = [
   {
@@ -45,7 +45,7 @@ function normalizeAssistantText(text: string) {
 
 const STORAGE_KEYS = {
   current: 'chat-current-state-v1',
-  history: 'chat-history-v1',
+  history: 'chat-history-v2',
 };
 
 type ChatSession = {
@@ -54,16 +54,10 @@ type ChatSession = {
   selectedKbs: string[];
   modelId: string;
   useWebSearch: boolean;
-  assistantId?: string | null;
-  assistantName?: string;
   contextCleared: boolean;
   title: string;
   time: string;
 };
-
-interface ChatPageProps {
-  activeAssistant?: AssistantDefinition | null;
-}
 
 function readLocal<T>(key: string, fallback: T): T {
   try {
@@ -87,7 +81,7 @@ function preview(text: string, max = 28) {
   return clean.length > max ? `${clean.slice(0, max)}…` : clean;
 }
 
-export default function ChatPage({ activeAssistant }: ChatPageProps) {
+export default function ChatPage() {
   const { knowledgeBases, providers, currentModelId } = useApp();
   const [selectedKbs, setSelectedKbs] = useState<string[]>(() => readLocal(STORAGE_KEYS.current, {
     messages: initialMessages,
@@ -155,10 +149,9 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
       selectedKbs,
       modelId: selectedModelId,
       useWebSearch,
-      assistantId: activeAssistant?.id ?? null,
       contextCleared,
     });
-  }, [messages, selectedKbs, selectedModelId, useWebSearch, activeAssistant, contextCleared]);
+  }, [messages, selectedKbs, selectedModelId, useWebSearch, contextCleared]);
 
   useEffect(() => {
     writeLocal(STORAGE_KEYS.history, chatHistory);
@@ -170,12 +163,39 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
     );
   };
 
-  const newConversation = () => {
+  const resetCurrentConversation = () => {
     setMessages(initialMessages);
     setInput('');
     setContextCleared(false);
     setCurrentSessionTitle('当前对话');
+  };
+
+  const newConversation = () => {
+    const hasUserMessage = messagesRef.current.some(message => message.role === 'user');
+    if (hasUserMessage) {
+      const lastMessage = [...messagesRef.current].reverse().find(message => message.role === 'assistant' || message.role === 'user');
+      const sessionTitle = currentSessionTitle !== '当前对话' ? currentSessionTitle : preview(messagesRef.current.find(message => message.role === 'user')?.content || '当前对话');
+      const snapshot: ChatSession = {
+        id: `${Date.now()}`,
+        messages: [...messagesRef.current],
+        selectedKbs: [...selectedKbs],
+        modelId: selectedModelId,
+        useWebSearch,
+        contextCleared,
+        title: sessionTitle,
+        time: lastMessage?.time || `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`,
+      };
+      setChatHistory(prev => [
+        snapshot,
+        ...prev.filter(item => item.id !== snapshot.id),
+      ].slice(0, 12));
+    }
+    resetCurrentConversation();
     setHistoryOpen(false);
+  };
+
+  const deleteSession = (sessionId: string) => {
+    setChatHistory(prev => prev.filter(session => session.id !== sessionId));
   };
 
   const clearContext = () => {
@@ -202,17 +222,6 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
     setHistoryOpen(false);
   };
 
-  useEffect(() => {
-    if (!activeAssistant) return;
-    if (activeAssistant.default_model_id) {
-      setSelectedModelId(activeAssistant.default_model_id);
-    }
-    if (activeAssistant.default_knowledge_base_ids.length > 0) {
-      setSelectedKbs(activeAssistant.default_knowledge_base_ids);
-    }
-    setUseWebSearch(activeAssistant.use_web_search);
-  }, [activeAssistant]);
-
   const handleSend = (questionOverride?: string) => {
     const question = (questionOverride ?? input).trim();
     if (!question || isLoading) return;
@@ -232,8 +241,6 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
         knowledge_base_ids: selectedKbs,
         model_id: selectedModelId,
         use_web_search: useWebSearch,
-        assistant_id: activeAssistant?.id,
-        assistant_prompt: activeAssistant?.system_prompt,
       },
       (chunk) => {
         setMessages(prev => {
@@ -253,30 +260,6 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
           return prev;
         });
         setIsLoading(false);
-      },
-      () => {
-        setTimeout(() => {
-          const snapshotMessages = messagesRef.current;
-          setChatHistory(prev => {
-            const snapshot: ChatSession = {
-              id: `${Date.now()}`,
-              messages: snapshotMessages,
-              selectedKbs: [...selectedKbs],
-              modelId: selectedModelId,
-              useWebSearch,
-              assistantId: activeAssistant?.id ?? null,
-              assistantName: activeAssistant?.name,
-              contextCleared,
-              title: preview(question),
-              time,
-            };
-            const next = [
-              snapshot,
-              ...prev.filter(item => item.title !== snapshot.title || item.time !== snapshot.time),
-            ];
-            return next.slice(0, 12);
-          });
-        }, 0);
       }
     );
     // 一秒后恢复发送能力（流式输出不阻止输入）
@@ -374,16 +357,6 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
 
           <div className="h-4 w-px bg-slate-200 flex-shrink-0"></div>
 
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <Bot className="w-4 h-4 text-slate-400" />
-            <span className="text-sm text-slate-500">助手</span>
-            <span className="px-2.5 py-1 text-xs rounded-md bg-slate-50 border border-slate-200 text-slate-700">
-              {activeAssistant?.name || '默认助手'}
-            </span>
-          </div>
-
-          <div className="h-4 w-px bg-slate-200 flex-shrink-0"></div>
-
           <div ref={modelRef} className="relative flex items-center gap-2 flex-shrink-0">
             <span className="text-sm text-slate-500">模型</span>
             <button
@@ -450,8 +423,7 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
                     <div className="text-sm text-slate-800 truncate">{session.title}</div>
                     <div className="mt-1 text-xs text-slate-400 flex items-center justify-between gap-2">
                       <span className="truncate">
-                        {[
-                          session.assistantName || '默认助手',
+                      {[
                           session.selectedKbs.map(id => knowledgeBases.find(k => k.id === id)?.name || id).join('、') || '纯模型问答',
                           session.useWebSearch ? '联网搜索' : '',
                         ].filter(Boolean).join(' · ')}
@@ -481,26 +453,57 @@ export default function ChatPage({ activeAssistant }: ChatPageProps) {
               <Plus className="w-4 h-4" />
             </button>
           </div>
-          <button className="w-full text-left rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 mb-2">
-            <div className="flex items-center gap-2 text-sm text-indigo-700">
-              <MessageSquare className="w-4 h-4" />
-              <span className="truncate">{currentSessionTitle}</span>
+          <div className="w-full rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 mb-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-sm text-indigo-700">
+                  <MessageSquare className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">{currentSessionTitle}</span>
+                </div>
+                <div className="mt-1 text-xs text-indigo-400 truncate">
+                  {selectedKbs.length > 0 ? '知识库问答' : '纯模型问答'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={resetCurrentConversation}
+                title="删除当前会话"
+                className="inline-flex items-center justify-center w-7 h-7 rounded-md text-indigo-400 hover:text-red-500 hover:bg-white/70 transition-colors flex-shrink-0"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <div className="mt-1 text-xs text-indigo-400 truncate">{activeAssistant?.name || '默认助手'}</div>
-          </button>
+          </div>
           <div className="space-y-1">
             {chatHistory.map(session => (
-              <button
+              <div
                 key={session.id}
-                onClick={() => restoreSession(session)}
-                className="w-full text-left rounded-lg px-3 py-2 hover:bg-slate-50 transition-colors"
+                className="group w-full text-left rounded-lg px-3 py-2 hover:bg-slate-50 transition-colors"
               >
-                <div className="text-sm text-slate-700 truncate">{session.title}</div>
-                <div className="mt-1 text-xs text-slate-400 flex items-center justify-between gap-2">
-                  <span className="truncate">{session.assistantName || '默认助手'}</span>
-                  <span className="flex-shrink-0">{session.time}</span>
+                <div className="flex items-start justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => restoreSession(session)}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <div className="text-sm text-slate-700 truncate">{session.title}</div>
+                    <div className="mt-1 text-xs text-slate-400 flex items-center justify-between gap-2">
+                      <span className="truncate">
+                        {session.selectedKbs.map(id => knowledgeBases.find(k => k.id === id)?.name || id).join('、') || '纯模型问答'}
+                      </span>
+                      <span className="flex-shrink-0">{session.time}</span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteSession(session.id)}
+                    title="删除会话"
+                    className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              </button>
+              </div>
             ))}
             {chatHistory.length === 0 && (
               <div className="px-3 py-6 text-center text-xs text-slate-400">暂无历史会话</div>

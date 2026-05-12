@@ -3,7 +3,7 @@ Pydantic数据模型
 定义所有API请求和响应的数据结构
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -257,6 +257,200 @@ class TrainingJob(BaseModel):
     message: str = ""
     output_file: Optional[str] = None
     created_at: str
+
+
+# ==================== 新版 PPT 工作流模型 ====================
+
+class TrainingSourceInput(BaseModel):
+    type: Literal["knowledge_base", "wiki_page", "kb_document", "temporary_upload", "prompt"]
+    kb_id: Optional[str] = None
+    page_name: Optional[str] = None
+    document_id: Optional[str] = None
+    upload_id: Optional[str] = None
+    prompt: Optional[str] = None
+    title: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class TrainingSourceRef(BaseModel):
+    source_type: str
+    source_id: Optional[str] = None
+    kb_id: Optional[str] = None
+    document_id: Optional[str] = None
+    page_name: Optional[str] = None
+    upload_id: Optional[str] = None
+    title: Optional[str] = None
+    locator: Optional[str] = None
+    excerpt: Optional[str] = None
+    confidence: float = 0.0
+
+
+class TrainingContentChunk(BaseModel):
+    id: str
+    title: str
+    text: str
+    source_refs: List[TrainingSourceRef] = Field(default_factory=list)
+    keywords: List[str] = Field(default_factory=list)
+    chunk_type: Literal["wiki", "raw_document", "temporary_upload", "prompt_generated"]
+
+
+class TrainingContentPack(BaseModel):
+    id: str
+    title: str
+    topic: str
+    audience: str
+    duration_minutes: int
+    sources: List[TrainingSourceInput] = Field(default_factory=list)
+    chunks: List[TrainingContentChunk] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class TrainingOutlineSectionV2(BaseModel):
+    id: str
+    title: str
+    goal: str
+    key_points: List[str] = Field(default_factory=list)
+    estimated_minutes: int = 0
+    source_refs: List[TrainingSourceRef] = Field(default_factory=list)
+
+
+class TrainingOutlineV2(BaseModel):
+    id: str
+    title: str
+    topic: str
+    audience: str
+    duration_minutes: int
+    style: Literal["standard_training", "management_briefing", "frontline_shift_training"]
+    sections: List[TrainingOutlineSectionV2] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class SlideSpec(BaseModel):
+    id: str
+    slide_no: int
+    slide_type: Literal[
+        "cover",
+        "toc",
+        "section_divider",
+        "content",
+        "risk_scene",
+        "legal_requirement",
+        "workflow",
+        "control_measures",
+        "case_discussion",
+        "checklist",
+        "quiz",
+        "summary",
+    ]
+    title: str
+    subtitle: Optional[str] = None
+    key_message: Optional[str] = None
+    bullets: List[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+    visual_type: Optional[Literal["none", "cards", "two_column", "risk_matrix", "process_flow", "checklist", "qa", "table"]] = None
+    source_refs: List[TrainingSourceRef] = Field(default_factory=list)
+    safety_level: Optional[Literal["normal", "attention", "warning", "critical"]] = None
+
+
+class PresentationSpec(BaseModel):
+    id: str
+    title: str
+    topic: str
+    audience: str
+    duration_minutes: int
+    style: Literal["standard_training", "management_briefing", "frontline_shift_training"]
+    template_id: str
+    slides: List[SlideSpec] = Field(default_factory=list)
+    quality_warnings: List[str] = Field(default_factory=list)
+
+
+class QualityIssue(BaseModel):
+    level: Literal["info", "warning", "error"]
+    code: str
+    message: str
+    slide_id: Optional[str] = None
+    suggestion: Optional[str] = None
+
+
+class QualityReport(BaseModel):
+    passed: bool
+    issues: List[QualityIssue] = Field(default_factory=list)
+    summary: str
+
+
+class PresentationJob(BaseModel):
+    job_id: str
+    status: str
+    created_at: str
+    updated_at: str
+    source_mode: str
+    content_pack_path: Optional[str] = None
+    outline_path: Optional[str] = None
+    spec_path: Optional[str] = None
+    pptx_path: Optional[str] = None
+    quality_report_path: Optional[str] = None
+    download_url: Optional[str] = None
+
+
+class TrainingOutlineRequestV2(BaseModel):
+    sources: List[TrainingSourceInput] = Field(default_factory=list)
+    topic: str = ""
+    audience: str = "一线员工"
+    duration_minutes: int = 60
+    slide_count: int = 12
+    style: Literal["standard_training", "management_briefing", "frontline_shift_training"] = "standard_training"
+    focus_areas: List[str] = Field(default_factory=list)
+    include_quiz: bool = True
+    include_speaker_notes: bool = True
+    job_id: Optional[str] = None
+    # legacy compatibility
+    source_type: Optional[str] = None
+    source_ids: List[str] = Field(default_factory=list)
+    config: Optional[TrainingConfig] = None
+
+
+class TrainingOutlineResponse(BaseModel):
+    job_id: str
+    outline: TrainingOutlineV2
+    content_pack_summary: Dict[str, Any] = Field(default_factory=dict)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class TrainingGenerateRequestV2(BaseModel):
+    job_id: Optional[str] = None
+    sources: List[TrainingSourceInput] = Field(default_factory=list)
+    outline: Optional[TrainingOutlineV2] = None
+    template_id: str = "standard_training"
+    include_quiz: bool = True
+    include_speaker_notes: bool = True
+    topic: str = ""
+    audience: str = "一线员工"
+    duration_minutes: int = 60
+    slide_count: int = 12
+    style: Literal["standard_training", "management_briefing", "frontline_shift_training"] = "standard_training"
+    focus_areas: List[str] = Field(default_factory=list)
+    # legacy compatibility
+    source_type: Optional[str] = None
+    source_ids: List[str] = Field(default_factory=list)
+    config: Optional[TrainingConfig] = None
+
+
+class TrainingGenerateResponse(BaseModel):
+    job_id: str
+    status: str
+    presentation: PresentationSpec
+    quality_report: QualityReport
+    download_url: str
+    filename: str
+
+
+class TemporaryTrainingUploadResponse(BaseModel):
+    upload_id: str
+    filename: str
+    size: int
+    detected_type: str
+    text_preview: str
+    warnings: List[str] = Field(default_factory=list)
 
 
 # ==================== 设置模型 ====================

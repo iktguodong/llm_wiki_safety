@@ -10,6 +10,25 @@ export interface ApiResponse<T = unknown> {
   data: T;
 }
 
+export type TrainingSourceType = 'knowledge_base' | 'wiki_page' | 'kb_document' | 'temporary_upload' | 'prompt';
+export type TrainingStyle = 'standard_training' | 'management_briefing' | 'frontline_shift_training';
+export type SlideType =
+  | 'cover'
+  | 'toc'
+  | 'section_divider'
+  | 'content'
+  | 'risk_scene'
+  | 'legal_requirement'
+  | 'workflow'
+  | 'control_measures'
+  | 'case_discussion'
+  | 'checklist'
+  | 'quiz'
+  | 'summary';
+export type VisualType = 'none' | 'cards' | 'two_column' | 'risk_matrix' | 'process_flow' | 'checklist' | 'qa' | 'table';
+export type SafetyLevel = 'normal' | 'attention' | 'warning' | 'critical';
+export type QualityLevel = 'info' | 'warning' | 'error';
+
 // 知识库
 export interface KnowledgeBase {
   id: string;
@@ -137,7 +156,178 @@ export interface TrainingConfig {
   model_id?: string;
 }
 
+export interface TrainingSourceInput {
+  type: TrainingSourceType;
+  kb_id?: string | null;
+  page_name?: string | null;
+  document_id?: string | null;
+  upload_id?: string | null;
+  prompt?: string | null;
+  title?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TrainingSourceRef {
+  source_type: string;
+  source_id?: string | null;
+  kb_id?: string | null;
+  document_id?: string | null;
+  page_name?: string | null;
+  upload_id?: string | null;
+  title?: string | null;
+  locator?: string | null;
+  excerpt?: string | null;
+  confidence: number;
+}
+
+export interface TrainingContentChunk {
+  id: string;
+  title: string;
+  text: string;
+  source_refs: TrainingSourceRef[];
+  keywords: string[];
+  chunk_type: 'wiki' | 'raw_document' | 'temporary_upload' | 'prompt_generated';
+}
+
+export interface TrainingContentPack {
+  id: string;
+  title: string;
+  topic: string;
+  audience: string;
+  duration_minutes: number;
+  sources: TrainingSourceInput[];
+  chunks: TrainingContentChunk[];
+  warnings: string[];
+}
+
+export interface TrainingOutlineSection {
+  id: string;
+  title: string;
+  goal: string;
+  key_points: string[];
+  estimated_minutes: number;
+  source_refs: TrainingSourceRef[];
+}
+
 export interface TrainingOutline {
+  id: string;
+  title: string;
+  topic: string;
+  audience: string;
+  duration_minutes: number;
+  style: TrainingStyle;
+  sections: TrainingOutlineSection[];
+  warnings: string[];
+}
+
+export interface SlideSpec {
+  id: string;
+  slide_no: number;
+  slide_type: SlideType;
+  title: string;
+  subtitle?: string | null;
+  key_message?: string | null;
+  bullets: string[];
+  notes?: string | null;
+  visual_type?: VisualType | null;
+  source_refs: TrainingSourceRef[];
+  safety_level?: SafetyLevel | null;
+}
+
+export interface PresentationSpec {
+  id: string;
+  title: string;
+  topic: string;
+  audience: string;
+  duration_minutes: number;
+  style: TrainingStyle;
+  template_id: string;
+  slides: SlideSpec[];
+  quality_warnings: string[];
+}
+
+export interface QualityIssue {
+  level: QualityLevel;
+  code: string;
+  message: string;
+  slide_id?: string | null;
+  suggestion?: string | null;
+}
+
+export interface QualityReport {
+  passed: boolean;
+  issues: QualityIssue[];
+  summary: string;
+}
+
+export interface PresentationJob {
+  job_id: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  source_mode: string;
+  content_pack_path?: string | null;
+  outline_path?: string | null;
+  spec_path?: string | null;
+  pptx_path?: string | null;
+  quality_report_path?: string | null;
+  download_url?: string | null;
+}
+
+export interface TrainingOutlineResponse {
+  job_id: string;
+  outline: TrainingOutline;
+  content_pack_summary: Record<string, unknown>;
+  warnings: string[];
+}
+
+export interface TrainingGenerateResponse {
+  job_id: string;
+  status: string;
+  presentation: PresentationSpec;
+  quality_report: QualityReport;
+  download_url: string;
+  filename: string;
+}
+
+export interface TemporaryTrainingUploadResponse {
+  upload_id: string;
+  filename: string;
+  size: number;
+  detected_type: string;
+  text_preview: string;
+  warnings: string[];
+}
+
+export interface TrainingOutlineRequest {
+  sources: TrainingSourceInput[];
+  topic: string;
+  audience: string;
+  duration_minutes: number;
+  slide_count: number;
+  style: TrainingStyle;
+  focus_areas: string[];
+  include_quiz: boolean;
+  include_speaker_notes: boolean;
+  job_id?: string;
+}
+
+export interface TrainingGenerateRequest {
+  job_id?: string;
+  sources: TrainingSourceInput[];
+  outline?: TrainingOutline | null;
+  template_id: string;
+  include_quiz: boolean;
+  include_speaker_notes: boolean;
+  topic: string;
+  audience: string;
+  duration_minutes: number;
+  slide_count: number;
+  style: TrainingStyle;
+  focus_areas: string[];
+}
+
+export interface TrainingOutlineLegacyResponse {
   title: string;
   chapters: {
     title: string;

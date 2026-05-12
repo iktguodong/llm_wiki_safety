@@ -1,280 +1,163 @@
-"""
-培训材料生成服务
-生成PPT大纲和PPTX文件
-"""
+"""培训生成服务的薄封装。"""
 
-import json
-import re
-import uuid
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional
+from __future__ import annotations
 
-from backend.config import OUTPUT_DIR, get_kb_wiki_path
+from typing import Any, Optional
+
 from backend.services.llm import llm_service
+from backend.services.presentation.content_pack import build_content_pack, normalize_sources
+from backend.services.presentation.outline_builder import generate_outline as build_outline
+from backend.services.presentation.project_store import create_job, save_content_pack, save_outline, save_quality_report, save_spec
+from backend.services.presentation.pptx_renderer import render_presentation
+from backend.services.presentation.quality_check import check_presentation
+from backend.services.presentation.slide_planner import plan_slides
+from backend.services.presentation.safety_templates import get_template
 
 
-# PPT大纲生成Prompt
-OUTLINE_PROMPT = """你是一个专业培训师。请基于以下知识库内容，生成一份培训PPT大纲。
+def _as_dict(data: Any) -> dict[str, Any]:
+    if hasattr(data, "model_dump"):
+        return dict(data.model_dump())
+    if isinstance(data, dict):
+        return dict(data)
+    return dict(getattr(data, "__dict__", {}))
 
-## 培训要求
 
-- 培训主题：{topic}
-- 目标受众：{audience}
-- 预计时长：{duration}分钟
-- 幻灯片数量：{slide_count}页
-- 内容侧重点：{focus_areas}
-
-## 知识库内容
-
-{content}
-
-## 输出格式
-
-请返回JSON格式的PPT大纲：
-
-```json
-{{
-  "title": "培训标题",
-  "chapters": [
-    {{
-      "title": "章节标题",
-      "pages": 3,
-      "points": [
-        "要点1",
-        "要点2",
-        "要点3"
-      ]
-    }}
-  ]
-}}
-```
-"""
+def _legacy_payload(
+    *,
+    source_type: Optional[str] = None,
+    source_ids: Optional[list[str]] = None,
+    topic: str = "",
+    audience: str = "",
+    duration_minutes: int = 60,
+    slide_count: int = 12,
+    focus_areas: Optional[list[str]] = None,
+    style: str = "standard_training",
+    include_quiz: bool = True,
+    include_speaker_notes: bool = True,
+    job_id: Optional[str] = None,
+    template_id: Optional[str] = None,
+) -> dict[str, Any]:
+    return {
+        "sources": normalize_sources({
+            "source_type": source_type,
+            "source_ids": source_ids or [],
+            "topic": topic,
+        }),
+        "topic": topic,
+        "audience": audience,
+        "duration_minutes": duration_minutes,
+        "slide_count": slide_count,
+        "focus_areas": focus_areas or [],
+        "style": style,
+        "include_quiz": include_quiz,
+        "include_speaker_notes": include_speaker_notes,
+        "job_id": job_id,
+        "template_id": template_id or style,
+    }
 
 
 class TrainingService:
-    """培训生成服务"""
-    
-    @staticmethod
-    def _collect_knowledge_content(kb_ids: List[str]) -> str:
-        """收集知识库内容"""
-        content = []
-        
-        for kb_id in kb_ids:
-            wiki_path = get_kb_wiki_path(kb_id)
-            if not wiki_path.exists():
-                continue
-            
-            for file_path in wiki_path.glob("*.md"):
-                if file_path.name in ["index.md", "log.md"]:
-                    continue
-                
-                with open(file_path, "r", encoding="utf-8") as f:
-                    text = f.read()
-                
-                # 只取前2000字
-                content.append(f"## {file_path.stem}\n\n{text[:2000]}\n")
-        
-        return "\n\n".join(content)
-    
-    @staticmethod
-    def _collect_document_content(doc_ids: List[str], kb_id: str) -> str:
-        """收集文档内容"""
-        from backend.services.document import doc_service
-        
-        # 这里简化处理，实际应该从raw/读取文档
-        content = []
-        
-        # 读取知识库的Wiki页面作为文档内容
-        wiki_path = get_kb_wiki_path(kb_id)
-        if wiki_path.exists():
-            for file_path in wiki_path.glob("*.md"):
-                if file_path.name in ["index.md", "log.md"]:
-                    continue
-                
-                with open(file_path, "r", encoding="utf-8") as f:
-                    text = f.read()
-                
-                content.append(f"## {file_path.stem}\n\n{text[:2000]}\n")
-        
-        return "\n\n".join(content)
-    
-    @staticmethod
     async def generate_outline(
-        source_type: str,
-        source_ids: List[str],
-        topic: str,
-        audience: str,
-        duration: int,
-        slide_count: int,
-        focus_areas: List[str],
-        model_id: Optional[str] = None
-    ) -> Dict:
-        """
-        生成PPT大纲
-        
-        Args:
-            source_type: 来源类型 (knowledge_base, document)
-            source_ids: 来源ID列表
-            topic: 培训主题
-            audience: 目标受众
-            duration: 预计时长
-            slide_count: 幻灯片数量
-            focus_areas: 内容侧重点
-            model_id: 模型ID
-        
-        Returns:
-            PPT大纲
-        """
-        # 收集内容
-        if source_type == "knowledge_base":
-            content = TrainingService._collect_knowledge_content(source_ids)
-        else:
-            content = TrainingService._collect_document_content(source_ids, source_ids[0] if source_ids else "")
-        
-        if not content.strip():
-            return {
-                "title": topic,
-                "chapters": [
-                    {
-                        "title": "第一章：概述",
-                        "pages": 3,
-                        "points": ["暂无内容，请先上传文档或创建知识库"]
-                    }
-                ]
-            }
-        
-        # 构建Prompt
-        prompt = OUTLINE_PROMPT.format(
+        self,
+        source_type: Optional[str] = None,
+        source_ids: Optional[list[str]] = None,
+        topic: str = "",
+        audience: str = "一线员工",
+        duration: int = 60,
+        slide_count: int = 12,
+        focus_areas: Optional[list[str]] = None,
+        model_id: Optional[str] = None,
+        *,
+        sources: Optional[list[dict[str, Any]]] = None,
+        style: str = "standard_training",
+        include_quiz: bool = True,
+        include_speaker_notes: bool = True,
+        job_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        payload = _legacy_payload(
+            source_type=source_type,
+            source_ids=source_ids,
             topic=topic,
             audience=audience,
-            duration=duration,
+            duration_minutes=duration,
             slide_count=slide_count,
-            focus_areas=", ".join(focus_areas),
-            content=content[:10000]  # 限制长度
+            focus_areas=focus_areas,
+            style=style,
+            include_quiz=include_quiz,
+            include_speaker_notes=include_speaker_notes,
+            job_id=job_id,
+            template_id=style,
         )
-        
-        messages = [
-            {"role": "system", "content": "你是一个专业的企业安全培训师，擅长生成结构化的培训大纲。"},
-            {"role": "user", "content": prompt}
-        ]
-        
-        try:
-            response = await llm_service.chat_sync(messages, model_id=model_id, temperature=0.7)
-            
-            # 提取JSON
-            json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
-            if json_match:
-                outline = json.loads(json_match.group(1))
-            else:
-                # 尝试直接解析JSON
-                outline = json.loads(response)
-            
-            return outline
-            
-        except Exception as e:
-            # 返回默认大纲
-            return {
-                "title": topic,
-                "chapters": [
-                    {
-                        "title": "第一章：概述",
-                        "pages": 3,
-                        "points": [f"生成大纲时出错: {str(e)}", "请重试或调整参数"]
-                    }
-                ]
-            }
-    
-    @staticmethod
+        if sources is not None:
+            payload["sources"] = sources
+        payload["model_id"] = model_id
+        job = create_job("outline", job_id=job_id)
+        pack = build_content_pack(payload, job.job_id)
+        outline = await build_outline(pack, payload, llm_service)
+        save_content_pack(job.job_id, pack.model_dump())
+        save_outline(job.job_id, outline.model_dump())
+        return outline.model_dump()
+
     async def generate_ppt(
-        outline: Dict,
+        self,
+        outline: dict[str, Any],
         topic: str,
         audience: str,
-        template: str = "default",
-        model_id: Optional[str] = None
-    ) -> str:
-        """
-        生成PPTX文件
-        
-        Args:
-            outline: PPT大纲
-            topic: 培训主题
-            audience: 目标受众
-            template: 模板名称
-            model_id: 模型ID
-        
-        Returns:
-            生成的PPTX文件路径
-        """
-        try:
-            from pptx import Presentation
-            from pptx.util import Inches, Pt
-            from pptx.dml.color import RGBColor
-            from pptx.enum.text import PP_ALIGN
-            
-            # 创建PPT
-            prs = Presentation()
-            prs.slide_width = Inches(13.333)
-            prs.slide_height = Inches(7.5)
-            
-            # 标题页
-            slide_layout = prs.slide_layouts[0]  # 标题页
-            slide = prs.slides.add_slide(slide_layout)
-            
-            title = slide.shapes.title
-            subtitle = slide.placeholders[1]
-            
-            title.text = outline.get("title", topic)
-            subtitle.text = f"目标受众：{audience}\n基于安牛知识库自动生成"
-            
-            # 内容页
-            for chapter in outline.get("chapters", []):
-                # 章节标题页
-                slide_layout = prs.slide_layouts[1]  # 标题和内容
-                slide = prs.slides.add_slide(slide_layout)
-                
-                title = slide.shapes.title
-                body = slide.placeholders[1]
-                
-                title.text = chapter.get("title", "")
-                
-                tf = body.text_frame
-                for point in chapter.get("points", []):
-                    p = tf.add_paragraph()
-                    p.text = point
-                    p.level = 0
-                    p.font.size = Pt(18)
-            
-            # 结束页
-            slide_layout = prs.slide_layouts[6]  # 空白页
-            slide = prs.slides.add_slide(slide_layout)
-            
-            # 添加感谢文字
-            left = Inches(4)
-            top = Inches(3)
-            width = Inches(5)
-            height = Inches(1.5)
-            textbox = slide.shapes.add_textbox(left, top, width, height)
-            tf = textbox.text_frame
-            tf.text = "谢谢！\nQuestions & Discussion"
-            p = tf.paragraphs[0]
-            p.font.size = Pt(36)
-            p.alignment = PP_ALIGN.CENTER
-            
-            # 保存文件
-            output_dir = OUTPUT_DIR
-            output_dir.mkdir(parents=True, exist_ok=True)
-            
-            filename = f"{topic}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pptx"
-            output_path = output_dir / filename
-            
-            prs.save(str(output_path))
-            
-            return str(output_path)
-            
-        except Exception as e:
-            raise Exception(f"PPT生成失败: {str(e)}")
+        template: str = "standard_training",
+        model_id: Optional[str] = None,
+        *,
+        source_type: Optional[str] = None,
+        source_ids: Optional[list[str]] = None,
+        duration_minutes: int = 60,
+        slide_count: int = 12,
+        focus_areas: Optional[list[str]] = None,
+        style: str = "standard_training",
+        include_quiz: bool = True,
+        include_speaker_notes: bool = True,
+        job_id: Optional[str] = None,
+        sources: Optional[list[dict[str, Any]]] = None,
+    ) -> dict[str, Any]:
+        payload = _legacy_payload(
+            source_type=source_type,
+            source_ids=source_ids,
+            topic=topic,
+            audience=audience,
+            duration_minutes=duration_minutes,
+            slide_count=slide_count,
+            focus_areas=focus_areas,
+            style=style,
+            include_quiz=include_quiz,
+            include_speaker_notes=include_speaker_notes,
+            job_id=job_id,
+            template_id=template,
+        )
+        if sources is not None:
+            payload["sources"] = sources
+        job = create_job("generate", job_id=job_id)
+        pack = build_content_pack(payload, job.job_id)
+        outline_model = outline if hasattr(outline, "model_dump") else outline
+        if not isinstance(outline_model, dict):
+            outline_model = _as_dict(outline)
+        # 保证生成阶段拿到的是结构化大纲
+        if outline_model and "sections" in outline_model:
+            outline_struct = outline_model
+        else:
+            outline_struct = (await build_outline(pack, payload, llm_service)).model_dump()
+        spec = await plan_slides(outline_struct, pack, {**payload, "template_id": template}, llm_service)
+        report = check_presentation(spec, pack, payload)
+        render_info = render_presentation(spec, get_template(template), job.job_id)
+        save_content_pack(job.job_id, pack.model_dump())
+        save_outline(job.job_id, outline_struct)
+        save_spec(job.job_id, spec.model_dump())
+        save_quality_report(job.job_id, report.model_dump())
+        return {
+            "job_id": job.job_id,
+            "status": "completed" if report.passed else "completed_with_warnings",
+            "presentation": spec.model_dump(),
+            "quality_report": report.model_dump(),
+            "download_url": render_info["download_url"],
+            "filename": render_info["filename"],
+        }
 
 
-# 服务实例
 training_service = TrainingService()

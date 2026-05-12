@@ -9,6 +9,10 @@ import tempfile
 from pathlib import Path
 from io import BytesIO
 
+import pytest
+
+pytestmark = pytest.mark.asyncio
+
 # 测试配置
 TEST_CONFIG = {
     "kb_name": "测试知识库",

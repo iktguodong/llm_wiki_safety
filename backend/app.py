@@ -12,7 +12,7 @@ if __name__ == "__main__":
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 
-from typing import List, Optional
+from typing import List, Optional, Any
 from fastapi import FastAPI, File, UploadFile, HTTPException, Body
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +27,16 @@ from backend.models import (
     SearchRequest, SearchResult,
     TrainingOutline, TrainingConfig,
     ModelValidateRequest, ModelValidateResponse,
-    AppConfig
+    AppConfig,
+    TrainingSourceInput,
+    TrainingOutlineRequestV2,
+    TrainingOutlineResponse,
+    TrainingGenerateRequestV2,
+    TrainingGenerateResponse,
+    TemporaryTrainingUploadResponse,
+    TrainingOutlineV2,
+    PresentationSpec,
+    QualityReport,
 )
 from backend.services.knowledge_base import kb_service
 from backend.services.document import doc_service
@@ -37,6 +46,22 @@ from backend.services.search import search_service
 from backend.services.training import training_service
 from backend.services.llm import llm_service
 from backend.services.text_extraction import SUPPORTED_TEXT_EXTENSIONS, extract_document_pages
+from backend.services.presentation.content_pack import build_content_pack, normalize_sources
+from backend.services.presentation.outline_builder import generate_outline as build_outline
+from backend.services.presentation.slide_planner import plan_slides
+from backend.services.presentation.quality_check import check_presentation
+from backend.services.presentation.pptx_renderer import render_presentation
+from backend.services.presentation.project_store import (
+    create_job,
+    get_upload_dir,
+    resolve_download_path,
+    save_content_pack,
+    save_outline,
+    save_quality_report,
+    save_spec,
+    save_upload_metadata,
+)
+from backend.services.presentation.safety_templates import get_template
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -341,50 +366,169 @@ async def search(data: SearchRequest):
 
 # ==================== 培训API ====================
 
+def _training_payload_to_request(payload: dict[str, Any]) -> dict[str, Any]:
+    config_data = payload.get("config") or {}
+    config = TrainingConfig(**config_data) if config_data else None
+    sources = payload.get("sources") or normalize_sources(payload)
+    topic = payload.get("topic") or (config.topic if config else "") or payload.get("prompt") or ""
+    audience = payload.get("audience") or (config.audience if config else "一线员工")
+    duration_minutes = payload.get("duration_minutes") or (config.duration if config else 60)
+    slide_count = payload.get("slide_count") or (config.slide_count if config else 12)
+    style = payload.get("style") or "standard_training"
+    focus_areas = payload.get("focus_areas") or (config.focus_areas if config else [])
+    include_quiz = payload.get("include_quiz", True)
+    include_speaker_notes = payload.get("include_speaker_notes", True)
+    template_id = payload.get("template_id") or payload.get("template") or (config.template if config else style)
+    return {
+        "sources": sources,
+        "topic": topic,
+        "audience": audience,
+        "duration_minutes": duration_minutes,
+        "slide_count": slide_count,
+        "style": style,
+        "focus_areas": focus_areas,
+        "include_quiz": include_quiz,
+        "include_speaker_notes": include_speaker_notes,
+        "template_id": template_id,
+        "job_id": payload.get("job_id") or payload.get("jobId"),
+    }
+
+
+@app.post("/api/training/uploads", response_model=ApiResponse)
+async def upload_training_document(file: UploadFile = File(...)):
+    """上传临时训练文档，不进入知识库。"""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in SUPPORTED_TEXT_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="暂不支持该文件类型，请上传 PDF、Word（.doc/.docx）、TXT 或 Markdown 文件")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="文件内容为空")
+
+    import uuid
+
+    upload_id = f"upload-{uuid.uuid4().hex[:10]}"
+    upload_dir = get_upload_dir(upload_id)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    file_path = upload_dir / Path(file.filename).name
+    file_path.write_bytes(content)
+
+    pages = extract_document_pages(file_path)
+    preview = ""
+    warnings: list[str] = []
+    detected_type = suffix.lstrip(".")
+    for page in pages:
+        text = str(page.get("text", "")).strip()
+        if text:
+            preview = text[:500]
+            break
+
+    joined_text = "\n".join(str(page.get("text", "")) for page in pages).strip()
+    if not joined_text:
+        raise HTTPException(status_code=400, detail="临时上传文档未提取到可读文本，不支持 OCR")
+    if joined_text.startswith("[PDF扫描版:") or "无法提取可读文本" in joined_text or "解析错误" in joined_text:
+        raise HTTPException(status_code=400, detail="临时上传文档无法提取可读文本，不支持 OCR")
+
+    if not preview:
+        preview = joined_text[:500]
+
+    save_upload_metadata(upload_id, {
+        "upload_id": upload_id,
+        "filename": file_path.name,
+        "original_filename": file.filename,
+        "size": len(content),
+        "detected_type": detected_type,
+        "path": str(file_path),
+    })
+
+    return ApiResponse(data=TemporaryTrainingUploadResponse(
+        upload_id=upload_id,
+        filename=file_path.name,
+        size=len(content),
+        detected_type=detected_type,
+        text_preview=preview,
+        warnings=warnings,
+    ))
+
+
 @app.post("/api/training/outline", response_model=ApiResponse)
 async def generate_training_outline(payload: dict = Body(...)):
-    """生成培训大纲"""
-    source_type = payload.get("source_type")
-    source_ids = payload.get("source_ids", [])
-    config = TrainingConfig(**payload.get("config", {}))
-    outline = await training_service.generate_outline(
-        source_type=source_type,
-        source_ids=source_ids,
-        topic=config.topic,
-        audience=config.audience,
-        duration=config.duration,
-        slide_count=config.slide_count,
-        focus_areas=config.focus_areas,
-        model_id=config.model_id
+    """生成培训大纲。支持新旧两种请求格式。"""
+    request = _training_payload_to_request(payload)
+    job = create_job("outline", job_id=request.get("job_id"))
+    try:
+        content_pack = build_content_pack(request, job.job_id)
+        outline = await build_outline(content_pack, request, llm_service)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    save_content_pack(job.job_id, content_pack.model_dump())
+    save_outline(job.job_id, outline.model_dump())
+
+    response = TrainingOutlineResponse(
+        job_id=job.job_id,
+        outline=TrainingOutlineV2(**outline.model_dump()),
+        content_pack_summary={
+            "id": content_pack.id,
+            "title": content_pack.title,
+            "topic": content_pack.topic,
+            "source_count": len(content_pack.sources),
+            "chunk_count": len(content_pack.chunks),
+            "warnings": content_pack.warnings,
+        },
+        warnings=list(content_pack.warnings) + list(outline.warnings),
     )
-    return ApiResponse(data=outline)
+    return ApiResponse(data=response)
 
 
-@app.post("/api/training/generate")
+@app.post("/api/training/generate", response_model=ApiResponse)
 async def generate_training_ppt(payload: dict = Body(...)):
-    """生成培训PPT"""
-    source_type = payload.get("source_type")
-    source_ids = payload.get("source_ids", [])
-    config = TrainingConfig(**payload.get("config", {}))
-    outline = payload.get("outline", {})
-    file_path = await training_service.generate_ppt(
-        outline=outline,
-        topic=config.topic,
-        audience=config.audience,
-        template=config.template,
-        model_id=config.model_id
+    """生成培训PPT。支持确认后的大纲继续生成。"""
+    request = _training_payload_to_request(payload)
+    job = create_job("generate", job_id=request.get("job_id"))
+    try:
+        content_pack = build_content_pack(request, job.job_id)
+        outline_payload = payload.get("outline")
+        if outline_payload:
+            outline = TrainingOutlineV2(**outline_payload)
+        else:
+            outline = await build_outline(content_pack, request, llm_service)
+        spec = await plan_slides(outline, content_pack, request, llm_service)
+        quality_report = check_presentation(spec, content_pack, request)
+        template = get_template(request.get("template_id") or request.get("style"))
+        render_info = render_presentation(spec, template, job.job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    save_content_pack(job.job_id, content_pack.model_dump())
+    save_outline(job.job_id, outline.model_dump())
+    save_spec(job.job_id, spec.model_dump())
+    save_quality_report(job.job_id, quality_report.model_dump())
+
+    response = TrainingGenerateResponse(
+        job_id=job.job_id,
+        status="completed" if quality_report.passed else "completed_with_warnings",
+        presentation=PresentationSpec(**spec.model_dump()),
+        quality_report=QualityReport(**quality_report.model_dump()),
+        download_url=render_info["download_url"],
+        filename=render_info["filename"],
     )
-    return ApiResponse(data={"file_path": file_path})
+    return ApiResponse(data=response)
 
 
 @app.get("/api/training/download/{filename}")
 async def download_training_ppt(filename: str):
-    """下载生成的PPT"""
-    from backend.config import OUTPUT_DIR
-    file_path = OUTPUT_DIR / filename
-    if not file_path.exists():
+    """安全下载生成的 PPTX。"""
+    try:
+        file_path = resolve_download_path(filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail="文件不存在")
-    return FileResponse(str(file_path), filename=filename)
+    return FileResponse(str(file_path), filename=file_path.name)
 
 
 # ==================== 启动入口 ====================
