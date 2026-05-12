@@ -109,8 +109,16 @@ export interface WikiLintResult {
 }
 
 // 对话
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  references?: Record<string, string>[];
+}
+
 export interface ChatRequest {
   question: string;
+  messages?: ChatMessage[];
   knowledge_base_ids: string[];
   model_id?: string;
   use_web_search?: boolean;

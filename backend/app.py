@@ -333,6 +333,7 @@ async def chat(data: ChatRequest):
         async for chunk in chat_service.ask(
             data.question,
             data.knowledge_base_ids,
+            data.messages,
             data.model_id,
             data.use_web_search,
             data.assistant_prompt
@@ -348,6 +349,7 @@ async def chat_sync(data: ChatRequest):
     answer = await chat_service.ask_sync(
         data.question,
         data.knowledge_base_ids,
+        data.messages,
         data.model_id,
         data.use_web_search,
         data.assistant_prompt

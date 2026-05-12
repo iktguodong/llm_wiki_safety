@@ -3,10 +3,8 @@ import {
   Send,
   X,
   ChevronDown,
-  Bot,
   User,
   Layers,
-  History,
   Plus,
   Globe,
   Copy,
@@ -16,10 +14,14 @@ import {
   Eraser,
   MessageSquare,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { useApp } from '../../../lib/context';
-import { chatApi } from '../../../lib/api';
+import { chatApi, docApi } from '../../../lib/api';
+import { buildChatMemory } from '../../lib/chat-memory';
+import { normalizeAssistantText, renderAssistantBubble } from '../../lib/chat-render';
+import LogoMark from '../LogoMark';
 import type { KnowledgeBase } from '../../../lib/types';
 
 const initialMessages = [
@@ -33,15 +35,6 @@ const initialMessages = [
     time: '09:30',
   },
 ];
-
-function normalizeAssistantText(text: string) {
-  return text
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\[\[([^\]]+)\]\]/g, '$1')
-    .replace(/\(\s*来源:\s*([^)]+)\s*\)/g, '来源：$1')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
 
 const STORAGE_KEYS = {
   current: 'chat-current-state-v1',
@@ -103,7 +96,6 @@ export default function ChatPage() {
     useWebSearch: false,
   }).messages || initialMessages);
   const [isLoading, setIsLoading] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatSession[]>(() => readLocal(STORAGE_KEYS.history, []));
   const [currentSessionTitle, setCurrentSessionTitle] = useState('当前对话');
   const [useWebSearch, setUseWebSearch] = useState(() => readLocal(STORAGE_KEYS.current, {
@@ -121,6 +113,7 @@ export default function ChatPage() {
   }).contextCleared ?? false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef(messages);
 
   useEffect(() => {
@@ -163,6 +156,24 @@ export default function ChatPage() {
     );
   };
 
+  const handleUploadDocument = async (file?: File | null) => {
+    const targetKbId = selectedKbs[0];
+    if (!targetKbId) {
+      window.alert('请先在顶部选择一个知识库，再上传文档。');
+      return;
+    }
+    if (!file) return;
+    try {
+      await docApi.upload(targetKbId, file);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : '上传失败');
+    } finally {
+      if (uploadInputRef.current) {
+        uploadInputRef.current.value = '';
+      }
+    }
+  };
+
   const resetCurrentConversation = () => {
     setMessages(initialMessages);
     setInput('');
@@ -191,7 +202,6 @@ export default function ChatPage() {
       ].slice(0, 12));
     }
     resetCurrentConversation();
-    setHistoryOpen(false);
   };
 
   const deleteSession = (sessionId: string) => {
@@ -219,7 +229,6 @@ export default function ChatPage() {
     setUseWebSearch(session.useWebSearch ?? false);
     setContextCleared(session.contextCleared ?? false);
     setCurrentSessionTitle(session.title);
-    setHistoryOpen(false);
   };
 
   const handleSend = (questionOverride?: string) => {
@@ -227,6 +236,9 @@ export default function ChatPage() {
     if (!question || isLoading) return;
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const historyMessages = buildChatMemory(messagesRef.current, {
+      resetMarkers: ['已清除当前上下文。接下来的回答将从新的上下文开始。'],
+    });
     setMessages(prev => [...prev, { role: 'user', content: question, time }]);
     setCurrentSessionTitle(preview(question));
     if (!questionOverride) setInput('');
@@ -238,6 +250,7 @@ export default function ChatPage() {
     chatApi.ask(
       {
         question,
+        messages: historyMessages,
         knowledge_base_ids: selectedKbs,
         model_id: selectedModelId,
         use_web_search: useWebSearch,
@@ -391,53 +404,6 @@ export default function ChatPage() {
           )}
         </div>
 
-        <Popover.Root open={historyOpen} onOpenChange={setHistoryOpen}>
-          <Popover.Trigger asChild>
-            <button className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors flex-shrink-0">
-              <History className="w-4 h-4" />
-              历史记录
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content
-              align="end"
-              sideOffset={8}
-              className="z-50 w-96 rounded-xl border border-slate-200 bg-white p-3 shadow-lg"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm font-medium text-slate-800">对话历史</div>
-                <button
-                  onClick={() => setChatHistory([])}
-                  className="text-xs text-slate-400 hover:text-slate-600"
-                >
-                  清空
-                </button>
-              </div>
-              <div className="max-h-72 overflow-auto space-y-2">
-                {chatHistory.length > 0 ? chatHistory.map(session => (
-                  <button
-                    key={session.id}
-                    onClick={() => restoreSession(session)}
-                    className="w-full text-left rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50 transition-colors"
-                  >
-                    <div className="text-sm text-slate-800 truncate">{session.title}</div>
-                    <div className="mt-1 text-xs text-slate-400 flex items-center justify-between gap-2">
-                      <span className="truncate">
-                      {[
-                          session.selectedKbs.map(id => knowledgeBases.find(k => k.id === id)?.name || id).join('、') || '纯模型问答',
-                          session.useWebSearch ? '联网搜索' : '',
-                        ].filter(Boolean).join(' · ')}
-                      </span>
-                      <span className="flex-shrink-0">{session.time}</span>
-                    </div>
-                  </button>
-                )) : (
-                  <div className="py-8 text-center text-sm text-slate-400">暂无对话历史</div>
-                )}
-              </div>
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
       </div>
 
       {/* Messages */}
@@ -521,10 +487,14 @@ export default function ChatPage() {
                     background: msg.role === 'assistant' ? '#EEF2FF' : '#4F46E5',
                   }}
                 >
-                  {msg.role === 'assistant'
-                    ? <Bot className="w-4 h-4 text-indigo-600" />
-                    : <User className="w-4 h-4 text-white" />
-                  }
+                  {msg.role === 'assistant' ? (
+                    <LogoMark
+                      className="w-full h-full rounded-full overflow-hidden flex items-center justify-center"
+                      imageClassName="w-full h-full object-contain scale-110"
+                    />
+                  ) : (
+                    <User className="w-4 h-4 text-white" />
+                  )}
                 </div>
                 <div className={`max-w-2xl ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
                   <div className="flex items-center gap-2">
@@ -540,7 +510,7 @@ export default function ChatPage() {
                         : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
                     }`}
                   >
-                    {msg.role === 'assistant' ? normalizeAssistantText(msg.content) : msg.content}
+                    {msg.role === 'assistant' ? renderAssistantBubble(msg.content) : msg.content}
                   </div>
                   <div className="flex items-center gap-1 text-slate-400">
                     <button
@@ -604,6 +574,14 @@ export default function ChatPage() {
               <div className="px-3 pb-3 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
                   <button
+                    onClick={() => uploadInputRef.current?.click()}
+                    className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                    title="上传文档"
+                    aria-label="上传文档"
+                  >
+                    <Upload className="w-4 h-4" />
+                  </button>
+                  <button
                     onClick={() => setUseWebSearch(prev => !prev)}
                     className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                       useWebSearch
@@ -642,6 +620,14 @@ export default function ChatPage() {
                 </div>
               </div>
             </div>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                void handleUploadDocument(e.target.files?.[0] ?? null);
+              }}
+            />
           </div>
         </div>
       </div>

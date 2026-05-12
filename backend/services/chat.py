@@ -12,6 +12,7 @@ from typing import AsyncGenerator, Dict, List, Optional
 import httpx
 
 from backend.config import get_kb_wiki_path, get_kb_index_path
+from backend.models import ChatMessage
 from backend.services.llm import llm_service
 
 
@@ -69,7 +70,8 @@ WEB_QA_PROMPT = """你是一个专业的企业安全知识助手。请基于提�
 1. 优先使用检索结果中的信息，避免编造。
 2. 如果检索结果不足以回答，请明确说明当前联网结果不足。
 3. 语言要清晰、简洁、专业，不要输出 `**`、`[[ ]]` 这类装饰性符号。
-4. 结尾保留自然语言来源说明，例如“来源：检索结果1、检索结果3”。
+4. 只能引用下方“联网检索结果”里真实存在的编号，编号数量可能少于或多于 3 条，禁止新增不存在的编号。
+5. 如果引用了某个结果，请在结尾统一列出你实际使用的来源编号，并尽量使用 Markdown 超链接，例如“来源：[结果1](URL)、[结果3](URL)”。
 
 ## 用户问题
 
@@ -79,6 +81,32 @@ WEB_QA_PROMPT = """你是一个专业的企业安全知识助手。请基于提�
 
 class ChatService:
     """问答服务"""
+
+    _WEB_SEARCH_MAX_CANDIDATES = 8
+    _WEB_SEARCH_BASE_RESULTS = 3
+    _WEB_SEARCH_COMPLEXITY_MARKERS = (
+        "以及",
+        "同时",
+        "另外",
+        "此外",
+        "并且",
+        "或者",
+        "还是",
+        "分别",
+        "对比",
+        "比较",
+        "区别",
+        "汇总",
+        "全面",
+        "所有",
+        "全部",
+        "有哪些",
+        "列出",
+        "罗列",
+        "清单",
+        "多种",
+        "多个",
+    )
     
     @staticmethod
     def _read_file(file_path: Path) -> str:
@@ -141,7 +169,70 @@ class ChatService:
         return raw_url
 
     @staticmethod
-    async def _web_search(question: str, max_results: int = 4) -> List[Dict[str, str]]:
+    def _score_web_result(question_terms: List[str], item: Dict[str, str]) -> float:
+        title = (item.get("title") or "").lower()
+        snippet = (item.get("snippet") or "").lower()
+        url = (item.get("url") or "").lower()
+
+        score = 0.0
+        for term in question_terms:
+            if term in title:
+                score += 4.0
+            if term in snippet:
+                score += 1.5
+            if term in url:
+                score += 0.25
+        return score
+
+    @staticmethod
+    def _estimate_web_result_limit(question: str, available: int) -> int:
+        """根据问题复杂度估算最终保留多少条联网结果。"""
+        if available <= 0:
+            return 0
+
+        normalized = re.sub(r"\s+", "", question.strip())
+        chunks = re.findall(r'[\u4e00-\u9fa5]{2,}|[a-zA-Z0-9_-]{2,}', question.lower())
+        limit = ChatService._WEB_SEARCH_BASE_RESULTS
+
+        if len(normalized) > 18 or len(chunks) > 3:
+            limit += 1
+        if len(normalized) > 36 or len(chunks) > 5:
+            limit += 1
+        if len(normalized) > 60 or len(chunks) > 7:
+            limit += 1
+
+        marker_hits = sum(1 for marker in ChatService._WEB_SEARCH_COMPLEXITY_MARKERS if marker in question)
+        if marker_hits >= 1:
+            limit += 1
+        if marker_hits >= 3:
+            limit += 1
+
+        if re.search(r"[、,，/;；].*[、,，/;；]", question):
+            limit += 1
+
+        return max(1, min(available, min(limit, ChatService._WEB_SEARCH_MAX_CANDIDATES)))
+
+    @staticmethod
+    def _select_web_results(question: str, results: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        if not results:
+            return []
+
+        question_terms = ChatService._build_question_terms(question)
+        scored_results = []
+        for idx, item in enumerate(results):
+            scored_results.append({
+                **item,
+                "_score": ChatService._score_web_result(question_terms, item),
+                "_rank": idx,
+            })
+
+        scored_results.sort(key=lambda item: (item["_score"], -item["_rank"]), reverse=True)
+        limit = ChatService._estimate_web_result_limit(question, len(scored_results))
+        selected = scored_results[:limit]
+        return [{k: v for k, v in item.items() if not k.startswith("_")} for item in selected]
+
+    @staticmethod
+    async def _web_search(question: str, max_results: int = _WEB_SEARCH_MAX_CANDIDATES) -> List[Dict[str, str]]:
         """使用 DuckDuckGo HTML 结果页做轻量联网搜索。"""
         try:
             async with httpx.AsyncClient(
@@ -182,11 +273,24 @@ class ChatService:
         lines = []
         for idx, item in enumerate(results, 1):
             lines.append(
-                f"### 结果{idx}: {item['title']}\n"
-                f"- 链接：{item['url']}\n"
+                f"### 结果{idx}: [{item['title']}]({item['url']})\n"
+                f"- 链接：[{item['url']}]({item['url']})\n"
                 f"- 摘要：{item['snippet']}"
             )
         return "\n\n".join(lines)
+
+    @staticmethod
+    async def _build_web_results(question: str, history_messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        search_question = ChatService._build_contextual_question(question, history_messages)
+        raw_results = await ChatService._web_search(search_question)
+        return ChatService._select_web_results(search_question, raw_results)
+
+    @staticmethod
+    def _build_web_prompt(question: str, web_results: List[Dict[str, str]]) -> str:
+        return WEB_QA_PROMPT.format(
+            web_results=ChatService._format_web_results(web_results),
+            question=question,
+        )
 
     @staticmethod
     def _build_general_messages(question: str) -> List[Dict[str, str]]:
@@ -204,6 +308,34 @@ class ChatService:
         if not assistant_prompt or not assistant_prompt.strip():
             return base_prompt
         return f"{assistant_prompt.strip()}\n\n{base_prompt}"
+
+    @staticmethod
+    def _normalize_history_messages(messages: Optional[List[ChatMessage]], max_messages: int = 12) -> List[Dict[str, str]]:
+        normalized: List[Dict[str, str]] = []
+        if not messages:
+            return normalized
+
+        for msg in messages[-max_messages:]:
+            role = (msg.role or "").strip().lower()
+            if role not in {"user", "assistant"}:
+                continue
+            content = (msg.content or "").strip()
+            if not content:
+                continue
+            normalized.append({"role": role, "content": content})
+
+        return normalized
+
+    @staticmethod
+    def _build_contextual_question(question: str, history_messages: List[Dict[str, str]]) -> str:
+        """用最近一轮或两轮上下文轻微扩展检索问题。"""
+        previous_user_messages = [msg["content"] for msg in history_messages if msg["role"] == "user"]
+        if not previous_user_messages:
+            return question
+
+        context = " ".join(previous_user_messages[-2:])
+        combined = f"{context} {question}".strip()
+        return combined if combined else question
     
     @staticmethod
     def _find_related_pages(kb_id: str, question: str, max_pages: int = 5) -> List[Dict]:
@@ -271,6 +403,7 @@ class ChatService:
     async def ask(
         question: str,
         knowledge_base_ids: List[str],
+        messages: Optional[List[ChatMessage]] = None,
         model_id: Optional[str] = None,
         use_web_search: bool = False,
         assistant_prompt: Optional[str] = None
@@ -286,15 +419,14 @@ class ChatService:
         Yields:
             流式输出答案文本
         """
+        history_messages = ChatService._normalize_history_messages(messages)
+
         if not knowledge_base_ids:
             if use_web_search:
-                web_results = await ChatService._web_search(question)
+                web_results = await ChatService._build_web_results(question, history_messages)
                 if web_results:
-                    prompt = WEB_QA_PROMPT.format(
-                        web_results=ChatService._format_web_results(web_results),
-                        question=question
-                    )
-                    messages = [
+                    prompt = ChatService._build_web_prompt(question, web_results)
+                    prompt_messages = [
                         {
                             "role": "system",
                             "content": ChatService._merge_system_prompt(
@@ -302,17 +434,19 @@ class ChatService:
                                 assistant_prompt
                             )
                         },
+                        *history_messages,
                         {"role": "user", "content": prompt}
                     ]
-                    async for chunk in llm_service.chat(messages, model_id=model_id, stream=True):
+                    async for chunk in llm_service.chat(prompt_messages, model_id=model_id, stream=True):
                         if chunk is None:
                             continue
                         yield chunk
                     return
 
-            messages = ChatService._build_general_messages(question)
-            messages[0]["content"] = ChatService._merge_system_prompt(messages[0]["content"], assistant_prompt)
-            async for chunk in llm_service.chat(messages, model_id=model_id, stream=True):
+            prompt_messages = ChatService._build_general_messages(question)
+            prompt_messages[0]["content"] = ChatService._merge_system_prompt(prompt_messages[0]["content"], assistant_prompt)
+            prompt_messages[1:1] = history_messages
+            async for chunk in llm_service.chat(prompt_messages, model_id=model_id, stream=True):
                 if chunk is None:
                     continue
                 yield chunk
@@ -329,7 +463,8 @@ class ChatService:
             all_index_content.append(f"知识库「{kb_id}」的索引：\n{index_content}")
             
             # 查找相关页面
-            related = ChatService._find_related_pages(kb_id, question)
+            search_question = ChatService._build_contextual_question(question, history_messages)
+            related = ChatService._find_related_pages(kb_id, search_question)
             for page in related:
                 all_related_pages.append({
                     "kb_id": kb_id,
@@ -338,13 +473,10 @@ class ChatService:
         
         if not all_related_pages:
             if use_web_search:
-                web_results = await ChatService._web_search(question)
+                web_results = await ChatService._build_web_results(question, history_messages)
                 if web_results:
-                    prompt = WEB_QA_PROMPT.format(
-                        web_results=ChatService._format_web_results(web_results),
-                        question=question
-                    )
-                    messages = [
+                    prompt = ChatService._build_web_prompt(question, web_results)
+                    prompt_messages = [
                         {
                             "role": "system",
                             "content": ChatService._merge_system_prompt(
@@ -352,9 +484,10 @@ class ChatService:
                                 assistant_prompt
                             )
                         },
+                        *history_messages,
                         {"role": "user", "content": prompt}
                     ]
-                    async for chunk in llm_service.chat(messages, model_id=model_id, stream=True):
+                    async for chunk in llm_service.chat(prompt_messages, model_id=model_id, stream=True):
                         if chunk is None:
                             continue
                         yield chunk
@@ -376,7 +509,7 @@ class ChatService:
         )
 
         if use_web_search:
-            web_results = await ChatService._web_search(question)
+            web_results = await ChatService._build_web_results(question, history_messages)
             if web_results:
                 prompt += "\n\n## 联网检索结果\n\n" + ChatService._format_web_results(web_results)
         
@@ -388,6 +521,7 @@ class ChatService:
                     assistant_prompt
                 )
             },
+            *history_messages,
             {"role": "user", "content": prompt}
         ]
         
@@ -401,13 +535,14 @@ class ChatService:
     async def ask_sync(
         question: str,
         knowledge_base_ids: List[str],
+        messages: Optional[List[ChatMessage]] = None,
         model_id: Optional[str] = None,
         use_web_search: bool = False,
         assistant_prompt: Optional[str] = None
     ) -> str:
         """同步回答问题，返回完整文本"""
         result = []
-        async for chunk in ChatService.ask(question, knowledge_base_ids, model_id, use_web_search, assistant_prompt):
+        async for chunk in ChatService.ask(question, knowledge_base_ids, messages, model_id, use_web_search, assistant_prompt):
             if chunk is None:
                 continue
             result.append(chunk)

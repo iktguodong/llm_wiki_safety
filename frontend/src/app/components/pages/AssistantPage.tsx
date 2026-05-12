@@ -11,11 +11,16 @@ import {
   Settings,
   Trash2,
   Wand2,
+  Upload,
   X,
+  User,
 } from 'lucide-react';
 import { assistants, type AssistantDefinition } from '../../data/assistants';
 import { useApp } from '../../../lib/context';
-import { chatApi } from '../../../lib/api';
+import { chatApi, docApi } from '../../../lib/api';
+import { buildChatMemory } from '../../lib/chat-memory';
+import { renderAssistantBubble } from '../../lib/chat-render';
+import LogoMark from '../LogoMark';
 
 interface AssistantPageProps {
   activeAssistantId?: string | null;
@@ -61,6 +66,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   const [showAssistantList, setShowAssistantList] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const allModels = providers.flatMap(p => p.models);
   const selectedAssistant = items.find(item => item.id === selectedId) || items[0];
   const assistantTopics = topics.filter(topic => topic.assistantId === selectedAssistant?.id);
@@ -215,6 +221,24 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     }
   };
 
+  const handleUploadDocument = async (file?: File | null) => {
+    const targetKbId = selectedAssistant?.default_knowledge_base_ids[0];
+    if (!targetKbId) {
+      window.alert('请先在助手设置里绑定一个知识库，再上传文档。');
+      return;
+    }
+    if (!file) return;
+    try {
+      await docApi.upload(targetKbId, file);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : '上传失败');
+    } finally {
+      if (uploadInputRef.current) {
+        uploadInputRef.current.value = '';
+      }
+    }
+  };
+
   const sendMessage = () => {
     const question = input.trim();
     if (!question || isLoading || !selectedAssistant) return;
@@ -222,6 +246,9 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     if (!currentTopic) return;
     const targetTopicId = currentTopic.id;
+    const historyMessages = buildChatMemory(currentTopic.messages, {
+      resetMarkers: ['已清除当前话题上下文。接下来的回答将从新的上下文开始。'],
+    });
     updateTopicById(targetTopicId, topic => ({
       ...topic,
       title: topic.title === '新话题' ? question.slice(0, 30) : topic.title,
@@ -234,6 +261,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     chatApi.ask(
       {
         question,
+        messages: historyMessages,
         knowledge_base_ids: selectedAssistant.default_knowledge_base_ids,
         model_id: selectedAssistant.default_model_id || currentModelId,
         use_web_search: selectedAssistant.use_web_search,
@@ -279,12 +307,12 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     <div className="h-full flex flex-col bg-slate-50">
       <div className="flex-1 min-h-0 flex">
         {showAssistantList && (
-        <aside className="w-[360px] flex-shrink-0 border-r border-slate-200 bg-white/70 px-5 py-5 overflow-y-auto">
-          <div className="space-y-4">
+        <aside className="w-64 flex-shrink-0 border-r border-slate-200 bg-white/70 px-3 py-4 overflow-y-auto">
+          <div className="space-y-3">
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h1 className="text-slate-900">助手列表</h1>
+                  <h1 className="text-sm font-medium text-slate-800">助手列表</h1>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button
@@ -349,37 +377,37 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                       selectAssistant(assistant);
                     }
                   }}
-                  className={`w-full text-left border rounded-lg p-4 transition-colors ${
-                    isActive ? 'bg-indigo-50 border-indigo-100' : 'bg-white border-slate-200 hover:bg-slate-50'
+                  className={`w-full text-left border rounded-lg px-3 py-2 transition-colors ${
+                      isActive ? 'bg-indigo-50 border-indigo-100' : 'bg-white border-slate-200 hover:bg-slate-50'
                   }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-lg bg-indigo-50 flex items-center justify-center text-xl flex-shrink-0">
-                      {assistant.icon}
-                    </div>
-                    <div className="min-w-0 flex-1 flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <h2 className="text-base text-slate-900 font-semibold truncate">{assistant.name}</h2>
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-lg flex-shrink-0">
+                        {assistant.icon}
                       </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setEditing(assistant); setDialogOpen(true); }}
-                          className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
-                          aria-label={`设置 ${assistant.name}`}
-                          title="设置"
-                        >
-                          <Settings className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); deleteAssistant(assistant.id); }}
+                      <div className="min-w-0 flex-1 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <h2 className="text-sm text-slate-800 font-medium truncate">{assistant.name}</h2>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setEditing(assistant); setDialogOpen(true); }}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                            aria-label={`设置 ${assistant.name}`}
+                            title="设置"
+                          >
+                            <Settings className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); deleteAssistant(assistant.id); }}
                           className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"
                           aria-label={`删除 ${assistant.name}`}
                           title="删除"
-                        >
+                          >
                           <Trash2 className="w-4 h-4" />
-                        </button>
+                          </button>
                       </div>
                     </div>
                   </div>
@@ -398,7 +426,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-3 flex-wrap">
                       <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-xl flex-shrink-0">{selectedAssistant.icon}</div>
-                      <h2 className="text-slate-900 font-semibold">{selectedAssistant.name}</h2>
+                      <h2 className="text-slate-900 font-medium text-lg">{selectedAssistant.name}</h2>
                       <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-xs">
                         {allModels.find(m => m.id === selectedAssistant.default_model_id)?.name || selectedAssistant.default_model_id || currentModelId || '当前模型'}
                       </span>
@@ -487,11 +515,34 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
 
               <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
                 {messages.length > 0 ? messages.map((msg, idx) => (
-                  <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-2xl rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed ${
-                      msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
-                    }`}>
-                      {msg.content}
+                  <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                      style={{
+                        background: msg.role === 'assistant' ? '#EEF2FF' : '#4F46E5',
+                      }}
+                    >
+                      {msg.role === 'assistant' ? (
+                        <LogoMark
+                          className="w-full h-full rounded-full overflow-hidden flex items-center justify-center"
+                          imageClassName="w-full h-full object-contain scale-110"
+                        />
+                      ) : (
+                        <User className="w-4 h-4 text-white" />
+                      )}
+                    </div>
+                    <div className={`max-w-2xl ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400">
+                          {msg.role === 'assistant' ? '安牛助手' : '我'}
+                        </span>
+                        <span className="text-xs text-slate-300">{msg.time}</span>
+                      </div>
+                      <div className={`px-4 py-3 rounded-2xl whitespace-pre-wrap text-sm leading-relaxed ${
+                        msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
+                      }`}>
+                        {msg.role === 'assistant' ? renderAssistantBubble(msg.content) : msg.content}
+                      </div>
                     </div>
                   </div>
                 )) : (
@@ -518,7 +569,15 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                     className="w-full px-4 pt-4 pb-2 resize-none outline-none text-sm text-slate-700 placeholder-slate-400 bg-transparent"
                   />
                   <div className="px-3 pb-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => uploadInputRef.current?.click()}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+                        title="上传文档"
+                        aria-label="上传文档"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                      </button>
                       <button
                         onClick={clearCurrentContext}
                         className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
@@ -544,6 +603,14 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                     </button>
                   </div>
                 </div>
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => {
+                    void handleUploadDocument(e.target.files?.[0] ?? null);
+                  }}
+                />
               </div>
             </>
           ) : (

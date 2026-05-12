@@ -1,4 +1,5 @@
 import { Bot, MessageSquare, Search, Database, GraduationCap, Settings } from 'lucide-react';
+import LogoMark from './LogoMark';
 
 type PageType = 'chat' | 'assistant' | 'search' | 'knowledge' | 'training' | 'settings';
 
@@ -9,10 +10,10 @@ interface SidebarProps {
 
 const navItems = [
   { id: 'chat' as const, icon: MessageSquare, label: '对话' },
-  { id: 'assistant' as const, icon: Bot, label: '助手' },
-  { id: 'search' as const, icon: Search, label: '检索' },
-  { id: 'knowledge' as const, icon: Database, label: '知识库' },
-  { id: 'training' as const, icon: GraduationCap, label: '培训' },
+  { id: 'assistant' as const, icon: Bot, label: '专业助手' },
+  { id: 'search' as const, icon: Search, label: '知识库检索' },
+  { id: 'knowledge' as const, icon: Database, label: '知识库管理' },
+  { id: 'training' as const, icon: GraduationCap, label: 'PPT生成' },
 ];
 
 const bottomItems = [
@@ -80,16 +81,10 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
         style={{ borderBottom: '1px solid #F0F3F7' }}
       >
         <div className="flex items-center gap-3">
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-white flex-shrink-0"
-            style={{
-              background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
-              fontSize: '13px',
-              fontWeight: 700,
-            }}
-          >
-            安
-          </div>
+          <LogoMark
+            className="w-10 h-10 rounded-xl bg-white border border-slate-200 shadow-sm overflow-hidden flex items-center justify-center flex-shrink-0"
+            imageClassName="w-full h-full object-contain scale-110"
+          />
           <div>
             <div style={{ color: '#0F172A', fontSize: '14px', fontWeight: 600, letterSpacing: '0.01em' }}>
               安牛
