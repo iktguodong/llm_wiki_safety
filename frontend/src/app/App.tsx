@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AppProvider } from '../lib/context';
 import Sidebar from './components/Sidebar';
 import StatusBar from './components/StatusBar';
@@ -12,6 +12,7 @@ import AssistantPage from './components/pages/AssistantPage';
 import type { AssistantDefinition } from './data/assistants';
 
 type PageType = 'chat' | 'assistant' | 'search' | 'knowledge' | 'training' | 'settings';
+const CURRENT_PAGE_KEY = 'anniu-current-page-v1';
 
 interface ReaderContext {
   kbId: string;
@@ -21,7 +22,24 @@ interface ReaderContext {
 }
 
 function AppInner() {
-  const [currentPage, setCurrentPage] = useState<PageType>('chat');
+  const [currentPage, setCurrentPage] = useState<PageType>(() => {
+    try {
+      const raw = localStorage.getItem(CURRENT_PAGE_KEY);
+      if (
+        raw === 'chat' ||
+        raw === 'assistant' ||
+        raw === 'search' ||
+        raw === 'knowledge' ||
+        raw === 'training' ||
+        raw === 'settings'
+      ) {
+        return raw;
+      }
+    } catch {
+      // ignore storage failures and fall back to chat
+    }
+    return 'chat';
+  });
   const [readerCtx, setReaderCtx] = useState<ReaderContext | null>(null);
   const [activeAssistant, setActiveAssistant] = useState<AssistantDefinition | null>(null);
 
@@ -34,6 +52,14 @@ function AppInner() {
   const closeReader = () => {
     setReaderCtx(null);
   };
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CURRENT_PAGE_KEY, currentPage);
+    } catch {
+      // ignore storage failures
+    }
+  }, [currentPage]);
 
   const renderPage = () => {
     // 阅读器优先展示

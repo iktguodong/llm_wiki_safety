@@ -4,9 +4,7 @@ export default function StatusBar() {
     <div className="h-9 bg-white border-t border-slate-200 px-5 flex items-center justify-center text-xs">
       <div className="flex items-center gap-3 text-slate-500">
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[11px] font-semibold shadow-sm">
-            C
-          </div>
+          <span className="text-slate-400 text-[14px] leading-none font-medium">©</span>
           <a
             href="https://liaoantech.com"
             target="_blank"

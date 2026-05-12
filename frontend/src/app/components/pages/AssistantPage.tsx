@@ -15,12 +15,119 @@ import {
   X,
   User,
 } from 'lucide-react';
-import { assistants, type AssistantDefinition } from '../../data/assistants';
+import { assistants as defaultAssistants, type AssistantDefinition } from '../../data/assistants';
 import { useApp } from '../../../lib/context';
 import { chatApi, docApi } from '../../../lib/api';
 import { buildChatMemory } from '../../lib/chat-memory';
 import { renderAssistantBubble } from '../../lib/chat-render';
 import LogoMark from '../LogoMark';
+
+const ASSISTANT_CUSTOM_KEY = 'anniu-assistant-custom-v2';
+const ASSISTANT_OVERRIDES_KEY = 'anniu-assistant-overrides-v2';
+const ASSISTANT_HIDDEN_KEY = 'anniu-assistant-hidden-v2';
+const LEGACY_ASSISTANTS_KEY = 'anniu-assistants-v1';
+
+type AssistantOverrides = Record<string, AssistantDefinition>;
+
+const legacyDefaultAssistants: Record<string, AssistantDefinition> = {
+  'incident-review': {
+    id: 'incident-review',
+    name: '事故复盘',
+    description: '梳理事故经过、原因、责任边界和整改措施，适合安全复盘和会议材料。',
+    icon: '📊',
+    system_prompt: '你是企业安全事故复盘助手。回答时请围绕事故经过、直接原因、间接原因、管理缺陷、责任边界、整改措施和跟踪验证展开，语言客观、严谨、可用于内部复盘材料。',
+    default_knowledge_base_ids: [],
+    use_web_search: false,
+  },
+  'official-writing': {
+    id: 'official-writing',
+    name: '公文写作',
+    description: '生成通知、报告、请示、总结等安全管理常用公文。',
+    icon: '📝',
+    system_prompt: '你是企业安全管理公文写作助手。请使用正式、清晰、可落地的公文表达，结构完整，避免口语化和夸张表述。',
+    default_knowledge_base_ids: [],
+    use_web_search: false,
+  },
+  'emergency-plan': {
+    id: 'emergency-plan',
+    name: '应急预案解读',
+    description: '围绕预案组织架构、响应流程、职责分工和现场处置进行解释。',
+    icon: '🛡️',
+    system_prompt: '你是应急预案解读助手。请优先解释组织机构、响应分级、启动条件、职责分工、处置流程和注意事项，回答要便于一线人员理解和执行。',
+    default_knowledge_base_ids: [],
+    use_web_search: false,
+  },
+  'training-ppt': {
+    id: 'training-ppt',
+    name: '培训材料生成',
+    description: '把知识库内容整理成培训主题、课程大纲、讲稿要点和 PPT 思路。',
+    icon: '🎓',
+    system_prompt: '你是企业安全培训材料助手。请把内容整理成适合培训的结构，包括培训目标、对象、课程章节、案例、互动问题和考核要点。',
+    default_knowledge_base_ids: [],
+    use_web_search: false,
+  },
+};
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function equalAssistant(a: AssistantDefinition, b: AssistantDefinition) {
+  return a.id === b.id
+    && a.name === b.name
+    && a.description === b.description
+    && a.icon === b.icon
+    && a.system_prompt === b.system_prompt
+    && a.default_model_id === b.default_model_id
+    && a.use_web_search === b.use_web_search
+    && JSON.stringify(a.default_knowledge_base_ids) === JSON.stringify(b.default_knowledge_base_ids);
+}
+
+function migrateLegacyAssistants(): {
+  customAssistants: AssistantDefinition[];
+  overrides: AssistantOverrides;
+  hiddenDefaultIds: string[];
+} {
+  const legacyItems = readJson<AssistantDefinition[]>(LEGACY_ASSISTANTS_KEY, []);
+  const defaultIds = new Set(defaultAssistants.map(item => item.id));
+  const customAssistants: AssistantDefinition[] = [];
+  const overrides: AssistantOverrides = {};
+
+  for (const item of legacyItems) {
+    if (defaultIds.has(item.id)) {
+      const legacyDefault = legacyDefaultAssistants[item.id];
+      if (!legacyDefault || !equalAssistant(item, legacyDefault)) {
+        overrides[item.id] = item;
+      }
+      continue;
+    }
+    customAssistants.push(item);
+  }
+
+  return {
+    customAssistants,
+    overrides,
+    hiddenDefaultIds: [],
+  };
+}
+
+function buildMergedAssistants(
+  customAssistants: AssistantDefinition[],
+  overrides: AssistantOverrides,
+  hiddenDefaultIds: string[],
+) {
+  const hidden = new Set(hiddenDefaultIds);
+  const mergedDefaults = defaultAssistants
+    .filter(item => !hidden.has(item.id))
+    .map(item => overrides[item.id] ? { ...overrides[item.id] } : { ...item });
+
+  return [...mergedDefaults, ...customAssistants];
+}
 
 interface AssistantPageProps {
   activeAssistantId?: string | null;
@@ -39,18 +146,23 @@ type AssistantTopic = {
 
 export default function AssistantPage({ activeAssistantId, onStartChat }: AssistantPageProps) {
   const { knowledgeBases, providers, currentModelId } = useApp();
-  const [items, setItems] = useState<AssistantDefinition[]>(() => {
-    try {
-      const raw = localStorage.getItem('anniu-assistants-v1');
-      return raw ? JSON.parse(raw) : assistants;
-    } catch {
-      return assistants;
-    }
+  const initialLegacyState = useMemo(() => migrateLegacyAssistants(), []);
+  const [customAssistants, setCustomAssistants] = useState<AssistantDefinition[]>(() => {
+    const raw = localStorage.getItem(ASSISTANT_CUSTOM_KEY);
+    return raw !== null ? JSON.parse(raw) : initialLegacyState.customAssistants;
+  });
+  const [overrides, setOverrides] = useState<AssistantOverrides>(() => {
+    const raw = localStorage.getItem(ASSISTANT_OVERRIDES_KEY);
+    return raw !== null ? JSON.parse(raw) : initialLegacyState.overrides;
+  });
+  const [hiddenDefaultIds, setHiddenDefaultIds] = useState<string[]>(() => {
+    const raw = localStorage.getItem(ASSISTANT_HIDDEN_KEY);
+    return raw !== null ? JSON.parse(raw) : initialLegacyState.hiddenDefaultIds;
   });
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<AssistantDefinition | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState(activeAssistantId || items[0]?.id || '');
+  const [selectedId, setSelectedId] = useState('');
   const [input, setInput] = useState('');
   const [topics, setTopics] = useState<AssistantTopic[]>(() => {
     try {
@@ -68,22 +180,40 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   const searchInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const allModels = providers.flatMap(p => p.models);
+  const items = useMemo(
+    () => buildMergedAssistants(customAssistants, overrides, hiddenDefaultIds),
+    [customAssistants, overrides, hiddenDefaultIds],
+  );
   const selectedAssistant = items.find(item => item.id === selectedId) || items[0];
   const assistantTopics = topics.filter(topic => topic.assistantId === selectedAssistant?.id);
   const currentTopic = topics.find(topic => topic.id === currentTopicId && topic.assistantId === selectedAssistant?.id) || assistantTopics[0];
   const messages = currentTopic?.messages || [];
 
   useEffect(() => {
-    localStorage.setItem('anniu-assistants-v1', JSON.stringify(items));
-  }, [items]);
+    localStorage.setItem(ASSISTANT_CUSTOM_KEY, JSON.stringify(customAssistants));
+  }, [customAssistants]);
+
+  useEffect(() => {
+    localStorage.setItem(ASSISTANT_OVERRIDES_KEY, JSON.stringify(overrides));
+  }, [overrides]);
+
+  useEffect(() => {
+    localStorage.setItem(ASSISTANT_HIDDEN_KEY, JSON.stringify(hiddenDefaultIds));
+  }, [hiddenDefaultIds]);
 
   useEffect(() => {
     localStorage.setItem('anniu-assistant-topics-v1', JSON.stringify(topics));
   }, [topics]);
 
   useEffect(() => {
-    if (activeAssistantId) setSelectedId(activeAssistantId);
-  }, [activeAssistantId]);
+    if (activeAssistantId) {
+      setSelectedId(activeAssistantId);
+      return;
+    }
+    if (!selectedAssistant && items[0]) {
+      setSelectedId(items[0].id);
+    }
+  }, [activeAssistantId, items, selectedAssistant]);
 
   useEffect(() => {
     if (!selectedAssistant) return;
@@ -133,10 +263,16 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   };
 
   const saveAssistant = (next: AssistantDefinition) => {
-    setItems(prev => {
-      const exists = prev.some(item => item.id === next.id);
-      return exists ? prev.map(item => item.id === next.id ? next : item) : [next, ...prev];
-    });
+    const isDefaultAssistant = defaultAssistants.some(item => item.id === next.id);
+    if (isDefaultAssistant) {
+      setOverrides(prev => ({ ...prev, [next.id]: next }));
+      setHiddenDefaultIds(prev => prev.filter(id => id !== next.id));
+    } else {
+      setCustomAssistants(prev => {
+        const exists = prev.some(item => item.id === next.id);
+        return exists ? prev.map(item => item.id === next.id ? next : item) : [next, ...prev];
+      });
+    }
     setSelectedId(next.id);
     onStartChat(next);
     setDialogOpen(false);
@@ -154,10 +290,20 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     const confirmed = window.confirm(`确定删除「${target.name}」吗？删除后无法恢复。`);
     if (!confirmed) return;
 
+    const isDefaultAssistant = defaultAssistants.some(item => item.id === assistantId);
+    if (isDefaultAssistant) {
+      setHiddenDefaultIds(prev => (prev.includes(assistantId) ? prev : [...prev, assistantId]));
+      setOverrides(prev => {
+        const next = { ...prev };
+        delete next[assistantId];
+        return next;
+      });
+    } else {
+      setCustomAssistants(prev => prev.filter(item => item.id !== assistantId));
+    }
+
     const nextItems = items.filter(item => item.id !== assistantId);
     const fallback = nextItems[0];
-
-    setItems(nextItems);
     setTopics(prev => prev.filter(topic => topic.assistantId !== assistantId));
 
     if (selectedId === assistantId) {
@@ -331,7 +477,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                   </button>
                   <button
                     onClick={openCreate}
-                    className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700 transition-colors"
+                    className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-slate-200 text-indigo-600 bg-transparent hover:bg-indigo-50 transition-colors"
                     aria-label="新建助手"
                     title="新建助手"
                   >
