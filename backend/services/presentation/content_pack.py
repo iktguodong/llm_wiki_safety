@@ -129,14 +129,14 @@ def _read_wiki_page(page_path: Path, kb_id: str, page_name: str | None = None) -
 def _load_wiki_sources(kb_id: str, page_name: str | None, pack: ContentPack) -> None:
     wiki_path = get_kb_wiki_path(kb_id)
     if not wiki_path.exists():
-        pack.warnings.append(f"知识库 {kb_id} 未找到 wiki 目录")
+        pack.warnings.append(f"知识库 {kb_id} 暂无可用内容")
         return
 
     pages: list[Path]
     if page_name:
         page_file = wiki_path / page_name
         if not page_file.exists():
-            pack.warnings.append(f"知识库 {kb_id} 未找到 Wiki 页面 {page_name}")
+            pack.warnings.append(f"知识库 {kb_id} 未找到对应内容 {page_name}")
             return
         pages = [page_file]
     else:
@@ -316,17 +316,17 @@ def build_content_pack(request: Any, job_id: str | None = None) -> ContentPack:
     for source in sources:
         if source.type == "knowledge_base":
             if not source.kb_id:
-                pack.warnings.append("knowledge_base 来源缺少 kb_id")
+                pack.warnings.append("知识库内容来源缺少 kb_id")
                 continue
             _load_wiki_sources(source.kb_id, None, pack)
         elif source.type == "wiki_page":
             if not source.kb_id or not source.page_name:
-                pack.warnings.append("wiki_page 来源缺少 kb_id 或 page_name")
+                pack.warnings.append("知识库内容来源缺少 kb_id 或内容标识")
                 continue
             _load_wiki_sources(source.kb_id, source.page_name, pack)
         elif source.type == "kb_document":
             if not source.kb_id:
-                pack.warnings.append("kb_document 来源缺少 kb_id")
+                pack.warnings.append("知识库文档来源缺少 kb_id")
                 continue
             _load_document_sources(source.kb_id, source.document_id, pack)
         elif source.type == "temporary_upload":

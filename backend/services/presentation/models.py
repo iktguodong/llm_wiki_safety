@@ -61,6 +61,31 @@ class TrainingOutlineSection(BaseModel):
     source_refs: list[SourceRef] = Field(default_factory=list)
 
 
+class TrainingOutlineSlide(BaseModel):
+    id: str
+    slide_no: int
+    title: str
+    key_points: list[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+    layout_hint: Optional[str] = None
+    slide_type: Literal[
+        "cover",
+        "agenda",
+        "content",
+        "workflow",
+        "risk_scene",
+        "legal_requirement",
+        "control_measures",
+        "case_discussion",
+        "checklist",
+        "quiz",
+        "summary",
+    ] = "content"
+    source_refs: list[SourceRef] = Field(default_factory=list)
+    visual_type: Optional[Literal["none", "cards", "two_column", "risk_matrix", "process_flow", "checklist", "qa", "table"]] = None
+    safety_level: Optional[Literal["normal", "attention", "warning", "critical"]] = None
+
+
 class TrainingOutline(BaseModel):
     id: str
     title: str
@@ -68,6 +93,7 @@ class TrainingOutline(BaseModel):
     audience: str
     duration_minutes: int
     style: Literal["standard_training", "management_briefing", "frontline_shift_training"]
+    slides: list[TrainingOutlineSlide] = Field(default_factory=list)
     sections: list[TrainingOutlineSection] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
@@ -77,6 +103,7 @@ class SlideSpec(BaseModel):
     slide_no: int
     slide_type: Literal[
         "cover",
+        "agenda",
         "toc",
         "section_divider",
         "content",
@@ -137,6 +164,7 @@ class PresentationJob(BaseModel):
     pptx_path: Optional[str] = None
     quality_report_path: Optional[str] = None
     download_url: Optional[str] = None
+    notes_download_url: Optional[str] = None
 
 
 def utc_now_str() -> str:

@@ -1,42 +1,49 @@
+import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Check, FileText, Loader2, Minus, Plus, RefreshCw, Trash2, Upload, WandSparkles, BookOpen, ClipboardList, Download, AlertTriangle } from 'lucide-react';
+import { ArrowDown, ArrowUp, Download, FileText, Globe, Loader2, Plus, Trash2, Upload, WandSparkles, X } from 'lucide-react';
 import { useApp } from '../../../lib/context';
-import { docApi, kbApi, trainingApi, wikiApi } from '../../../lib/api';
+import { docApi, trainingApi } from '../../../lib/api';
 import type {
   DocumentInfo,
   KnowledgeBase,
   PresentationSpec,
   QualityReport,
-  TemporaryTrainingUploadResponse,
   TrainingGenerateResponse,
   TrainingOutline,
   TrainingOutlineResponse,
-  TrainingOutlineSection,
+  TrainingOutlineSlide,
   TrainingSourceInput,
   TrainingStyle,
-  WikiPage,
 } from '../../../lib/types';
-import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Checkbox } from '../ui/checkbox';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { ScrollArea } from '../ui/scroll-area';
-import { Separator } from '../ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Separator } from '../ui/separator';
 import { Textarea } from '../ui/textarea';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 
-type Step = 1 | 2 | 3 | 4;
+type MainMode = 'html' | 'ppt';
+type SourceMode = 'kb_document' | 'temporary_upload';
+type SlideCountChoice = '5' | '15' | '20' | '30' | 'custom';
 
 type KbResources = {
   loading: boolean;
   error: string | null;
-  pages: WikiPage[];
   docs: DocumentInfo[];
 };
 
-type EditableOutline = TrainingOutline & { sections: TrainingOutlineSection[] };
+type PptSetupDraft = {
+  sourceMode: SourceMode;
+  kbId: string;
+  documentId: string;
+  requirement: string;
+  slideCountChoice: SlideCountChoice;
+  customSlideCount: number;
+  style: TrainingStyle;
+  includeSpeakerNotes: boolean;
+};
 
 const styleOptions: { value: TrainingStyle; label: string; desc: string }[] = [
   { value: 'standard_training', label: '标准安全培训', desc: '适合常规安全生产培训，结构均衡' },
@@ -44,49 +51,63 @@ const styleOptions: { value: TrainingStyle; label: string; desc: string }[] = [
   { value: 'frontline_shift_training', label: '班组宣贯', desc: '字更大、少字、动作导向' },
 ];
 
-function truncate(text: string, max = 48) {
-  return text.length > max ? `${text.slice(0, max)}...` : text;
+function durationFromSlideCount(slideCount: number) {
+  if (slideCount <= 5) return 15;
+  if (slideCount <= 15) return 30;
+  if (slideCount <= 20) return 45;
+  return Math.min(90, Math.max(45, Math.round(slideCount * 2)));
 }
 
-function isSameSource(a: TrainingSourceInput, b: TrainingSourceInput) {
-  return a.type === b.type && a.kb_id === b.kb_id && a.page_name === b.page_name && a.document_id === b.document_id && a.upload_id === b.upload_id && a.prompt === b.prompt;
-}
-
-function makeKey(source: TrainingSourceInput) {
-  return [
-    source.type,
-    source.kb_id || '',
-    source.page_name || '',
-    source.document_id || '',
-    source.upload_id || '',
-    source.prompt || '',
-  ].join(':');
+function slideTypeLabel(slideType: TrainingOutlineSlide['slide_type']) {
+  const labels: Record<TrainingOutlineSlide['slide_type'], string> = {
+    cover: '封面',
+    agenda: '目录',
+    content: '正文',
+    workflow: '流程',
+    risk_scene: '风险场景',
+    legal_requirement: '制度要求',
+    control_measures: '控制措施',
+    case_discussion: '案例讨论',
+    checklist: '检查清单',
+    quiz: '测验',
+    summary: '总结',
+  };
+  return labels[slideType] || '正文';
 }
 
 function sourceLabel(source: TrainingSourceInput, knowledgeBases: KnowledgeBase[]) {
+  if (source.type === 'kb_document') {
+    return source.title || source.document_id || '知识库文档';
+  }
+  if (source.type === 'temporary_upload') {
+    return source.title || source.upload_id || '上传文档';
+  }
+  if (source.type === 'prompt') {
+    return source.title || '自由生成';
+  }
   if (source.type === 'knowledge_base') {
     return knowledgeBases.find((kb) => kb.id === source.kb_id)?.name || source.kb_id || '知识库';
   }
-  if (source.type === 'wiki_page') return `${source.title || source.page_name || 'Wiki 页面'}`;
-  if (source.type === 'kb_document') return `${source.title || source.document_id || '原始文档'}`;
-  if (source.type === 'temporary_upload') return `${source.title || source.upload_id || '临时上传'}`;
-  return source.prompt || source.title || '提示词';
+  return source.title || '来源';
 }
 
-function mergeSources(list: TrainingSourceInput[], next: TrainingSourceInput) {
-  const idx = list.findIndex((item) => isSameSource(item, next));
-  if (idx >= 0) {
-    return list.filter((_, i) => i !== idx);
+function buildSlideCount(choice: SlideCountChoice, customSlideCount: number) {
+  if (choice === 'custom') {
+    return Math.max(1, customSlideCount || 1);
   }
-  return [...list, next];
+  return Number(choice);
 }
 
-function removeSource(list: TrainingSourceInput[], source: TrainingSourceInput) {
-  return list.filter((item) => !isSameSource(item, source));
+function normalizePoints(text: string) {
+  return text
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 6);
 }
 
-function SectionEditor({
-  section,
+function OutlineSlideCard({
+  slide,
   index,
   total,
   onChange,
@@ -94,24 +115,29 @@ function SectionEditor({
   onMoveUp,
   onMoveDown,
 }: {
-  section: TrainingOutlineSection;
+  slide: TrainingOutlineSlide;
   index: number;
   total: number;
-  onChange: (next: TrainingOutlineSection) => void;
+  onChange: (next: TrainingOutlineSlide) => void;
   onRemove: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
   return (
-    <Card className="border-slate-200">
+    <Card className="border-slate-200 shadow-sm">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <CardTitle className="text-base text-slate-900 flex items-center gap-2">
-              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-indigo-50 text-xs text-indigo-700">{index + 1}</span>
-              <span>章节 {index + 1}</span>
+            <CardTitle className="flex items-center gap-2 text-base text-slate-900">
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-indigo-50 text-xs font-semibold text-indigo-700">
+                {slide.slide_no}
+              </span>
+              <span>{slideTypeLabel(slide.slide_type)}</span>
             </CardTitle>
-            <p className="text-xs text-slate-500 mt-1">编辑章节标题、目标和关键点，生成 PPT 前可以继续微调。</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              {slide.layout_hint && <span>布局：{slide.layout_hint}</span>}
+              {slide.source_refs.length > 0 && <span>来源：{slide.source_refs.length} 条</span>}
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" onClick={onMoveUp} disabled={index === 0}>
@@ -126,196 +152,164 @@ function SectionEditor({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid gap-3 md:grid-cols-2">
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-1">
-            <Label>章节标题</Label>
-            <Input value={section.title} onChange={(e) => onChange({ ...section, title: e.target.value })} />
+            <Label>页面标题</Label>
+            <Input value={slide.title} onChange={(e) => onChange({ ...slide, title: e.target.value })} />
           </div>
           <div className="space-y-1">
-            <Label>预计分钟</Label>
-            <Input
-              type="number"
-              min={1}
-              value={section.estimated_minutes}
-              onChange={(e) => onChange({ ...section, estimated_minutes: Number(e.target.value) || 1 })}
-            />
+            <Label>页面类型</Label>
+            <Select value={slide.slide_type} onValueChange={(value) => onChange({ ...slide, slide_type: value as TrainingOutlineSlide['slide_type'] })}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[
+                  'cover',
+                  'agenda',
+                  'content',
+                  'workflow',
+                  'risk_scene',
+                  'legal_requirement',
+                  'control_measures',
+                  'case_discussion',
+                  'checklist',
+                  'quiz',
+                  'summary',
+                ].map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {slideTypeLabel(item as TrainingOutlineSlide['slide_type'])}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <div className="space-y-1">
-          <Label>章节目标</Label>
-          <Textarea rows={2} value={section.goal} onChange={(e) => onChange({ ...section, goal: e.target.value })} />
-        </div>
-        <div className="space-y-1">
-          <Label>关键点（每行一个）</Label>
+          <Label>关键点</Label>
           <Textarea
             rows={4}
-            value={section.key_points.join('\n')}
-            onChange={(e) =>
-              onChange({
-                ...section,
-                key_points: e.target.value
-                  .split('\n')
-                  .map((item) => item.trim())
-                  .filter(Boolean)
-                  .slice(0, 8),
-              })
-            }
+            value={slide.key_points.join('\n')}
+            onChange={(e) => onChange({ ...slide, key_points: normalizePoints(e.target.value) })}
+            placeholder="每行一个要点"
           />
         </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function SlideSpecPreview({ presentation }: { presentation: PresentationSpec }) {
-  return (
-    <div className="space-y-3">
-      {presentation.slides.map((slide) => (
-        <Card key={slide.id} className="border-slate-200">
-          <CardContent className="p-4 space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="capitalize">{slide.slide_type}</Badge>
-                  <span className="text-xs text-slate-500">第 {slide.slide_no} 页</span>
-                </div>
-                <div className="mt-1 text-sm font-medium text-slate-900">{slide.title}</div>
-              </div>
-              {slide.safety_level && (
-                <Badge variant={slide.safety_level === 'critical' ? 'destructive' : 'outline'}>
-                  {slide.safety_level}
-                </Badge>
-              )}
-            </div>
-            {slide.subtitle && <p className="text-xs text-slate-500">{slide.subtitle}</p>}
-            {slide.bullets.length > 0 && (
-              <ul className="space-y-1">
-                {slide.bullets.slice(0, 5).map((bullet) => (
-                  <li key={bullet} className="text-sm text-slate-700 flex gap-2">
-                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-indigo-500" />
-                    <span>{bullet}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {slide.notes && <p className="text-xs text-slate-500">备注：{truncate(slide.notes, 120)}</p>}
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
-function QualityPanel({ report }: { report: QualityReport }) {
-  return (
-    <Card className="border-slate-200">
-      <CardHeader>
-        <CardTitle className="text-base text-slate-900 flex items-center gap-2">
-          <ClipboardList className="h-4 w-4 text-indigo-600" />
-          质量检查
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className={`rounded-lg border p-3 text-sm ${report.passed ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-          {report.summary}
+        <div className="space-y-1">
+          <Label>讲稿备注</Label>
+          <Textarea
+            rows={3}
+            value={slide.notes || ''}
+            onChange={(e) => onChange({ ...slide, notes: e.target.value })}
+            placeholder="用于讲解时的备注"
+          />
         </div>
-        <div className="space-y-2">
-          {report.issues.map((issue, idx) => (
-            <div key={`${issue.code}-${idx}`} className={`rounded-lg border p-3 text-sm ${issue.level === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : issue.level === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
-              <div className="font-medium">{issue.message}</div>
-              {issue.suggestion && <div className="mt-1 text-xs opacity-80">建议：{issue.suggestion}</div>}
-            </div>
-          ))}
-          {report.issues.length === 0 && <p className="text-sm text-slate-500">未发现明显问题。</p>}
+        <div className="space-y-1">
+          <Label>版式提示</Label>
+          <Input value={slide.layout_hint || ''} onChange={(e) => onChange({ ...slide, layout_hint: e.target.value })} placeholder="例如：两栏 / 时间线 / 卡片" />
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function ExportBar({
-  filename,
-  downloadUrl,
-  loading,
-  onGenerate,
+function TopModeCard({
+  active,
+  title,
+  subtitle,
+  icon,
+  onClick,
 }: {
-  filename?: string;
-  downloadUrl?: string;
-  loading: boolean;
-  onGenerate: () => void;
+  active: boolean;
+  title: string;
+  subtitle: string;
+  icon: ReactNode;
+  onClick: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <Button onClick={onGenerate} disabled={loading} className="bg-indigo-600 hover:bg-indigo-700">
-        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
-        生成 PPT
-      </Button>
-      {downloadUrl && (
-        <Button asChild variant="outline">
-          <a href={downloadUrl} target="_blank" rel="noreferrer">
-            <Download className="mr-2 h-4 w-4" />
-            下载 {filename || 'PPTX'}
-          </a>
-        </Button>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex min-h-[76px] flex-1 items-center gap-3 rounded-2xl border px-4 py-3 text-left transition ${
+        active ? 'border-emerald-300 bg-emerald-50 text-emerald-950' : 'border-slate-200 bg-white hover:border-slate-300'
+      }`}
+    >
+      <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold tracking-wide">{title}</div>
+        <div className="mt-0.5 text-xs text-slate-500">{subtitle}</div>
+      </div>
+    </button>
   );
 }
 
 export default function TrainingPage() {
   const { knowledgeBases, currentKbId } = useApp();
-  const [step, setStep] = useState<Step>(1);
+  const [mode, setMode] = useState<MainMode>('ppt');
+  const [setupDraft, setSetupDraft] = useState<PptSetupDraft>({
+    sourceMode: 'kb_document',
+    kbId: currentKbId || '',
+    documentId: '',
+    requirement: '请突出应急处置、报警流程和初期火灾扑救',
+    slideCountChoice: '15',
+    customSlideCount: 12,
+    style: 'standard_training',
+    includeSpeakerNotes: true,
+  });
   const [selectedSources, setSelectedSources] = useState<TrainingSourceInput[]>([]);
   const [kbResources, setKbResources] = useState<Record<string, KbResources>>({});
-  const [expandedKbIds, setExpandedKbIds] = useState<string[]>(currentKbId ? [currentKbId] : []);
-  const [promptText, setPromptText] = useState('帮我生成一份危险化学品仓库火灾应急处置培训 PPT');
-  const [tempUploadResults, setTempUploadResults] = useState<TemporaryTrainingUploadResponse[]>([]);
-  const [outline, setOutline] = useState<EditableOutline | null>(null);
-  const [contentPackSummary, setContentPackSummary] = useState<Record<string, unknown> | null>(null);
+  const [outline, setOutline] = useState<TrainingOutline | null>(null);
   const [presentation, setPresentation] = useState<PresentationSpec | null>(null);
   const [qualityReport, setQualityReport] = useState<QualityReport | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string>('');
   const [filename, setFilename] = useState<string>('');
+  const [notesDownloadUrl, setNotesDownloadUrl] = useState<string>('');
+  const [notesFilename, setNotesFilename] = useState<string>('');
   const [jobId, setJobId] = useState<string>('');
-  const [topic, setTopic] = useState('危险化学品仓库火灾应急处置培训');
-  const [audience, setAudience] = useState('一线员工');
-  const [durationMinutes, setDurationMinutes] = useState(30);
-  const [slideCount, setSlideCount] = useState(15);
-  const [style, setStyle] = useState<TrainingStyle>('standard_training');
-  const [focusAreasText, setFocusAreasText] = useState('应急处置\n报警流程\n初期火灾扑救');
-  const [includeQuiz, setIncludeQuiz] = useState(true);
-  const [includeSpeakerNotes, setIncludeSpeakerNotes] = useState(true);
-  const [templateId, setTemplateId] = useState<TrainingStyle>('standard_training');
   const [loadingOutline, setLoadingOutline] = useState(false);
   const [loadingGenerate, setLoadingGenerate] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  const focusAreas = useMemo(
-    () => focusAreasText.split('\n').map((item) => item.trim()).filter(Boolean).slice(0, 8),
-    [focusAreasText],
-  );
+  const slideCount = buildSlideCount(setupDraft.slideCountChoice, setupDraft.customSlideCount);
+  const durationMinutes = useMemo(() => durationFromSlideCount(slideCount), [slideCount]);
+  const selectedSourceSummary = useMemo(() => {
+    if (selectedSources.length === 0) return '选择文档';
+    if (selectedSources.length === 1) return sourceLabel(selectedSources[0], knowledgeBases);
+    return `已选 ${selectedSources.length} 个文档`;
+  }, [knowledgeBases, selectedSources]);
+  const slideCountSummary = useMemo(() => {
+    if (setupDraft.slideCountChoice === 'custom') {
+      return `自由输入 ${setupDraft.customSlideCount || 1} 页`;
+    }
+    return `${slideCount} 页`;
+  }, [slideCount, setupDraft.customSlideCount, setupDraft.slideCountChoice]);
+  const styleSummary = useMemo(() => styleOptions.find((item) => item.value === setupDraft.style)?.label || '选择风格', [setupDraft.style]);
+  const notesSummary = setupDraft.includeSpeakerNotes ? '有' : '无';
 
-  const selectedKbIds = useMemo(
-    () => Array.from(new Set(selectedSources.filter((source) => source.type === 'knowledge_base').map((source) => source.kb_id).filter(Boolean) as string[])),
-    [selectedSources],
-  );
+  useEffect(() => {
+    if (!setupDraft.kbId && knowledgeBases[0]) {
+      setSetupDraft((prev) => ({ ...prev, kbId: currentKbId || knowledgeBases[0].id }));
+    }
+  }, [currentKbId, knowledgeBases, setupDraft.kbId]);
 
   useEffect(() => {
     const loadKb = async (kbId: string) => {
       setKbResources((prev) => ({
         ...prev,
-        [kbId]: prev[kbId] || { loading: true, error: null, pages: [], docs: [] },
+        [kbId]: prev[kbId] || { loading: true, error: null, docs: [] },
       }));
       try {
-        const [pagesRes, docsRes] = await Promise.all([wikiApi.list(kbId), docApi.list(kbId)]);
+        const docsRes = await docApi.list(kbId);
         setKbResources((prev) => ({
           ...prev,
           [kbId]: {
             loading: false,
             error: null,
-            pages: pagesRes.items,
             docs: docsRes.items,
           },
         }));
@@ -325,53 +319,47 @@ export default function TrainingPage() {
           [kbId]: {
             loading: false,
             error: err instanceof Error ? err.message : '加载失败',
-            pages: prev[kbId]?.pages || [],
             docs: prev[kbId]?.docs || [],
           },
         }));
       }
     };
 
-    selectedKbIds.forEach((kbId) => {
-      if (!kbResources[kbId] || kbResources[kbId].loading === false && kbResources[kbId].error) {
-        void loadKb(kbId);
+    if (setupDraft.sourceMode === 'kb_document' && setupDraft.kbId) {
+      const kbInfo = kbResources[setupDraft.kbId];
+      if (!kbInfo || (kbInfo.loading === false && kbInfo.error)) {
+        void loadKb(setupDraft.kbId);
       }
-    });
-  }, [selectedKbIds, kbResources]);
-
-  useEffect(() => {
-    if (currentKbId && selectedSources.length === 0) {
-      setSelectedSources([{ type: 'knowledge_base', kb_id: currentKbId }]);
     }
-  }, [currentKbId, selectedSources.length]);
+  }, [setupDraft.kbId, setupDraft.sourceMode, kbResources]);
 
-  const toggleKb = (kbId: string) => {
-    setSelectedSources((prev) => mergeSources(prev, { type: 'knowledge_base', kb_id: kbId }));
-  };
-
-  const toggleWikiPage = (kbId: string, page: WikiPage) => {
-    setSelectedSources((prev) => mergeSources(prev, { type: 'wiki_page', kb_id: kbId, page_name: page.name, title: page.title }));
-  };
-
-  const toggleDocument = (kbId: string, doc: DocumentInfo) => {
-    setSelectedSources((prev) => mergeSources(prev, { type: 'kb_document', kb_id: kbId, document_id: doc.id, title: doc.file }));
-  };
-
-  const toggleTempUpload = (item: TemporaryTrainingUploadResponse) => {
-    setSelectedSources((prev) => mergeSources(prev, { type: 'temporary_upload', upload_id: item.upload_id, title: item.filename }));
-  };
-
-  const addPromptSource = () => {
-    const trimmed = promptText.trim();
-    if (!trimmed) return;
-    setSelectedSources((prev) => {
-      const withoutPrompt = prev.filter((item) => item.type !== 'prompt');
-      return [...withoutPrompt, { type: 'prompt', prompt: trimmed, title: '自由提示词' }];
+  const resetWorkflow = (nextMode: MainMode = 'ppt') => {
+    setMode(nextMode);
+    setSetupDraft({
+      sourceMode: 'kb_document',
+      kbId: currentKbId || knowledgeBases[0]?.id || '',
+      documentId: '',
+      requirement: '',
+      slideCountChoice: '15',
+      customSlideCount: 12,
+      style: 'standard_training',
+      includeSpeakerNotes: true,
     });
-  };
-
-  const removeSelectedSource = (source: TrainingSourceInput) => {
-    setSelectedSources((prev) => removeSource(prev, source));
+    setSelectedSources([]);
+    setOutline(null);
+    setPresentation(null);
+    setQualityReport(null);
+    setDownloadUrl('');
+    setFilename('');
+    setNotesDownloadUrl('');
+    setNotesFilename('');
+    setJobId('');
+    setLoadingOutline(false);
+    setLoadingGenerate(false);
+    setError(null);
+    setDocumentPickerOpen(false);
+    setNewMenuOpen(false);
+    uploadInputRef.current && (uploadInputRef.current.value = '');
   };
 
   const handleUpload = async (files: FileList | File[]) => {
@@ -379,34 +367,122 @@ export default function TrainingPage() {
     for (const file of fileArray) {
       try {
         const res = await trainingApi.uploadTemporary(file);
-        setTempUploadResults((prev) => [...prev, res]);
-        toggleTempUpload(res);
+        setSelectedSources((prev) => {
+          const next = [
+            ...prev,
+            {
+              type: 'temporary_upload',
+              upload_id: res.upload_id,
+              title: res.filename,
+              metadata: { detected_type: res.detected_type },
+            },
+          ];
+          return dedupeSources(next);
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : '临时上传失败');
       }
     }
   };
 
+  const dedupeSources = (items: TrainingSourceInput[]) => {
+    const seen = new Set<string>();
+    const result: TrainingSourceInput[] = [];
+    for (const item of items) {
+      const key = sourceKey(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(item);
+    }
+    return result;
+  };
+
+  const sourceKey = (source: TrainingSourceInput) => {
+    if (source.type === 'kb_document') {
+      return `kb_document:${source.kb_id || ''}:${source.document_id || ''}`;
+    }
+    if (source.type === 'temporary_upload') {
+      return `temporary_upload:${source.upload_id || ''}`;
+    }
+    if (source.type === 'knowledge_base') {
+      return `knowledge_base:${source.kb_id || ''}`;
+    }
+    if (source.type === 'prompt') {
+      return `prompt:${source.prompt || source.title || ''}`;
+    }
+    return `${source.type}:${source.title || ''}:${source.document_id || ''}:${source.upload_id || ''}`;
+  };
+
+  const addKbDocumentSource = () => {
+    if (!setupDraft.kbId) {
+      setError('请选择知识库');
+      return;
+    }
+    if (!setupDraft.documentId) {
+      setError('请选择知识库中的文档');
+      return;
+    }
+    const doc = kbResources[setupDraft.kbId]?.docs.find((item) => item.id === setupDraft.documentId);
+    setSelectedSources((prev) =>
+      dedupeSources([
+        ...prev,
+        {
+          type: 'kb_document',
+          kb_id: setupDraft.kbId,
+          document_id: setupDraft.documentId,
+          title: doc?.file || '知识库文档',
+        },
+      ]),
+    );
+    setSetupDraft((prev) => ({ ...prev, documentId: '' }));
+  };
+
+  const removeSource = (index: number) => {
+    setSelectedSources((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const resolveSetupSource = (): TrainingSourceInput | null => {
+    const requirement = setupDraft.requirement.trim();
+    if (!requirement) {
+      setError('请输入 PPT 主题和需求');
+      return null;
+    }
+    if (selectedSources.length === 0) {
+      setError('请至少添加一个文档');
+      return null;
+    }
+    return selectedSources[0];
+  };
+
   const generateOutline = async () => {
+    if (!resolveSetupSource()) {
+      return;
+    }
+    setOutline(null);
+    setPresentation(null);
+    setQualityReport(null);
+    setDownloadUrl('');
+    setFilename('');
+    setNotesDownloadUrl('');
+    setNotesFilename('');
+    setJobId('');
     setLoadingOutline(true);
     setError(null);
     try {
-      const res = await trainingApi.generateOutline({
+      const res: TrainingOutlineResponse = await trainingApi.generateOutline({
         sources: selectedSources,
-        topic,
-        audience,
+        topic: setupDraft.requirement.trim(),
+        audience: '一线员工',
         duration_minutes: durationMinutes,
         slide_count: slideCount,
-        style,
-        focus_areas: focusAreas,
-        include_quiz: includeQuiz,
-        include_speaker_notes: includeSpeakerNotes,
+        style: setupDraft.style,
+        focus_areas: [],
+        include_quiz: true,
+        include_speaker_notes: setupDraft.includeSpeakerNotes,
         job_id: jobId || undefined,
       });
       setJobId(res.job_id);
-      setOutline(res.outline as EditableOutline);
-      setContentPackSummary(res.content_pack_summary);
-      setStep(3);
+      setOutline(res.outline);
     } catch (err) {
       setError(err instanceof Error ? err.message : '生成大纲失败');
     } finally {
@@ -414,50 +490,56 @@ export default function TrainingPage() {
     }
   };
 
-  const updateSection = (index: number, next: TrainingOutlineSection) => {
+  const updateSlide = (index: number, next: TrainingOutlineSlide) => {
     setOutline((prev) => {
       if (!prev) return prev;
-      const sections = [...prev.sections];
-      sections[index] = next;
-      return { ...prev, sections };
+      const slides = [...prev.slides];
+      slides[index] = next;
+      return { ...prev, slides };
     });
   };
 
-  const moveSection = (index: number, direction: -1 | 1) => {
+  const moveSlide = (index: number, direction: -1 | 1) => {
     setOutline((prev) => {
       if (!prev) return prev;
       const target = index + direction;
-      if (target < 0 || target >= prev.sections.length) return prev;
-      const sections = [...prev.sections];
-      [sections[index], sections[target]] = [sections[target], sections[index]];
-      return { ...prev, sections };
-    });
-  };
-
-  const removeSection = (index: number) => {
-    setOutline((prev) => {
-      if (!prev) return prev;
-      return { ...prev, sections: prev.sections.filter((_, i) => i !== index) };
-    });
-  };
-
-  const addSection = () => {
-    setOutline((prev) => {
-      if (!prev) return prev;
+      if (target < 0 || target >= prev.slides.length) return prev;
+      const slides = [...prev.slides];
+      [slides[index], slides[target]] = [slides[target], slides[index]];
       return {
         ...prev,
-        sections: [
-          ...prev.sections,
-          {
-            id: `sec-manual-${Date.now()}`,
-            title: '新增章节',
-            goal: '补充这一章节的目标',
-            key_points: ['关键点1', '关键点2'],
-            estimated_minutes: 3,
-            source_refs: [],
-          },
-        ],
+        slides: slides.map((slide, idx) => ({ ...slide, slide_no: idx + 1 })),
       };
+    });
+  };
+
+  const addSlide = () => {
+    setOutline((prev) => {
+      if (!prev) return prev;
+      const slides = [
+        ...prev.slides,
+        {
+          id: `slide-manual-${Date.now()}`,
+          slide_no: prev.slides.length + 1,
+          title: '新增页面',
+          key_points: ['关键点1', '关键点2'],
+          notes: '补充这一页的讲解备注',
+          layout_hint: '正文页',
+          slide_type: 'content',
+          source_refs: [],
+          visual_type: 'two_column',
+          safety_level: 'normal',
+        } as TrainingOutlineSlide,
+      ];
+      return { ...prev, slides };
+    });
+  };
+
+  const removeSlide = (index: number) => {
+    setOutline((prev) => {
+      if (!prev) return prev;
+      const slides = prev.slides.filter((_, i) => i !== index).map((slide, idx) => ({ ...slide, slide_no: idx + 1 }));
+      return { ...prev, slides };
     });
   };
 
@@ -473,22 +555,23 @@ export default function TrainingPage() {
         job_id: jobId || undefined,
         sources: selectedSources,
         outline,
-        template_id: templateId,
-        include_quiz: includeQuiz,
-        include_speaker_notes: includeSpeakerNotes,
-        topic,
-        audience,
-        duration_minutes: durationMinutes,
-        slide_count: slideCount,
-        style,
-        focus_areas: focusAreas,
+        template_id: setupDraft.style,
+        include_quiz: true,
+        include_speaker_notes: setupDraft.includeSpeakerNotes,
+        topic: outline.topic,
+        audience: outline.audience,
+        duration_minutes: outline.duration_minutes,
+        slide_count: outline.slides.length,
+        style: setupDraft.style,
+        focus_areas: [],
       });
       setJobId(res.job_id);
       setPresentation(res.presentation);
       setQualityReport(res.quality_report);
-      setDownloadUrl(trainingApi.download(res.filename));
+      setDownloadUrl(res.download_url || trainingApi.download(res.filename));
       setFilename(res.filename);
-      setStep(4);
+      setNotesDownloadUrl(res.notes_download_url || '');
+      setNotesFilename(res.notes_filename || '');
     } catch (err) {
       setError(err instanceof Error ? err.message : '生成 PPT 失败');
     } finally {
@@ -500,458 +583,404 @@ export default function TrainingPage() {
     <div className="flex h-full flex-col bg-slate-50">
       <div className="border-b border-slate-200 bg-white px-8 py-5">
         <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-slate-900">培训材料生成</h1>
-            <p className="mt-1 text-sm text-slate-500">轻量级安全生产 PPT 工作流：来源、提示词、大纲、生成、质检、下载。</p>
-          </div>
-          <Button variant="outline" onClick={() => setStep(1)}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            返回来源
-          </Button>
+          <h1 className="text-slate-900">培训材料生成</h1>
+          <Popover open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline">
+                <Plus className="mr-2 h-4 w-4" />
+                新建
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-52 rounded-2xl border-slate-200 p-2 shadow-2xl">
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => resetWorkflow('html')}
+                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-slate-50"
+                >
+                  <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                    <Globe className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-900">生成 HTML</div>
+                    <div className="text-xs text-slate-500">适合做成网页形式的培训内容</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resetWorkflow('ppt')}
+                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-slate-50"
+                >
+                  <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700">
+                    <FileText className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-900">生成 PPT</div>
+                    <div className="text-xs text-slate-500">适合导出后继续编辑修改</div>
+                  </div>
+                </button>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
       <div className="flex-1 overflow-auto px-8 py-6">
-        <div className="mb-6 flex items-center gap-3">
-          {[
-            '选择来源',
-            '培训参数',
-            '生成并编辑大纲',
-            '生成 PPT',
-          ].map((label, index) => {
-            const n = index + 1;
-            const active = step === n;
-            const done = step > n;
-            return (
-              <div key={label} className="flex items-center gap-3">
-                <div className={`flex h-8 w-8 items-center justify-center rounded-full border text-sm ${done || active ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white text-slate-500'}`}>
-                  {done ? <Check className="h-4 w-4" /> : n}
-                </div>
-                <span className={`text-sm ${active ? 'text-indigo-700' : done ? 'text-slate-700' : 'text-slate-400'}`}>{label}</span>
-                {n < 4 && <div className={`h-px w-16 ${step > n ? 'bg-indigo-400' : 'bg-slate-200'}`} />}
-              </div>
-            );
-          })}
+        <div className="mb-5 flex gap-3">
+          <TopModeCard
+            active={mode === 'html'}
+            title="生成精美的HTML网页"
+            subtitle="适用日常汇报培训"
+            icon={<Globe className="h-5 w-5" />}
+            onClick={() => setMode('html')}
+          />
+          <TopModeCard
+            active={mode === 'ppt'}
+            title="生成可导出的PPT"
+            subtitle="适用自由编辑修改"
+            icon={<FileText className="h-5 w-5" />}
+            onClick={() => setMode('ppt')}
+          />
         </div>
 
         {error && (
-          <div className="mb-5 flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-            <span>{error}</span>
+          <div className="mb-5 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {error}
           </div>
         )}
 
-        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        {mode === 'html' ? (
+          <Card className="border-slate-200">
+            <CardContent className="py-6 text-sm text-slate-600">
+              HTML 流程预留
+            </CardContent>
+          </Card>
+        ) : (
           <div className="space-y-6">
-            {(step === 1 || step === 2) && (
-              <Card className="border-slate-200">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base text-slate-900">
-                    <BookOpen className="h-4 w-4 text-indigo-600" />
-                    Step 1 - 选择来源
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-5">
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {knowledgeBases.map((kb) => {
-                      const active = selectedSources.some((source) => source.type === 'knowledge_base' && source.kb_id === kb.id);
-                      return (
-                        <button
-                          key={kb.id}
-                          onClick={() => toggleKb(kb.id)}
-                          className={`rounded-xl border p-4 text-left transition ${active ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-medium text-slate-900">{kb.name}</div>
-                              <div className="mt-1 text-xs text-slate-500">{kb.document_count} 文档 · {kb.wiki_page_count} 页</div>
-                            </div>
-                            <Checkbox checked={active} />
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="space-y-3 p-4">
+                <Textarea
+                  rows={3}
+                  value={setupDraft.requirement}
+                  onChange={(e) => setSetupDraft((prev) => ({ ...prev, requirement: e.target.value }))}
+                  placeholder="PPT主题 / 需求"
+                  className="min-h-[112px] bg-slate-50"
+                />
 
-                  <Separator />
-
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-medium text-slate-800">知识库原文与 Wiki 页面</div>
-                      <div className="text-xs text-slate-500">展开后可选择具体页面或文档</div>
+                <div className="flex flex-wrap gap-2">
+                  {selectedSources.map((source, index) => (
+                    <div
+                      key={`${source.type}-${sourceKey(source)}-${index}`}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700"
+                    >
+                      <span className="max-w-[260px] truncate">{sourceLabel(source, knowledgeBases)}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeSource(index)}
+                        className="text-slate-400 transition hover:text-slate-700"
+                        aria-label="移除来源"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </div>
-                    {selectedKbIds.length === 0 ? (
-                      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-                        先选择一个知识库，或直接使用提示词 / 临时上传文档。
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {selectedKbIds.map((kbId) => {
-                          const kb = knowledgeBases.find((item) => item.id === kbId);
-                          const res = kbResources[kbId];
-                          return (
-                            <details key={kbId} open className="rounded-xl border border-slate-200 bg-white p-4">
-                              <summary className="cursor-pointer list-none text-sm font-medium text-slate-900">{kb?.name || kbId}</summary>
-                              <div className="mt-4 space-y-4">
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="secondary">当前知识库内容可组合使用</Badge>
-                                  {res?.loading && <span className="text-xs text-slate-500">加载中...</span>}
-                                </div>
-                                {res?.error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{res.error}</div>}
-                                <div className="grid gap-4 md:grid-cols-2">
-                                  <div className="rounded-lg border border-slate-200 p-3">
-                                    <div className="mb-2 text-sm font-medium text-slate-800">Wiki 页面</div>
-                                    <ScrollArea className="h-56 pr-2">
-                                      <div className="space-y-2">
-                                        {(res?.pages || []).map((page) => {
-                                          const active = selectedSources.some((source) => source.type === 'wiki_page' && source.kb_id === kbId && source.page_name === page.name);
-                                          return (
-                                            <label key={page.name} className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${active ? 'border-indigo-200 bg-indigo-50' : 'border-slate-100 bg-slate-50'}`}>
-                                              <Checkbox checked={active} onCheckedChange={() => toggleWikiPage(kbId, page)} />
-                                              <div className="min-w-0">
-                                                <div className="truncate text-sm text-slate-800">{page.title}</div>
-                                                <div className="text-xs text-slate-500">{page.name}</div>
-                                              </div>
-                                            </label>
-                                          );
-                                        })}
-                                        {(res?.pages || []).length === 0 && <p className="text-sm text-slate-500">暂无页面</p>}
-                                      </div>
-                                    </ScrollArea>
-                                  </div>
-                                  <div className="rounded-lg border border-slate-200 p-3">
-                                    <div className="mb-2 text-sm font-medium text-slate-800">原始文档</div>
-                                    <ScrollArea className="h-56 pr-2">
-                                      <div className="space-y-2">
-                                        {(res?.docs || []).map((doc) => {
-                                          const active = selectedSources.some((source) => source.type === 'kb_document' && source.kb_id === kbId && source.document_id === doc.id);
-                                          return (
-                                            <label key={doc.id} className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${active ? 'border-indigo-200 bg-indigo-50' : 'border-slate-100 bg-slate-50'}`}>
-                                              <Checkbox checked={active} onCheckedChange={() => toggleDocument(kbId, doc)} />
-                                              <div className="min-w-0">
-                                                <div className="truncate text-sm text-slate-800">{doc.file}</div>
-                                                <div className="text-xs text-slate-500">{doc.parse_status} · {doc.page_count} 页</div>
-                                              </div>
-                                            </label>
-                                          );
-                                        })}
-                                        {(res?.docs || []).length === 0 && <p className="text-sm text-slate-500">暂无文档</p>}
-                                      </div>
-                                    </ScrollArea>
-                                  </div>
-                                </div>
-                              </div>
-                            </details>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                  ))}
+                </div>
 
-                  <Separator />
-
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <Card className="border-slate-200">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm text-slate-900">自由提示词</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <Textarea rows={4} value={promptText} onChange={(e) => setPromptText(e.target.value)} />
-                        <Button variant="outline" onClick={addPromptSource}>
-                          <Plus className="mr-2 h-4 w-4" />
-                          作为来源添加
-                        </Button>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="border-slate-200">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm text-slate-900">临时上传文档</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
-                          <Upload className="mx-auto mb-2 h-5 w-5 text-slate-400" />
-                          <div className="text-sm text-slate-700">拖拽或选择 PDF / Word / TXT / Markdown</div>
-                          <div className="mt-1 text-xs text-slate-500">扫描版 PDF 不做 OCR，无法提取时会直接提示错误。</div>
-                          <input
-                            ref={uploadInputRef}
-                            type="file"
-                            multiple
-                            accept=".pdf,.doc,.docx,.txt,.md,.markdown"
-                            className="hidden"
-                            onChange={(e) => e.target.files && void handleUpload(e.target.files)}
-                          />
-                          <Button variant="outline" className="mt-4" onClick={() => uploadInputRef.current?.click()}>
-                            选择文件
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+                  <div className="grid flex-1 gap-3 min-w-0 xl:max-w-[1050px] xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+                    <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                      <Label className="text-sm font-medium text-slate-700">选择文档</Label>
+                      <Popover open={documentPickerOpen} onOpenChange={setDocumentPickerOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-10 w-full justify-between rounded-xl border-slate-200 bg-white px-3 text-slate-900 shadow-sm"
+                          >
+                            <span className="truncate text-left">{selectedSourceSummary}</span>
+                            <span className="ml-3 shrink-0 text-slate-400">▾</span>
                           </Button>
-                        </div>
-                        {tempUploadResults.length > 0 && (
-                          <div className="space-y-2">
-                            {tempUploadResults.map((item) => {
-                              const active = selectedSources.some((source) => source.type === 'temporary_upload' && source.upload_id === item.upload_id);
-                              return (
-                                <button key={item.upload_id} onClick={() => toggleTempUpload(item)} className={`w-full rounded-lg border p-3 text-left ${active ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 bg-white'}`}>
-                                  <div className="flex items-center justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <div className="truncate text-sm text-slate-900">{item.filename}</div>
-                                      <div className="text-xs text-slate-500">{(item.size / 1024 / 1024).toFixed(1)} MB · {item.detected_type}</div>
-                                    </div>
-                                    <Checkbox checked={active} />
-                                  </div>
-                                </button>
-                              );
-                            })}
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-[640px] max-w-[calc(100vw-2rem)] rounded-[24px] border-slate-200 p-4 shadow-2xl">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSetupDraft((prev) => ({ ...prev, sourceMode: 'kb_document' }))}
+                              className={`rounded-full border px-3 py-1.5 text-sm transition ${
+                                setupDraft.sourceMode === 'kb_document' ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-white text-slate-700'
+                              }`}
+                            >
+                              来自知识库
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSetupDraft((prev) => ({ ...prev, sourceMode: 'temporary_upload' }))}
+                              className={`rounded-full border px-3 py-1.5 text-sm transition ${
+                                setupDraft.sourceMode === 'temporary_upload' ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-white text-slate-700'
+                              }`}
+                            >
+                              上传文档
+                            </button>
                           </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
 
-            {step === 2 && (
-              <Card className="border-slate-200">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base text-slate-900">
-                    <ClipboardList className="h-4 w-4 text-indigo-600" />
-                    Step 2 - 培训参数
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-1">
-                      <Label>主题</Label>
-                      <Input value={topic} onChange={(e) => setTopic(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>受众</Label>
-                      <Input value={audience} onChange={(e) => setAudience(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>时长（分钟）</Label>
-                      <Input type="number" min={5} value={durationMinutes} onChange={(e) => setDurationMinutes(Number(e.target.value) || 30)} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>页数</Label>
-                      <Input type="number" min={6} value={slideCount} onChange={(e) => setSlideCount(Number(e.target.value) || 12)} />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>风格</Label>
-                    <Select value={style} onValueChange={(value) => setStyle(value as TrainingStyle)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="选择风格" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {styleOptions.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            <div>
-                              <div>{item.label}</div>
-                              <div className="text-xs text-slate-500">{item.desc}</div>
+                          {setupDraft.sourceMode === 'kb_document' ? (
+                            <div className="mt-4 space-y-3">
+                              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto]">
+                                <Select
+                                  value={setupDraft.kbId}
+                                  onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, kbId: value, documentId: '' }))}
+                                >
+                                  <SelectTrigger className="h-10 min-w-0">
+                                    <SelectValue placeholder="选择知识库" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {knowledgeBases.map((kb) => (
+                                      <SelectItem key={kb.id} value={kb.id}>
+                                        {kb.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Select value={setupDraft.documentId} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, documentId: value }))}>
+                                  <SelectTrigger className="h-10 min-w-0">
+                                    <SelectValue placeholder="选择文档" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {(kbResources[setupDraft.kbId]?.docs || []).map((doc) => (
+                                      <SelectItem key={doc.id} value={doc.id}>
+                                        {doc.file}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Button type="button" onClick={addKbDocumentSource} className="h-10 shrink-0 whitespace-nowrap bg-indigo-600 hover:bg-indigo-700">
+                                  加入
+                                </Button>
+                              </div>
                             </div>
+                          ) : (
+                            <div className="mt-4">
+                              <Button variant="outline" className="h-10" onClick={() => uploadInputRef.current?.click()}>
+                                <Upload className="mr-2 h-4 w-4" />
+                                上传文档
+                              </Button>
+                              <input
+                                ref={uploadInputRef}
+                                type="file"
+                                multiple
+                                accept=".pdf,.doc,.docx,.txt,.md,.markdown"
+                                className="hidden"
+                                onChange={(e) => e.target.files && void handleUpload(e.target.files)}
+                              />
+                            </div>
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+
+                    <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                      <Label className="text-sm font-medium text-slate-700">选择页数</Label>
+                      <Select value={setupDraft.slideCountChoice} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, slideCountChoice: value as SlideCountChoice }))}>
+                        <SelectTrigger className="h-10 w-full rounded-[18px] border-slate-200 bg-white px-4 shadow-sm">
+                          <SelectValue>{slideCountSummary}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent className="w-[240px] rounded-[28px] border-slate-200 bg-white p-3 shadow-2xl">
+                          {['5', '15', '20', '30'].map((item) => (
+                            <SelectItem key={item} value={item} className="my-1 rounded-2xl bg-white px-5 py-4 text-base font-medium text-slate-800">
+                              {item} 页
+                            </SelectItem>
+                          ))}
+                          <SelectItem value="custom" className="my-1 rounded-2xl bg-white px-5 py-4 text-base font-medium text-slate-800">
+                            自由输入
                           </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>重点领域（每行一个）</Label>
-                    <Textarea rows={4} value={focusAreasText} onChange={(e) => setFocusAreasText(e.target.value)} />
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                      <Checkbox checked={includeQuiz} onCheckedChange={(checked) => setIncludeQuiz(Boolean(checked))} />
-                      <div>
-                        <div className="text-sm font-medium text-slate-900">生成测验</div>
-                        <div className="text-xs text-slate-500">生成 3 - 5 道检验题。</div>
-                      </div>
-                    </label>
-                    <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                      <Checkbox checked={includeSpeakerNotes} onCheckedChange={(checked) => setIncludeSpeakerNotes(Boolean(checked))} />
-                      <div>
-                        <div className="text-sm font-medium text-slate-900">生成讲稿备注</div>
-                        <div className="text-xs text-slate-500">备注会写入 speaker_notes.md。</div>
-                      </div>
-                    </label>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {step === 3 && outline && (
-              <Card className="border-slate-200">
-                <CardHeader>
-                  <div className="flex items-center justify-between gap-3">
-                    <CardTitle className="flex items-center gap-2 text-base text-slate-900">
-                      <WandSparkles className="h-4 w-4 text-indigo-600" />
-                      Step 3 - 生成并编辑大纲
-                    </CardTitle>
-                    <Button variant="outline" onClick={addSection}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      新增章节
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {contentPackSummary && (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                      内容包：{String(contentPackSummary.title || contentPackSummary.topic || topic)} · 来源 {String(contentPackSummary.source_count || 0)} 个 · 分块 {String(contentPackSummary.chunk_count || 0)} 个
+                        </SelectContent>
+                      </Select>
+                      {setupDraft.slideCountChoice === 'custom' && (
+                        <Input
+                          type="number"
+                          min={1}
+                          value={setupDraft.customSlideCount}
+                          onChange={(e) => setSetupDraft((prev) => ({ ...prev, customSlideCount: Number(e.target.value) || 1 }))}
+                          className="h-10 w-full rounded-[18px] border-slate-200 bg-white shadow-sm"
+                          placeholder="请输入页数"
+                        />
+                      )}
                     </div>
-                  )}
-                  {outline.warnings.length > 0 && (
-                    <div className="space-y-2">
-                      {outline.warnings.map((warning) => (
-                        <div key={warning} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">{warning}</div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="space-y-4">
-                    {outline.sections.map((section, index) => (
-                      <SectionEditor
-                        key={section.id}
-                        section={section}
-                        index={index}
-                        total={outline.sections.length}
-                        onChange={(next) => updateSection(index, next)}
-                        onRemove={() => removeSection(index)}
-                        onMoveUp={() => moveSection(index, -1)}
-                        onMoveDown={() => moveSection(index, 1)}
-                      />
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
 
-            {step === 4 && presentation && qualityReport && (
-              <Card className="border-slate-200">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base text-slate-900">
-                    <Download className="h-4 w-4 text-indigo-600" />
-                    Step 4 - 生成 PPT
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-1">
-                      <Label>模板</Label>
-                      <Select value={templateId} onValueChange={(value) => setTemplateId(value as TrainingStyle)}>
-                        <SelectTrigger>
-                          <SelectValue />
+                    <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                      <Label className="text-sm font-medium text-slate-700">选择风格</Label>
+                      <Select value={setupDraft.style} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, style: value as TrainingStyle }))}>
+                        <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 shadow-sm">
+                          <SelectValue>{styleSummary}</SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {styleOptions.map((item) => (
-                            <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                            <SelectItem key={item.value} value={item.value}>
+                              {item.label}
+                            </SelectItem>
                           ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                      <Label className="text-sm font-medium text-slate-700">有无备注</Label>
+                      <Select
+                        value={setupDraft.includeSpeakerNotes ? 'yes' : 'no'}
+                        onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, includeSpeakerNotes: value === 'yes' }))}
+                      >
+                        <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 shadow-sm">
+                          <SelectValue>{notesSummary}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="yes">有</SelectItem>
+                          <SelectItem value="no">无</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
 
-                  <ExportBar
-                    filename={filename}
-                    downloadUrl={downloadUrl}
-                    loading={loadingGenerate}
-                    onGenerate={generatePpt}
-                  />
+                  <Button
+                    onClick={generateOutline}
+                    disabled={loadingOutline || selectedSources.length === 0}
+                    className="h-10 shrink-0 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700 xl:ml-6 xl:self-center"
+                  >
+                    {loadingOutline ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
+                    生成大纲
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
 
-                  <QualityPanel report={qualityReport} />
+            {outline && (
+              <Card className="border-slate-200">
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-3">
+                    <CardTitle className="flex items-center gap-2 text-base text-slate-900">
+                      <WandSparkles className="h-4 w-4 text-indigo-600" />
+                      逐页大纲
+                    </CardTitle>
+                    <Button variant="outline" onClick={addSlide}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      新增页面
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                      <div className="font-medium text-slate-900">页数</div>
+                      <div className="mt-1">{outline.slides.length} 页</div>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                      <div className="font-medium text-slate-900">主题</div>
+                      <div className="mt-1 truncate">{outline.topic}</div>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                      <div className="font-medium text-slate-900">时长</div>
+                      <div className="mt-1">{outline.duration_minutes} 分钟</div>
+                    </div>
+                  </div>
 
-                  {presentation.quality_warnings.length > 0 && (
+                  {outline.warnings.length > 0 && (
                     <div className="space-y-2">
-                      {presentation.quality_warnings.map((warning) => (
-                        <div key={warning} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">{warning}</div>
+                      {outline.warnings.map((warning) => (
+                        <div key={warning} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                          {warning}
+                        </div>
                       ))}
                     </div>
                   )}
 
-                  <div>
-                    <div className="mb-2 text-sm font-medium text-slate-900">幻灯片预览</div>
-                    <SlideSpecPreview presentation={presentation} />
+                  <div className="space-y-4">
+                    {outline.slides.map((slide, index) => (
+                      <OutlineSlideCard
+                        key={slide.id}
+                        slide={slide}
+                        index={index}
+                        total={outline.slides.length}
+                        onChange={(next) => updateSlide(index, next)}
+                        onRemove={() => removeSlide(index)}
+                        onMoveUp={() => moveSlide(index, -1)}
+                        onMoveDown={() => moveSlide(index, 1)}
+                      />
+                    ))}
                   </div>
+
+                  <Separator />
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button onClick={generatePpt} disabled={loadingGenerate || outline.slides.length === 0} className="bg-indigo-600 hover:bg-indigo-700">
+                      {loadingGenerate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                      生成PPT
+                    </Button>
+                    {downloadUrl && (
+                      <Button asChild variant="outline">
+                        <a href={downloadUrl} target="_blank" rel="noreferrer">
+                          <Download className="mr-2 h-4 w-4" />
+                          下载PPT {filename ? `(${filename})` : ''}
+                        </a>
+                      </Button>
+                    )}
+                    {notesDownloadUrl && setupDraft.includeSpeakerNotes && (
+                      <Button asChild variant="outline">
+                        <a href={notesDownloadUrl} target="_blank" rel="noreferrer">
+                          <FileText className="mr-2 h-4 w-4" />
+                          下载Word备注 {notesFilename ? `(${notesFilename})` : ''}
+                        </a>
+                      </Button>
+                    )}
+                  </div>
+
+                  {qualityReport && (
+                    <Card className="border-slate-200">
+                      <CardHeader>
+                        <CardTitle className="text-base text-slate-900">质量检查</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className={`rounded-lg border p-3 text-sm ${qualityReport.passed ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                          {qualityReport.summary}
+                        </div>
+                        {qualityReport.issues.length > 0 && (
+                          <div className="space-y-2">
+                            {qualityReport.issues.map((issue, idx) => (
+                              <div
+                                key={`${issue.code}-${idx}`}
+                                className={`rounded-lg border p-3 text-sm ${
+                                  issue.level === 'error'
+                                    ? 'border-rose-200 bg-rose-50 text-rose-700'
+                                    : issue.level === 'warning'
+                                      ? 'border-amber-200 bg-amber-50 text-amber-700'
+                                      : 'border-slate-200 bg-slate-50 text-slate-700'
+                                }`}
+                              >
+                                <div className="font-medium">{issue.message}</div>
+                                {issue.suggestion && <div className="mt-1 text-xs opacity-80">建议：{issue.suggestion}</div>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {presentation && (
+                    <Card className="border-slate-200">
+                      <CardHeader>
+                        <CardTitle className="text-base text-slate-900">生成结果</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3 text-sm text-slate-600">
+                        <div>标题：{presentation.title}</div>
+                        <div>风格：{presentation.style}</div>
+                        <div>页数：{presentation.slides.length}</div>
+                      </CardContent>
+                    </Card>
+                  )}
                 </CardContent>
               </Card>
             )}
           </div>
-
-          <div className="space-y-6">
-            <Card className="border-slate-200">
-              <CardHeader>
-                <CardTitle className="text-base text-slate-900">来源概览</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  {selectedSources.length === 0 && <span className="text-sm text-slate-500">尚未选择来源。</span>}
-                  {selectedSources.map((source) => (
-                    <Badge key={makeKey(source)} variant="secondary" className="flex items-center gap-2">
-                      <span className="max-w-[180px] truncate">{sourceLabel(source, knowledgeBases)}</span>
-                      <button onClick={() => removeSelectedSource(source)} className="ml-1 inline-flex">
-                        <Minus className="h-3 w-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-                <Separator />
-                <div className="grid gap-2 text-sm text-slate-600">
-                  <div>知识库来源：{selectedSources.filter((source) => source.type === 'knowledge_base').length}</div>
-                  <div>Wiki 页面：{selectedSources.filter((source) => source.type === 'wiki_page').length}</div>
-                  <div>原始文档：{selectedSources.filter((source) => source.type === 'kb_document').length}</div>
-                  <div>临时上传：{selectedSources.filter((source) => source.type === 'temporary_upload').length}</div>
-                  <div>提示词：{selectedSources.filter((source) => source.type === 'prompt').length}</div>
-                </div>
-                <Button variant="outline" className="w-full" onClick={() => setStep(2)} disabled={selectedSources.length === 0}>
-                  下一步：培训参数
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-200">
-              <CardHeader>
-                <CardTitle className="text-base text-slate-900">操作提示</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-slate-600">
-                <p>1. 先选来源，支持知识库、Wiki 页面、原始文档、临时上传和自由提示词混合使用。</p>
-                <p>2. 临时上传文档只用于本次生成，不会写入知识库。</p>
-                <p>3. 如果只有提示词，系统会生成通用结构，并在质检里标明未绑定企业原文来源。</p>
-                <p>4. 生成后可以先改大纲，再出 PPT。</p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <div className="text-sm text-slate-600">
-            {step === 1 && '完成来源选择后进入下一步。'}
-            {step === 2 && '先配置参数，再生成大纲。'}
-            {step === 3 && '确认大纲后即可生成 PPT。'}
-            {step === 4 && '可以下载 PPTX 或继续调整。'}
-          </div>
-          <div className="flex items-center gap-2">
-            {step > 1 && (
-              <Button variant="outline" onClick={() => setStep((prev) => (prev - 1) as Step)}>
-                上一步
-              </Button>
-            )}
-            {step === 1 && (
-              <Button onClick={() => setStep(2)} disabled={selectedSources.length === 0}>
-                下一步
-              </Button>
-            )}
-            {step === 2 && (
-              <Button onClick={generateOutline} disabled={loadingOutline || selectedSources.length === 0}>
-                {loadingOutline ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
-                生成大纲
-              </Button>
-            )}
-            {step === 3 && (
-              <Button onClick={generatePpt} disabled={loadingGenerate || !outline}>
-                {loadingGenerate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                生成 PPT
-              </Button>
-            )}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

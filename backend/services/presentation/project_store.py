@@ -27,6 +27,7 @@ class JobPaths:
     spec_path: Path
     quality_report_path: Path
     speaker_notes_path: Path
+    speaker_notes_docx_path: Path
 
 
 def _json_dump(path: Path, data: Any) -> None:
@@ -58,6 +59,7 @@ def get_job_paths(job_id: str) -> JobPaths:
         spec_path=root / "spec.json",
         quality_report_path=root / "quality_report.json",
         speaker_notes_path=root / "speaker_notes.md",
+        speaker_notes_docx_path=root / "speaker_notes.docx",
     )
 
 
@@ -114,6 +116,13 @@ def save_speaker_notes(job_id: str, text: str) -> Path:
     return path
 
 
+def save_speaker_notes_docx(job_id: str, document) -> Path:
+    path = get_job_paths(job_id).speaker_notes_docx_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document.save(str(path))
+    return path
+
+
 def get_upload_dir(upload_id: str) -> Path:
     return UPLOADS_DIR / upload_id
 
@@ -129,11 +138,11 @@ def load_upload_metadata(upload_id: str) -> Optional[dict[str, Any]]:
     return data if isinstance(data, dict) else None
 
 
-def resolve_download_path(filename: str) -> Path:
+def resolve_download_path(filename: str, allowed_suffix: str = ".pptx") -> Path:
     from pathlib import Path as _Path
 
-    if not filename or filename != _Path(filename).name or _Path(filename).suffix.lower() != ".pptx":
-        raise ValueError("文件名无效，只允许下载 .pptx 文件")
+    if not filename or filename != _Path(filename).name or _Path(filename).suffix.lower() != allowed_suffix.lower():
+        raise ValueError(f"文件名无效，只允许下载 {allowed_suffix} 文件")
 
     candidates = [
         OUTPUT_DIR / filename,
@@ -147,7 +156,7 @@ def resolve_download_path(filename: str) -> Path:
         try:
             resolved = candidate.resolve()
             if OUTPUT_DIR.resolve() in resolved.parents or resolved.parent == OUTPUT_DIR.resolve() or resolved == OUTPUT_DIR.resolve():
-                if resolved.exists() and resolved.is_file() and resolved.suffix.lower() == ".pptx":
+                if resolved.exists() and resolved.is_file() and resolved.suffix.lower() == allowed_suffix.lower():
                     valid.append(resolved)
         except Exception:
             continue

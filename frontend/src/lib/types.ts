@@ -14,6 +14,7 @@ export type TrainingSourceType = 'knowledge_base' | 'wiki_page' | 'kb_document' 
 export type TrainingStyle = 'standard_training' | 'management_briefing' | 'frontline_shift_training';
 export type SlideType =
   | 'cover'
+  | 'agenda'
   | 'toc'
   | 'section_divider'
   | 'content'
@@ -217,6 +218,30 @@ export interface TrainingOutlineSection {
   source_refs: TrainingSourceRef[];
 }
 
+export interface TrainingOutlineSlide {
+  id: string;
+  slide_no: number;
+  title: string;
+  key_points: string[];
+  notes?: string | null;
+  layout_hint?: string | null;
+  slide_type:
+    | 'cover'
+    | 'agenda'
+    | 'content'
+    | 'workflow'
+    | 'risk_scene'
+    | 'legal_requirement'
+    | 'control_measures'
+    | 'case_discussion'
+    | 'checklist'
+    | 'quiz'
+    | 'summary';
+  source_refs: TrainingSourceRef[];
+  visual_type?: VisualType | null;
+  safety_level?: SafetyLevel | null;
+}
+
 export interface TrainingOutline {
   id: string;
   title: string;
@@ -224,6 +249,7 @@ export interface TrainingOutline {
   audience: string;
   duration_minutes: number;
   style: TrainingStyle;
+  slides: TrainingOutlineSlide[];
   sections: TrainingOutlineSection[];
   warnings: string[];
 }
@@ -296,6 +322,8 @@ export interface TrainingGenerateResponse {
   quality_report: QualityReport;
   download_url: string;
   filename: string;
+  notes_download_url?: string | null;
+  notes_filename?: string | null;
 }
 
 export interface TemporaryTrainingUploadResponse {

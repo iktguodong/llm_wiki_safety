@@ -23,7 +23,8 @@ class PromptReq:
 def test_prompt_only_outline_falls_back_to_default_sections(isolated_training_env):
     pack = build_content_pack(PromptReq())
     outline = asyncio.run(generate_outline(pack, PromptReq()))
-    assert len(outline.sections) >= 4
+    assert len(outline.slides) >= 3
+    assert len(outline.sections) >= 1
     assert any("未绑定企业原文来源" in warning for warning in outline.warnings)
 
 
@@ -55,7 +56,7 @@ def test_temporary_upload_outline(isolated_training_env):
         "include_speaker_notes": True,
     }
     outline = asyncio.run(generate_outline(build_content_pack(req, job_id="job-outline"), req))
-    assert outline.sections
+    assert outline.slides
     assert outline.style == "frontline_shift_training"
 
 
@@ -85,5 +86,5 @@ def test_knowledge_base_outline(isolated_training_env):
         "include_speaker_notes": True,
     }
     outline = asyncio.run(generate_outline(build_content_pack(req), req))
-    assert len(outline.sections) >= 4
+    assert len(outline.slides) >= 4
     assert outline.style == "management_briefing"

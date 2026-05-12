@@ -501,7 +501,12 @@ async def generate_training_ppt(payload: dict = Body(...)):
         spec = await plan_slides(outline, content_pack, request, llm_service)
         quality_report = check_presentation(spec, content_pack, request)
         template = get_template(request.get("template_id") or request.get("style"))
-        render_info = render_presentation(spec, template, job.job_id)
+        render_info = render_presentation(
+            spec,
+            template,
+            job.job_id,
+            include_speaker_notes=request.get("include_speaker_notes", True),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -517,6 +522,8 @@ async def generate_training_ppt(payload: dict = Body(...)):
         quality_report=QualityReport(**quality_report.model_dump()),
         download_url=render_info["download_url"],
         filename=render_info["filename"],
+        notes_download_url=render_info.get("notes_download_url"),
+        notes_filename=render_info.get("notes_filename"),
     )
     return ApiResponse(data=response)
 
@@ -526,6 +533,18 @@ async def download_training_ppt(filename: str):
     """安全下载生成的 PPTX。"""
     try:
         file_path = resolve_download_path(filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(str(file_path), filename=file_path.name)
+
+
+@app.get("/api/training/download-notes/{filename}")
+async def download_training_notes(filename: str):
+    """安全下载生成的讲稿备注 DOCX。"""
+    try:
+        file_path = resolve_download_path(filename, ".docx")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except FileNotFoundError:

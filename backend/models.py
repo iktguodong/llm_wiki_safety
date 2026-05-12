@@ -315,6 +315,31 @@ class TrainingOutlineSectionV2(BaseModel):
     source_refs: List[TrainingSourceRef] = Field(default_factory=list)
 
 
+class TrainingOutlineSlideV2(BaseModel):
+    id: str
+    slide_no: int
+    title: str
+    key_points: List[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+    layout_hint: Optional[str] = None
+    slide_type: Literal[
+        "cover",
+        "agenda",
+        "content",
+        "workflow",
+        "risk_scene",
+        "legal_requirement",
+        "control_measures",
+        "case_discussion",
+        "checklist",
+        "quiz",
+        "summary",
+    ] = "content"
+    source_refs: List[TrainingSourceRef] = Field(default_factory=list)
+    visual_type: Optional[Literal["none", "cards", "two_column", "risk_matrix", "process_flow", "checklist", "qa", "table"]] = None
+    safety_level: Optional[Literal["normal", "attention", "warning", "critical"]] = None
+
+
 class TrainingOutlineV2(BaseModel):
     id: str
     title: str
@@ -322,6 +347,7 @@ class TrainingOutlineV2(BaseModel):
     audience: str
     duration_minutes: int
     style: Literal["standard_training", "management_briefing", "frontline_shift_training"]
+    slides: List[TrainingOutlineSlideV2] = Field(default_factory=list)
     sections: List[TrainingOutlineSectionV2] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
 
@@ -331,6 +357,7 @@ class SlideSpec(BaseModel):
     slide_no: int
     slide_type: Literal[
         "cover",
+        "agenda",
         "toc",
         "section_divider",
         "content",
@@ -443,6 +470,8 @@ class TrainingGenerateResponse(BaseModel):
     quality_report: QualityReport
     download_url: str
     filename: str
+    notes_download_url: Optional[str] = None
+    notes_filename: Optional[str] = None
 
 
 class TemporaryTrainingUploadResponse(BaseModel):

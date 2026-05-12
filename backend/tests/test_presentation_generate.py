@@ -38,6 +38,7 @@ def test_outline_to_pptx_full_chain(isolated_training_env):
     assert render_info["pptx_path"].endswith(".pptx")
     assert get_job_paths("job-full-1").pptx_dir.joinpath("training_deck.pptx").exists()
     assert get_job_paths("job-full-1").speaker_notes_path.exists()
+    assert get_job_paths("job-full-1").speaker_notes_docx_path.exists()
 
 
 def test_quality_check_flags_missing_source_for_legal_content(isolated_training_env):

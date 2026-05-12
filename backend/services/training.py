@@ -145,7 +145,12 @@ class TrainingService:
             outline_struct = (await build_outline(pack, payload, llm_service)).model_dump()
         spec = await plan_slides(outline_struct, pack, {**payload, "template_id": template}, llm_service)
         report = check_presentation(spec, pack, payload)
-        render_info = render_presentation(spec, get_template(template), job.job_id)
+        render_info = render_presentation(
+            spec,
+            get_template(template),
+            job.job_id,
+            include_speaker_notes=include_speaker_notes,
+        )
         save_content_pack(job.job_id, pack.model_dump())
         save_outline(job.job_id, outline_struct)
         save_spec(job.job_id, spec.model_dump())
@@ -157,6 +162,8 @@ class TrainingService:
             "quality_report": report.model_dump(),
             "download_url": render_info["download_url"],
             "filename": render_info["filename"],
+            "notes_download_url": render_info.get("notes_download_url"),
+            "notes_filename": render_info.get("notes_filename"),
         }
 
 
