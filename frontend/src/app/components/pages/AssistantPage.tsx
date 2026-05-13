@@ -523,37 +523,28 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                       selectAssistant(assistant);
                     }
                   }}
-                  className={`w-full text-left border rounded-lg px-3 py-2 transition-colors ${
+                  className={`group w-full text-left border rounded-lg px-3 py-2 transition-colors ${
                       isActive ? 'bg-indigo-50 border-indigo-100' : 'bg-white border-slate-200 hover:bg-slate-50'
                   }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-lg flex-shrink-0">
-                        {assistant.icon}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center text-base flex-shrink-0">
+                      {assistant.icon}
+                    </div>
+                    <div className="min-w-0 flex-1 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <h2 className="text-sm text-slate-800 font-medium truncate">{assistant.name}</h2>
                       </div>
-                      <div className="min-w-0 flex-1 flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <h2 className="text-sm text-slate-800 font-medium truncate">{assistant.name}</h2>
-                        </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setEditing(assistant); setDialogOpen(true); }}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
-                            aria-label={`设置 ${assistant.name}`}
-                            title="设置"
-                          >
-                            <Settings className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); deleteAssistant(assistant.id); }}
-                          className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"
-                          aria-label={`删除 ${assistant.name}`}
-                          title="删除"
-                          >
-                          <Trash2 className="w-4 h-4" />
-                          </button>
+                      <div className="flex items-center flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setEditing(assistant); setDialogOpen(true); }}
+                          className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex-shrink-0"
+                          aria-label={`设置 ${assistant.name}`}
+                          title="设置"
+                        >
+                          <Settings className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   </div>
