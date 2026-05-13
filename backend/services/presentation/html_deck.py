@@ -17,9 +17,9 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from .models import ContentPack, PresentationSpec, SlideSpec, SourceRef
+from .models import SourceRef
 from .project_store import get_job_paths
 
 # --------------------------------------------------------------------------
@@ -108,6 +108,8 @@ class HtmlDeckPage:
     notes: str = ""
     source_refs: list[SourceRef] = None  # type: ignore[assignment]
     hero: bool = False
+    kicker: str = ""
+    chrome: str = ""
 
     def __post_init__(self):
         object.__setattr__(self, "bullets", list(self.bullets or []))
@@ -219,27 +221,26 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
         return f"""
         <section class="slide hero" data-layout="hero">
           <canvas class="hero-canvas" aria-hidden="true"></canvas>
-          <div class="chrome"><span class="mono">电子杂志风</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
+          <div class="chrome"><span class="mono">{_safe_text(page.chrome or '电子杂志风')}</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
           <div class="hero-grid">
             <div class="hero-copy">
-              <div class="kicker">Training · {_safe_text(page.subtitle or "安全培训")}</div>
+              <div class="kicker">{_safe_text(page.kicker or 'Training · ' + (page.subtitle or '安全培训'))}</div>
               <h1>{_safe_text(page.title)}</h1>
-              <p class="lead">{_safe_text(page.summary or page.notes or "培训材料")}</p>
+              <p class="lead">{_safe_text(page.summary or '培训材料')}</p>
               <div class="meta-row">
-                <span class="mono">{_safe_text(page.notes or page.summary or "HTML 网页")}</span>
-                <span class="mono sep">·</span>
+                <span class="mono">{_safe_text(page.subtitle or '')}</span>
+                {('' if not page.subtitle else '<span class="mono sep">·</span>')}
                 <span class="mono">横向翻页</span>
               </div>
               <div class="chip-row">{chip_html or '<span class="chip mono">单文件 HTML</span><span class="chip mono">可离线</span>'}</div>
               {f'<div class="src-line mono">{_safe_text(src_label)}</div>' if src_label else ''}
             </div>
             <div class="hero-aside">
-              <div class="aside-label mono">本页目标</div>
-              <p>{_safe_text(page.notes or page.summary or "强调主题、受众和本次培训主线。")}</p>
-              <div class="mini-grid">{_card_blocks(page.bullets)}</div>
+              <div class="aside-label mono">本页要点</div>
+              <div class="mini-grid">{_card_blocks(page.bullets) if page.bullets else '<div class="mini-card"><strong>概述</strong><p>围绕' + _safe_text(page.title) + '的核心动作展开。</p></div>'}</div>
             </div>
           </div>
-          <div class="foot"><span class="mono">{_safe_text(src_label or "HTML · 电子杂志风")}</span><span class="mono">{page.page_no:02d}</span></div>
+          <div class="foot"><span class="mono">{_safe_text(src_label or page.chrome or 'HTML · 电子杂志风')}</span><span class="mono">{page.page_no:02d}</span></div>
         </section>"""
 
     if page.layout == "agenda":
@@ -250,10 +251,10 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
         )
         return f"""
         <section class="slide" data-layout="agenda">
-          <div class="chrome"><span class="mono">目录</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
+          <div class="chrome"><span class="mono">{_safe_text(page.chrome or '目录')}</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
           <div class="content-wrap">
             <div class="page-head">
-              <div class="kicker mono">Agenda</div>
+              <div class="kicker mono">{_safe_text(page.kicker or 'Agenda')}</div>
               <h2>{_safe_text(page.title)}</h2>
               <p class="lead-sm">{_safe_text(page.summary or page.subtitle or "先搭框架，再落到可执行动作。")}</p>
             </div>
@@ -265,10 +266,10 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
     if page.layout == "section":
         return f"""
         <section class="slide" data-layout="section">
-          <div class="chrome"><span class="mono">SECTION</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
+          <div class="chrome"><span class="mono">{_safe_text(page.chrome or 'SECTION')}</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
           <div class="content-wrap section-wrap">
             <div class="section-rule"></div>
-            <div class="kicker mono">Section</div>
+            <div class="kicker mono">{_safe_text(page.kicker or 'Section')}</div>
             <h2 class="section-h2">{_safe_text(page.title)}</h2>
             <p class="lead-sm">{_safe_text(page.summary or page.subtitle or "先把这部分的主线立住，再展开细节。")}</p>
             <div class="section-meta mono">{_safe_text(src_label or "·")}</div>
@@ -279,11 +280,11 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
     if page.layout == "quote":
         return f"""
         <section class="slide" data-layout="quote">
-          <div class="chrome"><span class="mono">QUOTE</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
+          <div class="chrome"><span class="mono">{_safe_text(page.chrome or 'QUOTE')}</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
           <div class="content-wrap quote-wrap">
-            <div class="kicker mono">Takeaway</div>
+            <div class="kicker mono">{_safe_text(page.kicker or 'Takeaway')}</div>
             <h2>{_safe_text(page.title)}</h2>
-            <p class="quote-body">{_safe_text(page.summary or page.notes or "把关键动作提炼成一段可被记住的话。")}</p>
+            <p class="quote-body">{_safe_text(page.summary or page.title)}</p>
             <div class="quote-aside">
               <span class="mono aside-label">关键提示</span>
               <p>{_safe_text(page.notes or "让这一页更像杂志中的拔高段落。")}</p>
@@ -299,10 +300,10 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
             left.append("具体执行动作")
         return f"""
         <section class="slide" data-layout="contrast">
-          <div class="chrome"><span class="mono">CONTRAST</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
+          <div class="chrome"><span class="mono">{_safe_text(page.chrome or 'CONTRAST')}</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
           <div class="content-wrap">
             <div class="page-head">
-              <div class="kicker mono">Contrast</div>
+              <div class="kicker mono">{_safe_text(page.kicker or 'Contrast')}</div>
               <h2>{_safe_text(page.title)}</h2>
               <p class="lead-sm">{_safe_text(page.summary or page.subtitle or "用对照方式把动作边界讲清楚。")}</p>
             </div>
@@ -329,10 +330,10 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
         )
         return f"""
         <section class="slide" data-layout="workflow">
-          <div class="chrome"><span class="mono">流程</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
+          <div class="chrome"><span class="mono">{_safe_text(page.chrome or '流程')}</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
           <div class="content-wrap">
             <div class="page-head">
-              <div class="kicker mono">Workflow</div>
+              <div class="kicker mono">{_safe_text(page.kicker or 'Workflow')}</div>
               <h2>{_safe_text(page.title)}</h2>
               <p class="lead-sm">{_safe_text(page.summary or page.subtitle or "把动作拆成顺序明确的步骤。")}</p>
             </div>
@@ -347,10 +348,10 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
         check_html = "".join(f'<li>{_safe_text(item)}</li>' for item in items[:6])
         return f"""
         <section class="slide" data-layout="checklist">
-          <div class="chrome"><span class="mono">清单</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
+          <div class="chrome"><span class="mono">{_safe_text(page.chrome or '清单')}</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
           <div class="content-wrap">
             <div class="page-head">
-              <div class="kicker mono">Checklist</div>
+              <div class="kicker mono">{_safe_text(page.kicker or 'Checklist')}</div>
               <h2>{_safe_text(page.title)}</h2>
               <p class="lead-sm">{_safe_text(page.summary or page.subtitle or "适合做现场核查和复盘。")}</p>
             </div>
@@ -371,10 +372,10 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
         blocks = _card_blocks(page.bullets)
         return f"""
         <section class="slide" data-layout="summary">
-          <div class="chrome"><span class="mono">总结</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
+          <div class="chrome"><span class="mono">{_safe_text(page.chrome or '总结')}</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
           <div class="content-wrap">
             <div class="page-head">
-              <div class="kicker mono">Takeaway</div>
+              <div class="kicker mono">{_safe_text(page.kicker or 'Takeaway')}</div>
               <h2>{_safe_text(page.title)}</h2>
               <p class="lead-sm">{_safe_text(page.summary or page.subtitle or "收束到一页里，让用户带走关键动作。")}</p>
             </div>
@@ -391,10 +392,10 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
     bullet_html = _bullet_items(bullets)
     return f"""
     <section class="slide" data-layout="{_safe_text(page.layout)}">
-      <div class="chrome"><span class="mono">{_safe_text(page.layout.upper())}</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
+      <div class="chrome"><span class="mono">{_safe_text(page.chrome or page.layout.upper())}</span><span class="mono">{page.page_no:02d}&thinsp;/&thinsp;{total:02d}</span></div>
       <div class="content-wrap split-wrap">
         <div class="page-head">
-          <div class="kicker mono">{_safe_text(page.layout.upper())}</div>
+          <div class="kicker mono">{_safe_text(page.kicker or page.layout.upper())}</div>
           <h2>{_safe_text(page.title)}</h2>
           <p class="lead-sm">{_safe_text(page.summary or page.subtitle or "把正文内容整理成可读、可扫、可分享的网页。")}</p>
         </div>
@@ -945,6 +946,8 @@ def deck_to_dict(deck: HtmlDeckSpec) -> dict[str, Any]:
                     for ref in p.source_refs
                 ],
                 "hero": p.hero,
+                "kicker": p.kicker,
+                "chrome": p.chrome,
             }
             for p in deck.pages
         ],

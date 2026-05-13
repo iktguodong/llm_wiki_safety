@@ -341,6 +341,8 @@ export interface HtmlDeckPage {
   notes?: string | null;
   source_refs: TrainingSourceRef[];
   hero: boolean;
+  kicker?: string | null;
+  chrome?: string | null;
 }
 
 export interface HtmlDeckSpec {

@@ -486,6 +486,8 @@ class HtmlDeckPage(BaseModel):
     notes: Optional[str] = None
     source_refs: List[TrainingSourceRef] = Field(default_factory=list)
     hero: bool = False
+    kicker: Optional[str] = None
+    chrome: Optional[str] = None
 
 
 class HtmlDeckSpec(BaseModel):

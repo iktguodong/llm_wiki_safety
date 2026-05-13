@@ -66,6 +66,7 @@ from backend.services.presentation.safety_templates import get_template
 from backend.services.presentation.html_planner import build_html_deck
 from backend.services.presentation.html_quality import check_html_deck
 from backend.services.presentation.html_deck import deck_to_dict, render_html_deck, resolve_html_path
+from backend.services.presentation.html_llm_planner import HtmlGenerationError
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -549,9 +550,11 @@ async def generate_training_html(payload: dict = Body(...)):
     job = create_job("html", job_id=request.get("job_id"))
     try:
         content_pack = build_content_pack(request, job.job_id)
-        deck = build_html_deck(content_pack, request)
+        deck = await build_html_deck(content_pack, request)
         quality_report = check_html_deck(deck, content_pack, request)
         render_info = render_html_deck(deck, job.job_id)
+    except HtmlGenerationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

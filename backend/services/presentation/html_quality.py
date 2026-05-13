@@ -26,7 +26,7 @@ _EMOJI_RE = re.compile(
     "\U0001FA00-\U0001FA6F"
     "\U0001FA70-\U0001FAFF"
     "\U00002702-\U000027B0"
-    "\U000024C2-\U0001F251"
+    "\U000024C2-\U000024FF"
     "]+",
     flags=re.UNICODE,
 )
@@ -220,9 +220,58 @@ def check_html_deck(deck: HtmlDeckSpec, content_pack: ContentPack, settings: Any
                 suggestion="每页最多保留 2 个来源标签",
             ))
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
+    # P1：chrome-kicker 碰撞
+    # --------------------------------------------------------------
+
+    for page in deck.pages:
+        if page.kicker and page.chrome and _compact(page.kicker) == _compact(page.chrome):
+            issues.append(QualityIssue(
+                level="warning",
+                code="chrome_kicker_collision",
+                message=f"chrome 与 kicker 相同：'{page.kicker}'，两者不能互相翻译",
+                slide_id=page.id,
+                suggestion="chrome 是稳定栏目标签，kicker 是本页独一份的引导句，应该不同",
+            ))
+
+    # --------------------------------------------------------------
+    # P1：连续 3 页相同 layout
+    # --------------------------------------------------------------
+
+    layouts = [p.layout for p in deck.pages]
+    for i in range(2, len(layouts)):
+        if layouts[i] == layouts[i - 1] == layouts[i - 2]:
+            issues.append(QualityIssue(
+                level="warning",
+                code="layout_streak",
+                message=f"第 {i - 1}-{i + 1} 页连续 3 页 layout 均为 '{layouts[i]}'，违反节奏规则",
+                slide_id=deck.pages[i].id,
+                suggestion="在连续相同 layout 之间插入节奏页（section / quote / contrast）",
+            ))
+            break
+
+    # --------------------------------------------------------------
+    # P2：叙事弧断裂
+    # --------------------------------------------------------------
+
+    if deck.pages and deck.pages[0].layout != "hero":
+        issues.append(QualityIssue(
+            level="warning",
+            code="narrative_arc_break",
+            message="首页 layout 不是 'hero'，叙事弧可能断裂",
+            suggestion="首页应使用 layout='hero' 作为封面 Hook",
+        ))
+    if deck.pages and deck.pages[-1].layout != "summary":
+        issues.append(QualityIssue(
+            level="warning",
+            code="narrative_arc_break",
+            message="末页 layout 不是 'summary'，叙事弧可能断裂",
+            suggestion="末页应使用 layout='summary' 作为收束 Takeaway",
+        ))
+
+    # --------------------------------------------------------------
     # P1：页数匹配
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
 
     if target_slide_count and abs(len(deck.pages) - target_slide_count) > 4:
         issues.append(QualityIssue(
