@@ -131,6 +131,17 @@ export interface ChatResponse {
   answer: string;
 }
 
+export interface AssistantPromptOptimizeRequest {
+  name: string;
+  description?: string;
+  system_prompt: string;
+  model_id?: string;
+}
+
+export interface AssistantPromptOptimizeResponse {
+  optimized_prompt: string;
+}
+
 // 检索
 export interface SearchRequest {
   keyword: string;

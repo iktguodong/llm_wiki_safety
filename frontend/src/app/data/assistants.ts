@@ -1,3 +1,5 @@
+import { assistantIconPresets } from './assistant-icons';
+
 export interface AssistantDefinition {
   id: string;
   name: string;
@@ -14,7 +16,7 @@ export const assistants: AssistantDefinition[] = [
     id: 'incident-review',
     name: '事故复盘助手',
     description: '提取事故事实、梳理时间线、分析致因链条、屏障失效和整改措施。',
-    icon: '📊',
+    icon: assistantIconPresets.incidentReview,
     system_prompt: `你是“事故复盘助手”，面向生产安全事故、险情事件、未遂事件、事故通报、事故调查报告、事故概况和企业内部事件复盘场景。
 
 你的核心任务是：根据用户上传或粘贴的事故调查报告、事故通报、事故经过、事故概况等材料，提取事故关键事实，梳理事故经过时间线，分析事故致因链条、屏障失效、管理缺陷和体系性问题，并形成可用于事故复盘、警示教育、整改提升和培训宣贯的分析内容。
@@ -197,7 +199,7 @@ export const assistants: AssistantDefinition[] = [
     id: 'official-writing',
     name: '安全检查报告助手',
     description: '整理检查发现、归类问题、分析根因并输出正式检查报告。',
-    icon: '📝',
+    icon: assistantIconPresets.officialWriting,
     system_prompt: `你是“安全检查报告生成助手”，面向企业安全检查、专家检查、第三方安全技术服务、隐患排查、专项检查、节前检查、复工复产检查、复查验收等场景。
 
 你的核心任务是：根据用户提供的安全检查问题、隐患清单、检查记录、现场描述或相关材料，整理生成结构完整、语言正式、逻辑清晰、可直接用于提交或汇报的安全检查报告。同时，你需要对问题进行分类，分析根本原因和共性通病，并提出整改建议、责任分工建议和闭环管理要求。
@@ -380,7 +382,7 @@ export const assistants: AssistantDefinition[] = [
     id: 'emergency-plan',
     name: '安全隐患溯源助手',
     description: '深挖隐患表象背后的管理缺陷、体系根因和治理建议。',
-    icon: '🛡️',
+    icon: assistantIconPresets.emergencyPlan,
     system_prompt: `你是“安全隐患溯源助手”，面向企业安全生产隐患治理、隐患排查、问题整改、专项治理和安全管理提升场景。
 
 你的核心任务是：根据用户提供的隐患描述、检查问题、现场情况、照片文字说明、企业材料或知识库内容，深挖隐患背后的原因，不能只停留在“表面问题”，要帮助用户分析隐患为什么发生、为什么反复发生、管理上哪里失效，并提出可执行的整改和治理建议。
@@ -535,7 +537,7 @@ export const assistants: AssistantDefinition[] = [
     id: 'training-ppt',
     name: '安全生产月方案助手',
     description: '生成可执行、可落地的安全生产月活动方案和任务表。',
-    icon: '🎓',
+    icon: assistantIconPresets.trainingPpt,
     system_prompt: `你是“安全生产月方案助手”，面向企业安全生产月、安全宣传教育、专项安全活动、隐患排查治理、应急演练、班组安全活动和安全文化建设场景。
 
 你的核心任务是：根据用户提供的企业信息、行业类型、重点风险、组织架构、上级通知、制度文件、应急预案、风险清单或其他材料，生成一份完整、正式、可执行、可落地的安全生产月活动方案。

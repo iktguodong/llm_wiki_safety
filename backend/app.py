@@ -24,6 +24,7 @@ from backend.models import (
     DocumentInfo, DocumentListResponse, DocumentDeleteRequest, DocumentDeletePreview,
     WikiPage, WikiPageContent, WikiPageListResponse, WikiLintResult,
     ChatRequest, ChatResponse,
+    AssistantPromptOptimizeRequest, AssistantPromptOptimizeResponse,
     SearchRequest, SearchResult,
     TrainingOutline, TrainingConfig,
     ModelValidateRequest, ModelValidateResponse,
@@ -46,6 +47,7 @@ from backend.services.chat import chat_service
 from backend.services.search import search_service
 from backend.services.training import training_service
 from backend.services.llm import llm_service
+from backend.services.assistant_prompt import optimize_prompt as optimize_assistant_prompt
 from backend.services.text_extraction import SUPPORTED_TEXT_EXTENSIONS, extract_document_pages
 from backend.services.presentation.content_pack import build_content_pack, normalize_sources
 from backend.services.presentation.outline_builder import generate_outline as build_outline
@@ -328,6 +330,23 @@ async def lint_wiki(kb_id: str):
     result = await wiki_service.lint_wiki(kb_id)
     return ApiResponse(data=WikiLintResult(**result))
 
+
+# ==================== 助手API ====================
+
+@app.post("/api/assistants/optimize-prompt", response_model=ApiResponse)
+async def optimize_prompt(data: AssistantPromptOptimizeRequest):
+    """优化助手提示词"""
+    try:
+        optimized_prompt = await optimize_assistant_prompt(
+            data.name,
+            data.description,
+            data.system_prompt,
+            data.model_id,
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+    return ApiResponse(data=AssistantPromptOptimizeResponse(optimized_prompt=optimized_prompt))
 
 # ==================== 对话API ====================
 

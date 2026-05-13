@@ -181,6 +181,21 @@ class ChatResponse(BaseModel):
     confidence: str = "high"  # high, medium, low
 
 
+class AssistantPromptOptimizeRequest(BaseModel):
+    """助手提示词优化请求"""
+    model_config = ConfigDict(protected_namespaces=())
+
+    name: str = Field(..., min_length=1, max_length=100, description="助手名称")
+    description: str = Field("", max_length=500, description="助手描述")
+    system_prompt: str = Field(..., min_length=1, description="当前提示词")
+    model_id: Optional[str] = None
+
+
+class AssistantPromptOptimizeResponse(BaseModel):
+    """助手提示词优化响应"""
+    optimized_prompt: str
+
+
 # ==================== 检索模型 ====================
 
 class SearchRequest(BaseModel):

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Copy,
+  Check,
   Eraser,
   ChevronLeft,
   ChevronRight,
@@ -16,8 +16,12 @@ import {
   User,
 } from 'lucide-react';
 import { assistants as defaultAssistants, type AssistantDefinition } from '../../data/assistants';
+import {
+  assistantIcons,
+  DEFAULT_ASSISTANT_ICON,
+} from '../../data/assistant-icons';
 import { useApp } from '../../../lib/context';
-import { chatApi, docApi } from '../../../lib/api';
+import { assistantApi, chatApi, docApi } from '../../../lib/api';
 import { buildChatMemory } from '../../lib/chat-memory';
 import {
   acquireConversationLock,
@@ -30,6 +34,7 @@ import {
   shouldExpandMessageLayout,
 } from '../../lib/chat-render';
 import { MessageActionBar } from '../MessageActionBar';
+import AssistantIcon from '../AssistantIcon';
 import LogoMark from '../LogoMark';
 
 const ASSISTANT_CUSTOM_KEY = 'anniu-assistant-custom-v2';
@@ -285,7 +290,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
       id: `assistant-${Date.now()}`,
       name: '自定义助手',
       description: '描述这个助手适合处理的任务。',
-      icon: '✨',
+      icon: DEFAULT_ASSISTANT_ICON,
       system_prompt: '你是一个专业助手。请根据用户需求提供清晰、可靠、可执行的回答。',
       default_model_id: currentModelId,
       default_knowledge_base_ids: [],
@@ -536,14 +541,6 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     }
   };
 
-  const promptPreview = selectedAssistant?.system_prompt || '';
-  const promptPreviewLines = promptPreview
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('\n');
-
   return (
     <div className="h-full flex flex-col bg-slate-50">
       <div className="flex-1 min-h-0 flex">
@@ -623,9 +620,12 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center text-base flex-shrink-0">
-                      {assistant.icon}
-                    </div>
+                    <AssistantIcon
+                      icon={assistant.icon}
+                      className="w-5 h-5 rounded-md bg-indigo-50 flex items-center justify-center overflow-hidden flex-shrink-0"
+                      imageClassName="w-full h-full object-contain scale-[1.05]"
+                      textClassName="text-base"
+                    />
                     <div className="min-w-0 flex-1 flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <h2 className="text-sm text-slate-800 font-medium truncate">{assistant.name}</h2>
@@ -657,7 +657,12 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-3 flex-wrap">
-                      <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-xl flex-shrink-0">{selectedAssistant.icon}</div>
+                      <AssistantIcon
+                        icon={selectedAssistant.icon}
+                        className="w-5 h-5 rounded-md bg-indigo-50 flex items-center justify-center overflow-hidden flex-shrink-0"
+                        imageClassName="w-full h-full object-contain scale-[1.05]"
+                        textClassName="text-base"
+                      />
                       <h2 className="text-slate-900 font-medium text-lg">{selectedAssistant.name}</h2>
                       <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-xs">
                         {allModels.find(m => m.id === selectedAssistant.default_model_id)?.name || selectedAssistant.default_model_id || currentModelId || '当前模型'}
@@ -695,19 +700,6 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                   </div>
                 </div>
 
-                <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="text-xs text-slate-400">当前提示词</div>
-                    <button
-                      onClick={() => navigator.clipboard?.writeText(promptPreview)}
-                      className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700"
-                    >
-                      <Copy className="w-3 h-3" />
-                      复制
-                    </button>
-                  </div>
-                  <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap line-clamp-2 min-h-[2.5rem]">{promptPreviewLines || promptPreview}</p>
-                </div>
               </div>
 
               <div className="flex-shrink-0 bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-2 overflow-x-auto">
@@ -872,6 +864,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
           assistant={editing}
           knowledgeBases={knowledgeBases}
           models={allModels}
+          currentModelId={currentModelId}
           onClose={() => { setDialogOpen(false); setEditing(null); }}
           onSave={saveAssistant}
         />
@@ -884,16 +877,20 @@ function AssistantDialog({
   assistant,
   knowledgeBases,
   models,
+  currentModelId,
   onClose,
   onSave,
 }: {
   assistant: AssistantDefinition;
   knowledgeBases: ReturnType<typeof useApp>['knowledgeBases'];
   models: Array<{ id: string; name: string; type: string }>;
+  currentModelId: string;
   onClose: () => void;
   onSave: (assistant: AssistantDefinition) => void;
 }) {
   const [draft, setDraft] = useState<AssistantDefinition>(assistant);
+  const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
 
   const toggleKb = (id: string) => {
     setDraft(prev => ({
@@ -904,11 +901,25 @@ function AssistantDialog({
     }));
   };
 
-  const optimizePrompt = () => {
-    setDraft(prev => ({
-      ...prev,
-      system_prompt: `${prev.system_prompt.trim()}\n\n回答要求：\n1. 先给出结论，再展开依据。\n2. 需要区分事实、推断和建议。\n3. 涉及安全管理要求时，尽量给出可执行清单。\n4. 不确定的信息要明确提示，不要编造。`,
-    }));
+  const optimizePrompt = async () => {
+    if (isOptimizingPrompt || !draft.system_prompt.trim()) return;
+    setIsOptimizingPrompt(true);
+    try {
+      const result = await assistantApi.optimizePrompt({
+        name: draft.name.trim(),
+        description: draft.description.trim(),
+        system_prompt: draft.system_prompt.trim(),
+        model_id: draft.default_model_id || currentModelId,
+      });
+      setDraft(prev => ({
+        ...prev,
+        system_prompt: result.optimized_prompt.trim() || prev.system_prompt,
+      }));
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : '优化提示词失败');
+    } finally {
+      setIsOptimizingPrompt(false);
+    }
   };
 
   return (
@@ -931,11 +942,19 @@ function AssistantDialog({
           <div className="grid grid-cols-[88px_1fr] gap-4">
             <div>
               <label className="block text-xs text-slate-500 mb-1.5">图标</label>
-              <input
-                value={draft.icon}
-                onChange={(e) => setDraft(prev => ({ ...prev, icon: e.target.value.slice(0, 2) }))}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-center text-xl outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <button
+                type="button"
+                onClick={() => setIconPickerOpen(true)}
+                className="w-full h-11 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors overflow-hidden flex items-center justify-center"
+                title="点击选择图标"
+              >
+                <AssistantIcon
+                  icon={draft.icon}
+                  className="w-7 h-7 rounded-lg bg-transparent flex items-center justify-center overflow-hidden"
+                  imageClassName="w-full h-full object-contain scale-[1.1]"
+                  textClassName="text-xl"
+                />
+              </button>
             </div>
             <div>
               <label className="block text-xs text-slate-500 mb-1.5">名称</label>
@@ -960,11 +979,13 @@ function AssistantDialog({
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs text-slate-500">提示词</label>
               <button
+                type="button"
                 onClick={optimizePrompt}
-                className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700"
+                disabled={isOptimizingPrompt}
+                className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Wand2 className="w-3.5 h-3.5" />
-                优化提示词
+                <Wand2 className={`w-3.5 h-3.5 ${isOptimizingPrompt ? 'animate-spin' : ''}`} />
+                {isOptimizingPrompt ? '优化中...' : '优化提示词'}
               </button>
             </div>
             <textarea
@@ -1034,6 +1055,67 @@ function AssistantDialog({
           </button>
         </div>
       </div>
+
+      {iconPickerOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIconPickerOpen(false);
+          }}
+        >
+          <div
+            className="w-[920px] max-w-[96vw] max-h-[88vh] overflow-hidden rounded-2xl bg-white border border-slate-200 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <div className="text-slate-900 font-semibold">选择图标</div>
+              </div>
+              <button onClick={() => setIconPickerOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto max-h-[72vh]">
+              <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-7 lg:grid-cols-8 gap-3">
+                {assistantIcons.map(item => {
+                  const active = draft.icon === item.src;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setDraft(prev => ({ ...prev, icon: item.src }));
+                        setIconPickerOpen(false);
+                      }}
+                      className={`group rounded-2xl border p-3 text-left transition-colors ${
+                        active ? 'border-indigo-300 bg-indigo-50 ring-2 ring-indigo-200' : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="relative flex items-center justify-center">
+                        <AssistantIcon
+                          icon={item.src}
+                          className="w-8 h-8 rounded-xl bg-transparent flex items-center justify-center overflow-hidden"
+                          imageClassName="w-full h-full object-contain scale-[1.08]"
+                          textClassName="text-xl"
+                        />
+                        {active && (
+                          <span className="absolute -top-1 -right-1 inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-600 text-white shadow">
+                            <Check className="w-3 h-3" />
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-2 text-center text-[11px] leading-tight text-slate-500 line-clamp-2">
+                        {item.name}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
