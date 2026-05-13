@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from .html_deck import HtmlDeckPage, HtmlDeckSpec
+from .html_deck import HTML_THEMES, STYLE_A_ONLY, HtmlDeckPage, HtmlDeckSpec
 from .models import ContentPack, SourceRef
 
 
@@ -587,8 +587,9 @@ def build_html_deck(content_pack: ContentPack, settings: Any) -> HtmlDeckSpec:
     theme = str(settings_dict.get("theme") or "ink")
     render_style = str(settings_dict.get("render_style") or settings_dict.get("deck_style") or "magazine")
     target_pages = max(5, int(settings_dict.get("slide_count") or 12))
-    style = render_style if render_style in {"magazine", "swiss"} else "magazine"
-    theme = theme if theme in {"ink", "indigo", "forest", "kraft", "dune"} else "ink"
+    # Style A 锁定：本项目只允许 Style A 电子杂志风，禁止 Style B（swiss）。
+    style = STYLE_A_ONLY
+    theme = theme if theme in HTML_THEMES else "ink"
     focus_terms = [term for term in _focus_terms(content_pack, settings_dict) if term and term != content_pack.title]
     if not focus_terms:
         focus_terms = [term for term in _focus_terms(content_pack, settings_dict) if term]
@@ -702,7 +703,7 @@ def build_html_deck(content_pack: ContentPack, settings: Any) -> HtmlDeckSpec:
         duration_minutes=content_pack.duration_minutes,
         style=style,
         theme=theme,
-        template_id=str(settings_dict.get("template_id") or render_style),
+        template_id=STYLE_A_ONLY,
         pages=pages,
         quality_warnings=warnings,
     )

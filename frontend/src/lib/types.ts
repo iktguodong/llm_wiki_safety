@@ -326,7 +326,8 @@ export interface TrainingGenerateResponse {
   notes_filename?: string | null;
 }
 
-export type HtmlDeckStyle = 'magazine' | 'swiss';
+/** Style A 电子杂志风 — 本项目唯一允许的风格，不支持 Style B（swiss）。 */
+export type HtmlDeckStyle = 'magazine';
 export type HtmlDeckTheme = 'ink' | 'indigo' | 'forest' | 'kraft' | 'dune';
 
 export interface HtmlDeckPage {
