@@ -47,6 +47,11 @@ REGISTERED_LAYOUTS: set[str] = {
     "content",
 }
 
+
+def bullet_limit_for_layout(layout: str) -> int:
+    """返回当前 layout 允许的 bullet 数上限。"""
+    return 6 if layout in {"agenda", "checklist"} else 5
+
 # --------------------------------------------------------------------------
 # 基础工具
 # --------------------------------------------------------------------------
@@ -279,8 +284,6 @@ _EMOJI_RE = re.compile(
     "\U0001F300-\U0001F9FF"  # 杂项符号及图形
     "\U0001FA00-\U0001FA6F"
     "\U0001FA70-\U0001FAFF"
-    "\U00002702-\U000027B0"
-    "\U000024C2-\U000024FF"
     "]+",
     flags=re.UNICODE,
 )

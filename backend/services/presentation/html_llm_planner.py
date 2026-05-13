@@ -22,6 +22,7 @@ from .html_text_utils import (
     _compact,
     _normalize,
     _settings_dict,
+    bullet_limit_for_layout,
     chunk_sources_map,
     clean_topic,
     dedupe_refs,
@@ -156,7 +157,8 @@ def _build_html_prompt(
   最后一页必须 summary（Takeaway）。
 - 全 deck 不允许 emoji；不允许「本页目标 / 请按页面要点讲解 / 内容将根据来源自动整理 / 围绕…形成节奏转换」这类模板话术。
 - 每页 chrome（栏目标签）不能等于 kicker（本页钩子）；两者不能互相翻译。
-- title ≤ 14 个汉字等价字符；每页 bullets ≤ 5 条且每条 ≤ 40 字。
+- title ≤ 14 个汉字等价字符；除 agenda/checklist 外每页 bullets ≤ 5 条，
+  agenda/checklist 可到 6 条；每条 ≤ 40 字。
 - 不允许编造企业事实、法规条款、岗位职责、来源；只能基于「输入材料」提炼或合理重组。
 - 当前主题色为 {theme_name}，调性是电子杂志 × 电子墨水，衬线标题 + 非衬线正文 + 等宽元数据。"""
 
@@ -340,9 +342,10 @@ def _validate_pages(
             )
 
         # bullet 数量 & 长度
-        if len(bullets) > 5:
+        bullet_limit = bullet_limit_for_layout(layout)
+        if len(bullets) > bullet_limit:
             raise HtmlGenerationError(
-                f"第 {page_no} 页 bullet 数量 {len(bullets)} 超过 5"
+                f"第 {page_no} 页 bullet 数量 {len(bullets)} 超过 {bullet_limit}"
             )
         for bi, bullet in enumerate(bullets):
             if _compact(bullet) and len(_compact(bullet)) > 40:

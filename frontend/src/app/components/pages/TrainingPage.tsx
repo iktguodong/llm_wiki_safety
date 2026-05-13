@@ -261,7 +261,13 @@ function TopModeCard({
 }
 
 export default function TrainingPage() {
-  const { knowledgeBases, currentKbId } = useApp();
+  const {
+    knowledgeBases,
+    currentKbId,
+    htmlGeneration,
+    updateHtmlGeneration,
+    resetHtmlGeneration,
+  } = useApp();
   const [mode, setMode] = useState<MainMode>(() => {
     try {
       const raw = localStorage.getItem(TRAINING_MODE_KEY);
@@ -290,19 +296,24 @@ export default function TrainingPage() {
   const [outline, setOutline] = useState<TrainingOutline | null>(null);
   const [presentation, setPresentation] = useState<PresentationSpec | null>(null);
   const [qualityReport, setQualityReport] = useState<QualityReport | null>(null);
-  const [downloadUrl, setDownloadUrl] = useState<string>('');
-  const [previewUrl, setPreviewUrl] = useState<string>('');
-  const [filename, setFilename] = useState<string>('');
-  const [htmlTitle, setHtmlTitle] = useState<string>('');
+  const [pptDownloadUrl, setPptDownloadUrl] = useState<string>('');
+  const [pptFilename, setPptFilename] = useState<string>('');
   const [notesDownloadUrl, setNotesDownloadUrl] = useState<string>('');
   const [notesFilename, setNotesFilename] = useState<string>('');
   const [jobId, setJobId] = useState<string>('');
   const [loadingOutline, setLoadingOutline] = useState(false);
-  const [loadingGenerate, setLoadingGenerate] = useState(false);
+  const [loadingPptGenerate, setLoadingPptGenerate] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const slideCount = buildSlideCount(setupDraft.slideCountChoice, setupDraft.customSlideCount);
   const durationMinutes = useMemo(() => durationFromSlideCount(slideCount), [slideCount]);
@@ -392,15 +403,14 @@ export default function TrainingPage() {
     setOutline(null);
     setPresentation(null);
     setQualityReport(null);
-    setDownloadUrl('');
-    setPreviewUrl('');
-    setFilename('');
-    setHtmlTitle('');
+    setPptDownloadUrl('');
+    setPptFilename('');
+    resetHtmlGeneration();
     setNotesDownloadUrl('');
     setNotesFilename('');
     setJobId('');
     setLoadingOutline(false);
-    setLoadingGenerate(false);
+    setLoadingPptGenerate(false);
     setError(null);
     setDocumentPickerOpen(false);
     setNewMenuOpen(false);
@@ -506,9 +516,8 @@ export default function TrainingPage() {
     setOutline(null);
     setPresentation(null);
     setQualityReport(null);
-    setDownloadUrl('');
-    setPreviewUrl('');
-    setFilename('');
+    setPptDownloadUrl('');
+    setPptFilename('');
     setNotesDownloadUrl('');
     setNotesFilename('');
     setJobId('');
@@ -527,12 +536,18 @@ export default function TrainingPage() {
         include_speaker_notes: setupDraft.includeSpeakerNotes,
         job_id: jobId || undefined,
       });
-      setJobId(res.job_id);
-      setOutline(res.outline);
+      if (isMountedRef.current) {
+        setJobId(res.job_id);
+        setOutline(res.outline);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '生成大纲失败');
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : '生成大纲失败');
+      }
     } finally {
-      setLoadingOutline(false);
+      if (isMountedRef.current) {
+        setLoadingOutline(false);
+      }
     }
   };
 
@@ -594,7 +609,7 @@ export default function TrainingPage() {
       setError('请先生成并确认大纲');
       return;
     }
-    setLoadingGenerate(true);
+    setLoadingPptGenerate(true);
     setError(null);
     try {
       const res: TrainingGenerateResponse = await trainingApi.generatePpt({
@@ -611,19 +626,23 @@ export default function TrainingPage() {
         style: setupDraft.style,
         focus_areas: [],
       });
-      setJobId(res.job_id);
-      setPresentation(res.presentation);
-      setQualityReport(res.quality_report);
-      setDownloadUrl(trainingApi.download(res.filename));
-      setPreviewUrl('');
-      setFilename(res.filename);
-      setHtmlTitle('');
-      setNotesDownloadUrl(res.notes_download_url || '');
-      setNotesFilename(res.notes_filename || '');
+      if (isMountedRef.current) {
+        setJobId(res.job_id);
+        setPresentation(res.presentation);
+        setQualityReport(res.quality_report);
+        setPptDownloadUrl(trainingApi.download(res.filename));
+        setPptFilename(res.filename);
+        setNotesDownloadUrl(res.notes_download_url || '');
+        setNotesFilename(res.notes_filename || '');
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '生成 PPT 失败');
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : '生成 PPT 失败');
+      }
     } finally {
-      setLoadingGenerate(false);
+      if (isMountedRef.current) {
+        setLoadingPptGenerate(false);
+      }
     }
   };
 
@@ -631,12 +650,9 @@ export default function TrainingPage() {
     if (!resolveSetupSource(true)) {
       return;
     }
-    setLoadingGenerate(true);
     setError(null);
-    setDownloadUrl('');
-    setPreviewUrl('');
-    setFilename('');
-    setHtmlTitle('');
+    resetHtmlGeneration();
+    updateHtmlGeneration({ loading: true, error: null });
     setPresentation(null);
     setQualityReport(null);
     setOutline(null);
@@ -658,19 +674,32 @@ export default function TrainingPage() {
         theme: setupDraft.theme,
         template_id: setupDraft.renderStyle,
       });
-      setJobId(res.job_id);
-      setHtmlTitle(res.deck.title || setupDraft.requirement.trim() || 'HTML 网页');
-      setDownloadUrl(trainingApi.downloadHtml(res.job_id, res.filename));
-      setPreviewUrl(trainingApi.previewHtml(res.job_id, res.filename));
-      setFilename(res.filename);
-      setPresentation(null);
-      setQualityReport(null);
-      setNotesDownloadUrl('');
-      setNotesFilename('');
+      updateHtmlGeneration({
+        loading: false,
+        error: null,
+        jobId: res.job_id,
+        title: res.deck.title || setupDraft.requirement.trim() || 'HTML 网页',
+        deck: res.deck,
+        downloadUrl: trainingApi.downloadHtml(res.job_id, res.filename),
+        previewUrl: trainingApi.previewHtml(res.job_id, res.filename),
+        filename: res.filename,
+      });
+      if (isMountedRef.current) {
+        setJobId(res.job_id);
+        setPresentation(null);
+        setQualityReport(null);
+        setNotesDownloadUrl('');
+        setNotesFilename('');
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '生成 HTML 失败');
-    } finally {
-      setLoadingGenerate(false);
+      const message = err instanceof Error ? err.message : '生成 HTML 失败';
+      if (isMountedRef.current) {
+        setError(message);
+      }
+      updateHtmlGeneration({
+        loading: false,
+        error: message,
+      });
     }
   };
 
@@ -932,10 +961,10 @@ export default function TrainingPage() {
                   <div className="flex items-center justify-end xl:self-center">
                     <Button
                       onClick={generateHtml}
-                      disabled={loadingGenerate || !setupDraft.requirement.trim()}
+                      disabled={htmlGeneration.loading || !setupDraft.requirement.trim()}
                       className="h-10 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700"
                     >
-                      {loadingGenerate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Globe className="mr-2 h-4 w-4" />}
+                      {htmlGeneration.loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Globe className="mr-2 h-4 w-4" />}
                       生成html网页
                     </Button>
                   </div>
@@ -943,7 +972,7 @@ export default function TrainingPage() {
               </CardContent>
             </Card>
 
-            {(downloadUrl || previewUrl || qualityReport) && (
+            {(htmlGeneration.downloadUrl || htmlGeneration.previewUrl || htmlGeneration.deck || htmlGeneration.error) && (
               <Card className="border-slate-200 shadow-sm">
                 <CardHeader>
                   <div className="flex items-center justify-between gap-3">
@@ -952,17 +981,17 @@ export default function TrainingPage() {
                       HTML 结果
                     </CardTitle>
                   <div className="flex flex-wrap gap-2">
-                    {previewUrl && (
+                    {htmlGeneration.previewUrl && (
                       <Button asChild variant="outline">
-                        <a href={previewUrl} target="_blank" rel="noreferrer">
+                        <a href={htmlGeneration.previewUrl} target="_blank" rel="noreferrer">
                           <Globe className="mr-2 h-4 w-4" />
                           预览 HTML
                         </a>
                       </Button>
                     )}
-                    {downloadUrl && (
+                    {htmlGeneration.downloadUrl && (
                       <Button asChild variant="outline">
-                        <a href={downloadUrl} target="_blank" rel="noreferrer" download>
+                        <a href={htmlGeneration.downloadUrl} target="_blank" rel="noreferrer" download>
                           <Download className="mr-2 h-4 w-4" />
                           下载 HTML网页
                         </a>
@@ -975,16 +1004,22 @@ export default function TrainingPage() {
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                       <div className="font-medium text-slate-900">标题</div>
-                      <div className="mt-1 truncate">{htmlTitle || 'HTML 网页'}</div>
+                      <div className="mt-1 truncate">{htmlGeneration.title || 'HTML 网页'}</div>
                     </div>
                     <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                       <div className="font-medium text-slate-900">主题色</div>
                       <div className="mt-1">{themeSummary}</div>
                     </div>
                   </div>
-                  {qualityReport && (
-                    <div className={`rounded-lg border p-3 text-sm ${qualityReport.passed ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                      {qualityReport.summary}
+                  {htmlGeneration.error && (
+                    <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                      {htmlGeneration.error}
+                    </div>
+                  )}
+                  {htmlGeneration.deck && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                      <div>页数：{htmlGeneration.deck.pages.length}</div>
+                      <div>模板：{htmlGeneration.deck.template_id}</div>
                     </div>
                   )}
                 </CardContent>
@@ -1246,15 +1281,15 @@ export default function TrainingPage() {
                   <Separator />
 
                   <div className="flex flex-wrap items-center gap-3">
-                    <Button onClick={generatePpt} disabled={loadingGenerate || outline.slides.length === 0} className="bg-indigo-600 hover:bg-indigo-700">
-                      {loadingGenerate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                    <Button onClick={generatePpt} disabled={loadingPptGenerate || outline.slides.length === 0} className="bg-indigo-600 hover:bg-indigo-700">
+                      {loadingPptGenerate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
                       生成PPT
                     </Button>
-                    {downloadUrl && (
+                    {pptDownloadUrl && (
                       <Button asChild variant="outline">
-                        <a href={downloadUrl} target="_blank" rel="noreferrer">
+                        <a href={pptDownloadUrl} target="_blank" rel="noreferrer">
                           <Download className="mr-2 h-4 w-4" />
-                          下载PPT {filename ? `(${filename})` : ''}
+                          下载PPT {pptFilename ? `(${pptFilename})` : ''}
                         </a>
                       </Button>
                     )}

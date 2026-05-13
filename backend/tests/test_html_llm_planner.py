@@ -207,6 +207,15 @@ def test_validate_emoji_detected():
         _validate_pages(bad, pack, settings)
 
 
+def test_validate_common_symbols_allowed():
+    pack = _make_pack()
+    settings = {"slide_count": 8}
+    bad = _valid_pages()
+    bad[0] = dict(bad[0], bullets=["× 用嘴吹灭或拍打 → ✓ 使用灭火毯或灭火器"])
+    pages = _validate_pages(bad, pack, settings)
+    assert pages[0].bullets[0].startswith("×")
+
+
 def test_validate_boilerplate():
     pack = _make_pack()
     settings = {"slide_count": 8}
@@ -247,6 +256,16 @@ def test_validate_bullets_too_many():
     bad[0] = dict(bad[0], bullets=["a", "b", "c", "d", "e", "f"])
     with pytest.raises(HtmlGenerationError, match="数量"):
         _validate_pages(bad, pack, settings)
+
+
+def test_validate_agenda_six_bullets_allowed():
+    pack = _make_pack()
+    settings = {"slide_count": 8}
+    pages = _valid_pages()
+    pages[1] = dict(pages[1], bullets=["a", "b", "c", "d", "e", "f"])
+    validated = _validate_pages(pages, pack, settings)
+    assert len(validated[1].bullets) == 6
+    assert validated[1].layout == "agenda"
 
 
 def test_validate_bullet_too_long():

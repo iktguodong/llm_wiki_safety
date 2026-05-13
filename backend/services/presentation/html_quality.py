@@ -14,6 +14,7 @@ import re
 from typing import Any
 
 from .html_deck import HTML_THEMES, STYLE_A_ONLY, HtmlDeckSpec
+from .html_text_utils import bullet_limit_for_layout
 from .models import ContentPack, QualityIssue, QualityReport
 
 # --------------------------------------------------------------------------
@@ -186,13 +187,14 @@ def check_html_deck(deck: HtmlDeckSpec, content_pack: ContentPack, settings: Any
                 break
 
         # P1：bullet 数量
-        if len(page.bullets) > 5:
+        bullet_limit = bullet_limit_for_layout(page.layout)
+        if len(page.bullets) > bullet_limit:
             issues.append(QualityIssue(
                 level="warning",
                 code="too_many_bullets",
-                message=f"每页 bullet 超过 5 条（当前 {len(page.bullets)} 条）",
+                message=f"该页 bullet 超过 {bullet_limit} 条（当前 {len(page.bullets)} 条）",
                 slide_id=page.id,
-                suggestion="精简到 5 条以内，保持扫读节奏",
+                suggestion=f"精简到 {bullet_limit} 条以内，保持扫读节奏",
             ))
 
         # P1：bullet 过长

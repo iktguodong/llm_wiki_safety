@@ -14,6 +14,7 @@ from backend.services.presentation.html_deck import (
     HtmlDeckSpec,
     render_html_deck,
 )
+from backend.services.presentation.html_quality import check_html_deck
 from backend.services.presentation.models import ContentChunk, ContentPack, SourceRef
 from backend.services.presentation.project_store import get_job_paths
 
@@ -233,6 +234,51 @@ def test_html_deck_chrome_kicker_fields(isolated_training_env):
     assert "定制栏目" in html_text
     assert "定制大纲" in html_text
     assert "定制导航" in html_text
+
+
+def test_html_quality_allows_agenda_six_bullets():
+    deck = HtmlDeckSpec(
+        id="test-quality",
+        title="测试",
+        topic="测试",
+        audience="测试",
+        duration_minutes=30,
+        style="magazine",
+        theme="ink",
+        template_id="magazine",
+        pages=[
+            HtmlDeckPage(
+                id="p1",
+                page_no=1,
+                layout="hero",
+                title="封面",
+                summary="概述",
+                bullets=["a"],
+                hero=True,
+            ),
+            HtmlDeckPage(
+                id="p2",
+                page_no=2,
+                layout="agenda",
+                title="目录",
+                summary="概要",
+                bullets=["a", "b", "c", "d", "e", "f"],
+            ),
+            HtmlDeckPage(
+                id="p3",
+                page_no=3,
+                layout="summary",
+                title="总结",
+                summary="收束",
+                bullets=["a"],
+            ),
+        ],
+        quality_warnings=[],
+    )
+    pack = _make_content_pack()
+    report = check_html_deck(deck, pack, {"slide_count": 3})
+    assert report.passed is True
+    assert all(issue.code != "too_many_bullets" for issue in report.issues)
 
 
 # ── LLM 规划测试 ──────────────────────────────────────────────────
