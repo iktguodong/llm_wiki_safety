@@ -86,10 +86,10 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
             imageClassName="w-full h-full object-contain scale-110"
           />
           <div>
-            <div style={{ color: '#0F172A', fontSize: '14px', fontWeight: 600, letterSpacing: '0.01em' }}>
+            <div style={{ color: '#0F172A', fontSize: '15px', fontWeight: 600, letterSpacing: '0.01em' }}>
               安牛
             </div>
-            <div style={{ color: '#000000', fontSize: '11px' }}>个人知识助手</div>
+            <div style={{ color: '#000000', fontSize: '12px' }}>个人知识助手</div>
           </div>
         </div>
       </div>
