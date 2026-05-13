@@ -61,6 +61,31 @@ def _short_excerpt(text: str, limit: int = 180) -> str:
     return text[:limit]
 
 
+def _derive_title(topic: str) -> str:
+    text = re.sub(r"\s+", "", str(topic or "")).strip()
+    if not text:
+        return "安全生产培训"
+
+    text = re.sub(r"^(请|请您|请重点|请突出|请围绕|围绕|关于|针对|以|以.*为主题|主题[:：])+", "", text)
+    text = re.sub(r"^(生成|制作|输出|整理|汇总)(一个|一份|一套)?", "", text)
+    text = text.strip("：:，,。.;；/\\")
+
+    parts = [part for part in re.split(r"[、，,；;和与及/]+", text) if part]
+    if parts:
+        # 优先保留最有信息量的前两到三段，避免变成整句需求
+        title = "、".join(parts[:3])
+    else:
+        title = text
+
+    title = re.sub(r"(培训|方案|内容|材料|网页|页面|课件)$", "", title)
+    title = title.strip("：:，,。.;；/\\")
+    if not title:
+        title = text[:18] or "安全生产培训"
+    if len(title) > 24:
+        title = title[:24].rstrip("、，,") + "…"
+    return title
+
+
 def _keywords(text: str) -> list[str]:
     candidates = [
         "应急", "风险", "隐患", "作业", "制度", "职责", "流程", "处置", "检查",
@@ -298,11 +323,12 @@ def build_content_pack(request: Any, job_id: str | None = None) -> ContentPack:
     payload = _as_dict(request)
     sources = normalize_sources(payload)
     topic = str(payload.get("topic") or payload.get("prompt") or "安全生产培训")
+    title = _derive_title(topic)
     audience = str(payload.get("audience") or "一线员工")
     duration_minutes = int(payload.get("duration_minutes") or payload.get("duration") or 60)
     pack = ContentPack(
         id=f"cp-{uuid.uuid4().hex[:10]}",
-        title=topic,
+        title=title,
         topic=topic,
         audience=audience,
         duration_minutes=duration_minutes,

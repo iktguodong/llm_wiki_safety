@@ -186,7 +186,7 @@ def _default_outline(content_pack: ContentPack, settings: dict[str, Any]) -> Tra
         TrainingOutlineSlide(
             id=f"slide-{uuid.uuid4().hex[:8]}",
             slide_no=1,
-            title=str(settings.get("topic") or content_pack.topic),
+            title=str(settings.get("title") or content_pack.title or settings.get("topic") or content_pack.topic),
             key_points=[
                 f"受众：{settings.get('audience') or content_pack.audience}",
                 f"时长：{int(settings.get('duration_minutes') or content_pack.duration_minutes or 60)} 分钟",
@@ -304,7 +304,7 @@ def _default_outline(content_pack: ContentPack, settings: dict[str, Any]) -> Tra
 
     return TrainingOutline(
         id=f"ol-{uuid.uuid4().hex[:10]}",
-        title=str(settings.get("topic") or content_pack.topic),
+        title=str(settings.get("title") or content_pack.title or settings.get("topic") or content_pack.topic),
         topic=str(settings.get("topic") or content_pack.topic),
         audience=str(settings.get("audience") or content_pack.audience),
         duration_minutes=int(settings.get("duration_minutes") or content_pack.duration_minutes or 60),
@@ -432,7 +432,7 @@ def _outline_from_llm(data: dict[str, Any], content_pack: ContentPack, settings:
 async def generate_outline(content_pack: ContentPack, settings: Any, llm_client=llm_service) -> TrainingOutline:
     settings_dict = _as_dict(settings)
     style = str(settings_dict.get("style") or "standard_training")
-    topic = str(settings_dict.get("topic") or content_pack.topic)
+    topic = str(settings_dict.get("title") or content_pack.title or settings_dict.get("topic") or content_pack.topic)
     audience = str(settings_dict.get("audience") or content_pack.audience)
     duration_minutes = int(settings_dict.get("duration_minutes") or content_pack.duration_minutes or 60)
 

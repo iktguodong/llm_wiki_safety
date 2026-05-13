@@ -416,6 +416,7 @@ class PresentationJob(BaseModel):
     outline_path: Optional[str] = None
     spec_path: Optional[str] = None
     pptx_path: Optional[str] = None
+    html_path: Optional[str] = None
     quality_report_path: Optional[str] = None
     download_url: Optional[str] = None
 
@@ -472,6 +473,61 @@ class TrainingGenerateResponse(BaseModel):
     filename: str
     notes_download_url: Optional[str] = None
     notes_filename: Optional[str] = None
+
+
+class HtmlDeckPage(BaseModel):
+    id: str
+    page_no: int
+    layout: str
+    title: str
+    subtitle: Optional[str] = None
+    summary: Optional[str] = None
+    bullets: List[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+    source_refs: List[TrainingSourceRef] = Field(default_factory=list)
+    hero: bool = False
+
+
+class HtmlDeckSpec(BaseModel):
+    id: str
+    title: str
+    topic: str
+    audience: str
+    duration_minutes: int
+    style: Literal["magazine", "swiss"]
+    theme: str
+    template_id: str
+    pages: List[HtmlDeckPage] = Field(default_factory=list)
+    quality_warnings: List[str] = Field(default_factory=list)
+
+
+class HtmlGenerateRequest(BaseModel):
+    job_id: Optional[str] = None
+    sources: List[TrainingSourceInput] = Field(default_factory=list)
+    topic: str = ""
+    audience: str = "一线员工"
+    duration_minutes: int = 60
+    slide_count: int = 12
+    style: Literal["standard_training", "management_briefing", "frontline_shift_training"] = "standard_training"
+    focus_areas: List[str] = Field(default_factory=list)
+    include_quiz: bool = True
+    include_speaker_notes: bool = False
+    render_style: Literal["magazine", "swiss"] = "magazine"
+    theme: str = "ink"
+    template_id: str = "magazine"
+    # legacy compatibility
+    source_type: Optional[str] = None
+    source_ids: List[str] = Field(default_factory=list)
+    config: Optional[TrainingConfig] = None
+
+
+class HtmlGenerateResponse(BaseModel):
+    job_id: str
+    status: str
+    deck: HtmlDeckSpec
+    filename: str
+    download_url: str
+    preview_url: Optional[str] = None
 
 
 class TemporaryTrainingUploadResponse(BaseModel):

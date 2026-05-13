@@ -9,6 +9,9 @@ import type {
   PresentationSpec,
   QualityReport,
   TrainingGenerateResponse,
+  HtmlDeckStyle,
+  HtmlDeckTheme,
+  HtmlGenerateResponse,
   TrainingOutline,
   TrainingOutlineResponse,
   TrainingOutlineSlide,
@@ -28,6 +31,8 @@ type MainMode = 'html' | 'ppt';
 type SourceMode = 'kb_document' | 'temporary_upload';
 type SlideCountChoice = '5' | '15' | '20' | '30' | 'custom';
 
+const TRAINING_MODE_KEY = 'anniu-training-mode-v1';
+
 type KbResources = {
   loading: boolean;
   error: string | null;
@@ -43,12 +48,22 @@ type PptSetupDraft = {
   customSlideCount: number;
   style: TrainingStyle;
   includeSpeakerNotes: boolean;
+  renderStyle: HtmlDeckStyle;
+  theme: HtmlDeckTheme;
 };
 
 const styleOptions: { value: TrainingStyle; label: string; desc: string }[] = [
   { value: 'standard_training', label: '标准安全培训', desc: '适合常规安全生产培训，结构均衡' },
   { value: 'management_briefing', label: '管理层汇报', desc: '强调结论、风险矩阵和责任闭环' },
   { value: 'frontline_shift_training', label: '班组宣贯', desc: '字更大、少字、动作导向' },
+];
+
+const htmlThemeOptions: { value: HtmlDeckTheme; label: string; desc: string }[] = [
+  { value: 'ink', label: '墨水经典', desc: '深墨黑 + 暖米白，最稳妥的默认视觉' },
+  { value: 'indigo', label: '靛蓝瓷', desc: '更冷静的蓝色系统，适合技术和数据' },
+  { value: 'forest', label: '森林墨', desc: '偏自然的绿调，适合文化与稳重内容' },
+  { value: 'kraft', label: '牛皮纸', desc: '偏怀旧的人文底色，适合叙事型内容' },
+  { value: 'dune', label: '沙丘', desc: '更克制的中性色，适合设计与品牌感' },
 ];
 
 function durationFromSlideCount(slideCount: number) {
@@ -83,7 +98,7 @@ function sourceLabel(source: TrainingSourceInput, knowledgeBases: KnowledgeBase[
     return source.title || source.upload_id || '上传文档';
   }
   if (source.type === 'prompt') {
-    return source.title || '自由生成';
+    return source.title || '按需求生成';
   }
   if (source.type === 'knowledge_base') {
     return knowledgeBases.find((kb) => kb.id === source.kb_id)?.name || source.kb_id || '知识库';
@@ -247,7 +262,17 @@ function TopModeCard({
 
 export default function TrainingPage() {
   const { knowledgeBases, currentKbId } = useApp();
-  const [mode, setMode] = useState<MainMode>('ppt');
+  const [mode, setMode] = useState<MainMode>(() => {
+    try {
+      const raw = localStorage.getItem(TRAINING_MODE_KEY);
+      if (raw === 'html' || raw === 'ppt') {
+        return raw;
+      }
+    } catch {
+      // ignore storage failures and fall back to PPT
+    }
+    return 'ppt';
+  });
   const [setupDraft, setSetupDraft] = useState<PptSetupDraft>({
     sourceMode: 'kb_document',
     kbId: currentKbId || '',
@@ -257,6 +282,8 @@ export default function TrainingPage() {
     customSlideCount: 12,
     style: 'standard_training',
     includeSpeakerNotes: true,
+    renderStyle: 'magazine',
+    theme: 'ink',
   });
   const [selectedSources, setSelectedSources] = useState<TrainingSourceInput[]>([]);
   const [kbResources, setKbResources] = useState<Record<string, KbResources>>({});
@@ -264,7 +291,9 @@ export default function TrainingPage() {
   const [presentation, setPresentation] = useState<PresentationSpec | null>(null);
   const [qualityReport, setQualityReport] = useState<QualityReport | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string>('');
+  const [previewUrl, setPreviewUrl] = useState<string>('');
   const [filename, setFilename] = useState<string>('');
+  const [htmlTitle, setHtmlTitle] = useState<string>('');
   const [notesDownloadUrl, setNotesDownloadUrl] = useState<string>('');
   const [notesFilename, setNotesFilename] = useState<string>('');
   const [jobId, setJobId] = useState<string>('');
@@ -289,6 +318,10 @@ export default function TrainingPage() {
     return `${slideCount} 页`;
   }, [slideCount, setupDraft.customSlideCount, setupDraft.slideCountChoice]);
   const styleSummary = useMemo(() => styleOptions.find((item) => item.value === setupDraft.style)?.label || '选择风格', [setupDraft.style]);
+  const themeSummary = useMemo(
+    () => htmlThemeOptions.find((item) => item.value === setupDraft.theme)?.label || '墨水经典',
+    [setupDraft.theme],
+  );
   const notesSummary = setupDraft.includeSpeakerNotes ? '有' : '无';
 
   useEffect(() => {
@@ -296,6 +329,14 @@ export default function TrainingPage() {
       setSetupDraft((prev) => ({ ...prev, kbId: currentKbId || knowledgeBases[0].id }));
     }
   }, [currentKbId, knowledgeBases, setupDraft.kbId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TRAINING_MODE_KEY, mode);
+    } catch {
+      // ignore storage failures
+    }
+  }, [mode]);
 
   useEffect(() => {
     const loadKb = async (kbId: string) => {
@@ -344,13 +385,17 @@ export default function TrainingPage() {
       customSlideCount: 12,
       style: 'standard_training',
       includeSpeakerNotes: true,
+      renderStyle: 'magazine',
+      theme: 'ink',
     });
     setSelectedSources([]);
     setOutline(null);
     setPresentation(null);
     setQualityReport(null);
     setDownloadUrl('');
+    setPreviewUrl('');
     setFilename('');
+    setHtmlTitle('');
     setNotesDownloadUrl('');
     setNotesFilename('');
     setJobId('');
@@ -441,27 +486,28 @@ export default function TrainingPage() {
     setSelectedSources((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const resolveSetupSource = (): TrainingSourceInput | null => {
+  const resolveSetupSource = (allowEmpty = false): boolean => {
     const requirement = setupDraft.requirement.trim();
     if (!requirement) {
-      setError('请输入 PPT 主题和需求');
-      return null;
+      setError('请输入主题和需求');
+      return false;
     }
-    if (selectedSources.length === 0) {
+    if (!allowEmpty && selectedSources.length === 0) {
       setError('请至少添加一个文档');
-      return null;
+      return false;
     }
-    return selectedSources[0];
+    return true;
   };
 
   const generateOutline = async () => {
-    if (!resolveSetupSource()) {
+    if (!resolveSetupSource(mode === 'html')) {
       return;
     }
     setOutline(null);
     setPresentation(null);
     setQualityReport(null);
     setDownloadUrl('');
+    setPreviewUrl('');
     setFilename('');
     setNotesDownloadUrl('');
     setNotesFilename('');
@@ -568,12 +614,61 @@ export default function TrainingPage() {
       setJobId(res.job_id);
       setPresentation(res.presentation);
       setQualityReport(res.quality_report);
-      setDownloadUrl(res.download_url || trainingApi.download(res.filename));
+      setDownloadUrl(trainingApi.download(res.filename));
+      setPreviewUrl('');
       setFilename(res.filename);
+      setHtmlTitle('');
       setNotesDownloadUrl(res.notes_download_url || '');
       setNotesFilename(res.notes_filename || '');
     } catch (err) {
       setError(err instanceof Error ? err.message : '生成 PPT 失败');
+    } finally {
+      setLoadingGenerate(false);
+    }
+  };
+
+  const generateHtml = async () => {
+    if (!resolveSetupSource(true)) {
+      return;
+    }
+    setLoadingGenerate(true);
+    setError(null);
+    setDownloadUrl('');
+    setPreviewUrl('');
+    setFilename('');
+    setHtmlTitle('');
+    setPresentation(null);
+    setQualityReport(null);
+    setNotesDownloadUrl('');
+    setNotesFilename('');
+    try {
+      const res: HtmlGenerateResponse = await trainingApi.generateHtml({
+        job_id: jobId || undefined,
+        sources: selectedSources,
+        outline: outline || undefined,
+        topic: setupDraft.requirement.trim(),
+        audience: outline?.audience || '一线员工',
+        duration_minutes: durationMinutes,
+        slide_count: slideCount,
+        style: setupDraft.style,
+        focus_areas: [],
+        include_quiz: true,
+        include_speaker_notes: false,
+        render_style: setupDraft.renderStyle,
+        theme: setupDraft.theme,
+        template_id: setupDraft.renderStyle,
+      });
+      setJobId(res.job_id);
+      setHtmlTitle(res.deck.title || setupDraft.requirement.trim() || 'HTML 网页');
+      setDownloadUrl(trainingApi.downloadHtml(res.job_id, res.filename));
+      setPreviewUrl(trainingApi.previewHtml(res.job_id, res.filename));
+      setFilename(res.filename);
+      setPresentation(null);
+      setQualityReport(null);
+      setNotesDownloadUrl('');
+      setNotesFilename('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '生成 HTML 失败');
     } finally {
       setLoadingGenerate(false);
     }
@@ -650,11 +745,252 @@ export default function TrainingPage() {
         )}
 
         {mode === 'html' ? (
-          <Card className="border-slate-200">
-            <CardContent className="py-6 text-sm text-slate-600">
-              HTML 流程预留
-            </CardContent>
-          </Card>
+          <div className="space-y-6">
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="space-y-4 p-4">
+                <Textarea
+                  rows={3}
+                  value={setupDraft.requirement}
+                  onChange={(e) => setSetupDraft((prev) => ({ ...prev, requirement: e.target.value }))}
+                  placeholder="HTML 网页主题 / 需求"
+                  className="min-h-[112px] bg-slate-50"
+                />
+
+                {selectedSources.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedSources.map((source, index) => (
+                      <div
+                        key={`${source.type}-${sourceKey(source)}-${index}`}
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700"
+                      >
+                        <span className="max-w-[260px] truncate">{sourceLabel(source, knowledgeBases)}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeSource(index)}
+                          className="text-slate-400 transition hover:text-slate-700"
+                          aria-label="移除来源"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(220px,.78fr)_minmax(220px,.78fr)_minmax(220px,.82fr)_auto] xl:items-center">
+                  <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <Label className="text-sm font-medium text-slate-700">选择文档</Label>
+                    <Popover open={documentPickerOpen} onOpenChange={setDocumentPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-10 w-full justify-between rounded-xl border-slate-200 bg-white px-3 text-slate-900 shadow-sm"
+                        >
+                          <span className="truncate text-left">{selectedSourceSummary}</span>
+                          <span className="ml-3 shrink-0 text-slate-400">▾</span>
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-[640px] max-w-[calc(100vw-2rem)] rounded-[24px] border-slate-200 p-4 shadow-2xl">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSetupDraft((prev) => ({ ...prev, sourceMode: 'kb_document' }))}
+                            className={`rounded-full border px-3 py-1.5 text-sm transition ${
+                              setupDraft.sourceMode === 'kb_document' ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-white text-slate-700'
+                            }`}
+                          >
+                            来自知识库
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSetupDraft((prev) => ({ ...prev, sourceMode: 'temporary_upload' }))}
+                            className={`rounded-full border px-3 py-1.5 text-sm transition ${
+                              setupDraft.sourceMode === 'temporary_upload' ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-white text-slate-700'
+                            }`}
+                          >
+                            上传文档
+                          </button>
+                        </div>
+
+                        {setupDraft.sourceMode === 'kb_document' ? (
+                          <div className="mt-4 space-y-3">
+                            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto]">
+                              <Select
+                                value={setupDraft.kbId}
+                                onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, kbId: value, documentId: '' }))}
+                              >
+                                <SelectTrigger className="h-10 min-w-0">
+                                  <SelectValue placeholder="选择知识库" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {knowledgeBases.map((kb) => (
+                                    <SelectItem key={kb.id} value={kb.id}>
+                                      {kb.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Select value={setupDraft.documentId} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, documentId: value }))}>
+                                <SelectTrigger className="h-10 min-w-0">
+                                  <SelectValue placeholder="选择文档" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(kbResources[setupDraft.kbId]?.docs || []).map((doc) => (
+                                    <SelectItem key={doc.id} value={doc.id}>
+                                      {doc.file}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Button type="button" onClick={addKbDocumentSource} className="h-10 shrink-0 whitespace-nowrap bg-indigo-600 hover:bg-indigo-700">
+                                加入
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-4">
+                            <Button variant="outline" className="h-10" onClick={() => uploadInputRef.current?.click()}>
+                              <Upload className="mr-2 h-4 w-4" />
+                              上传文档
+                            </Button>
+                            <input
+                              ref={uploadInputRef}
+                              type="file"
+                              multiple
+                              accept=".pdf,.doc,.docx,.txt,.md,.markdown"
+                              className="hidden"
+                              onChange={(e) => e.target.files && void handleUpload(e.target.files)}
+                            />
+                          </div>
+                        )}
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <Label className="text-sm font-medium text-slate-700">选择页数</Label>
+                    <Select value={setupDraft.slideCountChoice} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, slideCountChoice: value as SlideCountChoice }))}>
+                      <SelectTrigger className="h-10 w-full rounded-[18px] border-slate-200 bg-white px-4 shadow-sm">
+                        <SelectValue>{slideCountSummary}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="w-[240px] rounded-[28px] border-slate-200 bg-white p-3 shadow-2xl">
+                        {['5', '15', '20', '30'].map((item) => (
+                          <SelectItem key={item} value={item} className="my-1 rounded-2xl bg-white px-5 py-4 text-base font-medium text-slate-800">
+                            {item} 页
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="custom" className="my-1 rounded-2xl bg-white px-5 py-4 text-base font-medium text-slate-800">
+                          自由输入
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {setupDraft.slideCountChoice === 'custom' && (
+                      <Input
+                        type="number"
+                        min={1}
+                        value={setupDraft.customSlideCount}
+                        onChange={(e) => setSetupDraft((prev) => ({ ...prev, customSlideCount: Number(e.target.value) || 1 }))}
+                        className="h-10 w-full rounded-[18px] border-slate-200 bg-white shadow-sm"
+                        placeholder="请输入页数"
+                      />
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <Label className="text-sm font-medium text-slate-700">网页主题色</Label>
+                    <Select value={setupDraft.theme} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, theme: value as HtmlDeckTheme }))}>
+                      <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 shadow-sm">
+                        <SelectValue>{themeSummary}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {htmlThemeOptions.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <Label className="text-sm font-medium text-slate-700">内容风格</Label>
+                    <Select value={setupDraft.style} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, style: value as TrainingStyle }))}>
+                      <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 shadow-sm">
+                        <SelectValue>{styleSummary}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {styleOptions.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-center justify-end xl:self-center">
+                    <Button
+                      onClick={generateHtml}
+                      disabled={loadingGenerate || !setupDraft.requirement.trim()}
+                      className="h-10 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700"
+                    >
+                      {loadingGenerate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Globe className="mr-2 h-4 w-4" />}
+                      生成html网页
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {(downloadUrl || previewUrl || qualityReport) && (
+              <Card className="border-slate-200 shadow-sm">
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-3">
+                    <CardTitle className="flex items-center gap-2 text-base text-slate-900">
+                      <Globe className="h-4 w-4 text-emerald-600" />
+                      HTML 结果
+                    </CardTitle>
+                  <div className="flex flex-wrap gap-2">
+                    {previewUrl && (
+                      <Button asChild variant="outline">
+                        <a href={previewUrl} target="_blank" rel="noreferrer">
+                          <Globe className="mr-2 h-4 w-4" />
+                          预览 HTML
+                        </a>
+                      </Button>
+                    )}
+                    {downloadUrl && (
+                      <Button asChild variant="outline">
+                        <a href={downloadUrl} target="_blank" rel="noreferrer" download>
+                          <Download className="mr-2 h-4 w-4" />
+                          下载 HTML网页
+                        </a>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-slate-600">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="font-medium text-slate-900">标题</div>
+                      <div className="mt-1 truncate">{htmlTitle || 'HTML 网页'}</div>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="font-medium text-slate-900">主题色</div>
+                      <div className="mt-1">{themeSummary}</div>
+                    </div>
+                  </div>
+                  {qualityReport && (
+                    <div className={`rounded-lg border p-3 text-sm ${qualityReport.passed ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                      {qualityReport.summary}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
         ) : (
           <div className="space-y-6">
             <Card className="border-slate-200 shadow-sm">

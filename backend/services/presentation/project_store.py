@@ -22,6 +22,7 @@ class JobPaths:
     root: Path
     source_uploads: Path
     pptx_dir: Path
+    html_dir: Path
     content_pack_path: Path
     outline_path: Path
     spec_path: Path
@@ -54,6 +55,7 @@ def get_job_paths(job_id: str) -> JobPaths:
         root=root,
         source_uploads=root / "source" / "uploads",
         pptx_dir=root / "pptx",
+        html_dir=root / "html",
         content_pack_path=root / "content_pack.json",
         outline_path=root / "outline.json",
         spec_path=root / "spec.json",
@@ -69,6 +71,7 @@ def create_job(source_mode: str, job_id: Optional[str] = None) -> PresentationJo
     paths = get_job_paths(job_id)
     paths.source_uploads.mkdir(parents=True, exist_ok=True)
     paths.pptx_dir.mkdir(parents=True, exist_ok=True)
+    paths.html_dir.mkdir(parents=True, exist_ok=True)
     now = utc_now_str()
     return PresentationJob(
         job_id=job_id,
@@ -80,6 +83,7 @@ def create_job(source_mode: str, job_id: Optional[str] = None) -> PresentationJo
         outline_path=str(paths.outline_path),
         spec_path=str(paths.spec_path),
         pptx_path=str(paths.pptx_dir / "training_deck.pptx"),
+        html_path=str(paths.html_dir / "index.html"),
         quality_report_path=str(paths.quality_report_path),
         download_url=f"/api/training/download/training_deck.pptx",
     )

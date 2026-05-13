@@ -162,6 +162,7 @@ class PresentationJob(BaseModel):
     outline_path: Optional[str] = None
     spec_path: Optional[str] = None
     pptx_path: Optional[str] = None
+    html_path: Optional[str] = None
     quality_report_path: Optional[str] = None
     download_url: Optional[str] = None
     notes_download_url: Optional[str] = None
