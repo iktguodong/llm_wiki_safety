@@ -494,7 +494,7 @@ class HtmlDeckSpec(BaseModel):
     topic: str
     audience: str
     duration_minutes: int
-    style: Literal["magazine", "swiss"]
+    style: Literal["magazine"]
     theme: str
     template_id: str
     pages: List[HtmlDeckPage] = Field(default_factory=list)
@@ -512,7 +512,7 @@ class HtmlGenerateRequest(BaseModel):
     focus_areas: List[str] = Field(default_factory=list)
     include_quiz: bool = True
     include_speaker_notes: bool = False
-    render_style: Literal["magazine", "swiss"] = "magazine"
+    render_style: Literal["magazine"] = "magazine"
     theme: str = "ink"
     template_id: str = "magazine"
     # legacy compatibility
