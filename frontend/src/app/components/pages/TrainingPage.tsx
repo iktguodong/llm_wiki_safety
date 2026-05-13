@@ -518,7 +518,7 @@ export default function TrainingPage() {
       const res: TrainingOutlineResponse = await trainingApi.generateOutline({
         sources: selectedSources,
         topic: setupDraft.requirement.trim(),
-        audience: '一线员工',
+        audience: '',
         duration_minutes: durationMinutes,
         slide_count: slideCount,
         style: setupDraft.style,
@@ -639,15 +639,15 @@ export default function TrainingPage() {
     setHtmlTitle('');
     setPresentation(null);
     setQualityReport(null);
+    setOutline(null);
     setNotesDownloadUrl('');
     setNotesFilename('');
     try {
       const res: HtmlGenerateResponse = await trainingApi.generateHtml({
         job_id: jobId || undefined,
         sources: selectedSources,
-        outline: outline || undefined,
         topic: setupDraft.requirement.trim(),
-        audience: outline?.audience || '一线员工',
+        audience: '',
         duration_minutes: durationMinutes,
         slide_count: slideCount,
         style: setupDraft.style,

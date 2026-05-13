@@ -23,6 +23,18 @@ def test_prompt_only_content_pack_builds_prompt_chunk(isolated_training_env):
     assert any("未绑定企业原文来源" in warning for warning in pack.warnings)
 
 
+def test_content_pack_prefers_explicit_title_and_audience(isolated_training_env):
+    pack = build_content_pack({
+        "sources": [{"type": "prompt", "prompt": "请突出应急处置、报警流程和初期火灾扑救"}],
+        "topic": "这是我公司的应急预案培训，培训对象为管理层，培训名字为：绥中港应急预案培训会",
+        "audience": "",
+        "duration_minutes": 30,
+    })
+
+    assert pack.title == "绥中港应急预案培训会"
+    assert pack.audience == "管理层"
+
+
 def test_temporary_upload_content_pack_builds_refs(isolated_training_env):
     upload_id = "upload-test-1"
     upload_dir = get_upload_dir(upload_id)

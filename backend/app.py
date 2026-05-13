@@ -63,7 +63,9 @@ from backend.services.presentation.project_store import (
     save_upload_metadata,
 )
 from backend.services.presentation.safety_templates import get_template
-from backend.services.presentation.html_deck import build_html_deck, deck_to_dict, render_html_deck, resolve_html_path
+from backend.services.presentation.html_planner import build_html_deck
+from backend.services.presentation.html_quality import check_html_deck
+from backend.services.presentation.html_deck import deck_to_dict, render_html_deck, resolve_html_path
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -375,7 +377,7 @@ def _training_payload_to_request(payload: dict[str, Any]) -> dict[str, Any]:
     config = TrainingConfig(**config_data) if config_data else None
     sources = payload.get("sources") or normalize_sources(payload)
     topic = payload.get("topic") or (config.topic if config else "") or payload.get("prompt") or ""
-    audience = payload.get("audience") or (config.audience if config else "一线员工")
+    audience = payload.get("audience") if "audience" in payload else (config.audience if config else "一线员工")
     duration_minutes = payload.get("duration_minutes") or (config.duration if config else 60)
     slide_count = payload.get("slide_count") or (config.slide_count if config else 12)
     style = payload.get("style") or "standard_training"
@@ -404,6 +406,7 @@ def _html_payload_to_request(payload: dict[str, Any]) -> dict[str, Any]:
     request["theme"] = payload.get("theme") or "ink"
     request["template_id"] = payload.get("template_id") or request["render_style"]
     request["include_speaker_notes"] = payload.get("include_speaker_notes", False)
+    request["prefer_wiki_pages"] = True
     return request
 
 
@@ -546,21 +549,14 @@ async def generate_training_html(payload: dict = Body(...)):
     job = create_job("html", job_id=request.get("job_id"))
     try:
         content_pack = build_content_pack(request, job.job_id)
-        outline_payload = payload.get("outline")
-        if outline_payload:
-            outline = TrainingOutlineV2(**outline_payload)
-        else:
-            outline = await build_outline(content_pack, request, llm_service)
-        spec = await plan_slides(outline, content_pack, request, llm_service)
-        quality_report = check_presentation(spec, content_pack, request)
-        deck = build_html_deck(spec, content_pack, request)
+        deck = build_html_deck(content_pack, request)
+        quality_report = check_html_deck(deck, content_pack, request)
         render_info = render_html_deck(deck, job.job_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
     save_content_pack(job.job_id, content_pack.model_dump())
-    save_outline(job.job_id, outline.model_dump())
-    save_spec(job.job_id, spec.model_dump())
+    save_spec(job.job_id, deck_to_dict(deck))
     save_quality_report(job.job_id, quality_report.model_dump())
 
     response = HtmlGenerateResponse(

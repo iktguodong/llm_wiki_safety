@@ -15,15 +15,15 @@ from .project_store import get_job_paths
 
 HTML_THEMES: dict[str, dict[str, str]] = {
     "ink": {
-        "paper": "#f5f1ea",
-        "paper_alt": "#ebe3d7",
+        "paper": "#ffffff",
+        "paper_alt": "#f5f7fa",
         "ink": "#111111",
-        "muted": "#5c5c5c",
-        "accent": "#8f6b42",
-        "accent_soft": "rgba(143,107,66,.12)",
-        "card": "rgba(255,255,255,.74)",
-        "border": "rgba(17,17,17,.10)",
-        "shadow": "0 22px 50px rgba(36,26,16,.09)",
+        "muted": "#505050",
+        "accent": "#202124",
+        "accent_soft": "rgba(32,33,36,.05)",
+        "card": "rgba(255,255,255,.96)",
+        "border": "rgba(17,17,17,.07)",
+        "shadow": "0 20px 44px rgba(17,17,17,.06)",
     },
     "indigo": {
         "paper": "#f2f4f8",
@@ -237,9 +237,30 @@ def _source_chips(refs: list[SourceRef]) -> str:
     if not refs:
         return ""
     chips = []
-    for ref in refs[:4]:
-        chips.append(f'<span class="chip">{_safe_text(_source_label(ref))}</span>')
+    seen: set[str] = set()
+    for ref in refs:
+        label = _source_label(ref)
+        key = label.strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        chips.append(f'<span class="chip">{_safe_text(label)}</span>')
+        if len(chips) >= 2:
+            break
+    extra = max(0, len({ _source_label(ref).strip() for ref in refs if _source_label(ref).strip() }) - len(chips))
+    if extra:
+        chips.append(f'<span class="chip">+{extra}</span>')
     return "".join(chips)
+
+
+def _source_line(refs: list[SourceRef]) -> str:
+    if not refs:
+        return ""
+    total_unique = { _source_label(ref).strip() for ref in refs if _source_label(ref).strip() }
+    count = len(total_unique)
+    if count <= 0:
+        return ""
+    return f"来源 · {count} 份资料"
 
 
 def _bullet_items(items: list[str]) -> str:
@@ -261,6 +282,7 @@ def _card_blocks(items: list[str]) -> str:
 
 def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
     chip_html = _source_chips(page.source_refs)
+    source_line = _source_line(page.source_refs)
     if page.layout == "hero":
         return f"""
         <section class="slide hero" data-layout="hero">
@@ -276,6 +298,7 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
                 <span>{_safe_text(tokens["style_subtitle"])}</span>
               </div>
               <div class="chip-row">{chip_html or '<span class="chip">单文件 HTML</span><span class="chip">横向翻页</span>'}</div>
+              {f'<div class="source-line">{_safe_text(source_line)}</div>' if source_line else ''}
             </div>
             <div class="hero-panel">
               <div class="panel-title">本页目标</div>
@@ -285,7 +308,7 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
               </div>
             </div>
           </div>
-          <div class="foot"><span>{_safe_text(page.notes or page.summary or "单页即可分享")}</span><span>HTML</span></div>
+          <div class="foot"><span>{_safe_text(source_line or "HTML")}</span><span>{page.page_no:02d}</span></div>
         </section>
         """
     if page.layout == "agenda":
@@ -305,7 +328,80 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
             </div>
             <div class="agenda-grid">{agenda_html}</div>
           </div>
-          <div class="foot"><span>{_safe_text(page.summary or "页面目录")}</span><span>{page.page_no:02d}</span></div>
+          <div class="foot"><span>{_safe_text(source_line or "AGENDA")}</span><span>{page.page_no:02d}</span></div>
+        </section>
+        """
+    if page.layout == "section":
+        return f"""
+        <section class="slide" data-layout="section">
+          <div class="chrome"><span>SECTION</span><span>{page.page_no:02d} / {total:02d}</span></div>
+          <div class="content-shell section-shell">
+            <div class="section-head section-head--hero">
+              <div class="kicker">Section</div>
+              <h2>{_safe_text(page.title)}</h2>
+              <p>{_safe_text(page.summary or page.subtitle or "先把这部分的主线立住，再展开细节。")}</p>
+            </div>
+            <div class="section-grid">
+              <div class="section-panel">
+                <strong>培训对象</strong>
+                <p>{_safe_text(page.summary or page.notes or "聚焦可执行动作。")}</p>
+              </div>
+              <div class="section-panel accent">
+                <strong>来源</strong>
+                <p>{_safe_text(source_line or "来源仅作辅助提示，不抢占正文。")}</p>
+              </div>
+            </div>
+          </div>
+          <div class="foot"><span>{_safe_text(source_line or "SECTION")}</span><span>{page.page_no:02d}</span></div>
+        </section>
+        """
+    if page.layout == "quote":
+        return f"""
+        <section class="slide" data-layout="quote">
+          <div class="chrome"><span>QUOTE</span><span>{page.page_no:02d} / {total:02d}</span></div>
+          <div class="content-shell quote-shell">
+            <div class="quote-copy">
+              <div class="kicker">Takeaway</div>
+              <h2>{_safe_text(page.title)}</h2>
+              <p class="quote-text">{_safe_text(page.summary or page.notes or "把关键动作提炼成一段可被记住的话。")}</p>
+            </div>
+            <div class="quote-side">
+              <div class="panel-title">关键提示</div>
+              <div class="panel-body">
+                <p>{_safe_text(page.notes or "让这一页更像杂志中的拔高段落。")}</p>
+                <div class="source-line">{_safe_text(source_line or "来源保留在辅助位置")}</div>
+              </div>
+            </div>
+          </div>
+          <div class="foot"><span>{_safe_text(source_line or "QUOTE")}</span><span>{page.page_no:02d}</span></div>
+        </section>
+        """
+    if page.layout == "contrast":
+        left = page.bullets[:2] if page.bullets else [page.summary or "应该做什么", "避免什么"]
+        while len(left) < 2:
+            left.append("避免重复说明文字")
+        return f"""
+        <section class="slide" data-layout="contrast">
+          <div class="chrome"><span>CONTRAST</span><span>{page.page_no:02d} / {total:02d}</span></div>
+          <div class="content-shell contrast-shell">
+            <div class="section-head">
+              <div class="kicker">Contrast</div>
+              <h2>{_safe_text(page.title)}</h2>
+              <p>{_safe_text(page.summary or page.subtitle or "用对照方式把动作边界讲清楚。")}</p>
+            </div>
+            <div class="contrast-grid">
+              <div class="contrast-card">
+                <strong>应该做</strong>
+                <ul>{''.join(f'<li>{_safe_text(item)}</li>' for item in left[:2])}</ul>
+              </div>
+              <div class="contrast-card accent">
+                <strong>避免做</strong>
+                <p>{_safe_text(page.notes or "避免把来源说明写成正文。")}</p>
+                <div class="source-line">{_safe_text(source_line or "来源保留在角落")}</div>
+              </div>
+            </div>
+          </div>
+          <div class="foot"><span>{_safe_text(source_line or "CONTRAST")}</span><span>{page.page_no:02d}</span></div>
         </section>
         """
     if page.layout == "workflow":
@@ -324,8 +420,9 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
               <p>{_safe_text(page.summary or page.subtitle or "把动作拆成顺序明确的步骤。")}</p>
             </div>
             <div class="workflow-grid">{step_html}</div>
+            {f'<div class="source-line">{_safe_text(source_line)}</div>' if source_line else ''}
           </div>
-          <div class="foot"><span>{_safe_text(page.notes or page.summary or "")}</span><span>流程页</span></div>
+          <div class="foot"><span>{_safe_text(source_line or "流程页")}</span><span>{page.page_no:02d}</span></div>
         </section>
         """
     if page.layout == "checklist":
@@ -348,10 +445,11 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
                 <strong>关键提醒</strong>
                 <p>{_safe_text(page.notes or page.summary or "把检查动作落到岗位、班组、现场三个层级。")}</p>
                 <div class="chip-row">{chip_html or '<span class="chip">可导出</span><span class="chip">可分享</span>'}</div>
+                {f'<div class="source-line">{_safe_text(source_line)}</div>' if source_line else ''}
               </div>
             </div>
           </div>
-          <div class="foot"><span>{_safe_text(page.notes or page.summary or "")}</span><span>清单页</span></div>
+          <div class="foot"><span>{_safe_text(source_line or "清单页")}</span><span>{page.page_no:02d}</span></div>
         </section>
         """
     if page.layout == "summary":
@@ -372,7 +470,7 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
               <div class="panel-grid">{blocks}</div>
             </div>
           </div>
-          <div class="foot"><span>{_safe_text(page.summary or "结尾")}</span><span>SUMMARY</span></div>
+          <div class="foot"><span>{_safe_text(source_line or "SUMMARY")}</span><span>{page.page_no:02d}</span></div>
         </section>
         """
 
@@ -390,17 +488,19 @@ def _page_html(page: HtmlDeckPage, tokens: dict[str, str], total: int) -> str:
         <div class="split-grid">
           <div class="text-col">
             <ul class="bullet-list">{bullet_html}</ul>
+            {f'<div class="source-line">{_safe_text(source_line)}</div>' if source_line else ''}
           </div>
           <div class="side-col">
-            <div class="panel-title">来源</div>
+            <div class="panel-title">关键提示</div>
             <div class="panel-body">
-              <div class="chip-row">{chip_html or '<span class="chip">来源将显示在这里</span>'}</div>
-              <p>{_safe_text(page.notes or page.summary or "来源丰富时，网页会优先把重点放进卡片和列表。")}</p>
+              <div class="chip-row">{chip_html or '<span class="chip">单文件 HTML</span><span class="chip">横向翻页</span>'}</div>
+              <p>{_safe_text(page.notes or page.summary or "正文优先，来源只做辅助提示。")}</p>
+              {f'<div class="source-line">{_safe_text(source_line)}</div>' if source_line else ''}
             </div>
           </div>
         </div>
       </div>
-      <div class="foot"><span>{_safe_text(page.notes or page.summary or "")}</span><span>{page.page_no:02d}</span></div>
+      <div class="foot"><span>{_safe_text(source_line or page.layout.upper())}</span><span>{page.page_no:02d}</span></div>
     </section>
     """
 
@@ -410,8 +510,8 @@ def _style_block(tokens: dict[str, str]) -> str:
         background = "linear-gradient(180deg, rgba(255,255,255,.98), rgba(244,246,248,.98))"
         accent_grid = "repeating-linear-gradient(90deg, rgba(16,34,63,.04) 0, rgba(16,34,63,.04) 1px, transparent 1px, transparent 64px)"
     else:
-        background = "radial-gradient(circle at top left, rgba(255,255,255,.68), transparent 36%), linear-gradient(180deg, rgba(247,243,236,.98), rgba(241,236,228,.98))"
-        accent_grid = "repeating-linear-gradient(90deg, rgba(17,17,17,.03) 0, rgba(17,17,17,.03) 1px, transparent 1px, transparent 72px)"
+        background = f"linear-gradient(180deg, {tokens['paper']}, {tokens['paper_alt']})"
+        accent_grid = "repeating-linear-gradient(90deg, rgba(17,17,17,.025) 0, rgba(17,17,17,.025) 1px, transparent 1px, transparent 72px)"
     return f"""
     :root {{
       --paper: {tokens["paper"]};
@@ -478,6 +578,7 @@ def render_html_deck(deck: HtmlDeckSpec, job_id: str) -> dict[str, Any]:
     .meta, .chip-row {{ display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }}
     .meta {{ margin-top: 2vh; color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }}
     .chip {{ display: inline-flex; align-items: center; min-height: 32px; padding: .42rem .7rem; border-radius: 999px; background: var(--accent-soft); color: var(--ink); border: 1px solid rgba(0,0,0,.05); font-size: 12px; }}
+    .source-line {{ margin-top: .7rem; color: var(--muted); font-size: 11px; line-height: 1.45; letter-spacing: .06em; }}
     .panel-title {{ font-size: 12px; text-transform: uppercase; letter-spacing: .2em; color: var(--muted); }}
     .panel-body {{ display: grid; gap: 1rem; color: var(--ink); line-height: 1.7; }}
     .panel-grid {{ display: grid; gap: .8rem; grid-template-columns: repeat(2, minmax(0,1fr)); }}
@@ -499,6 +600,24 @@ def render_html_deck(deck: HtmlDeckSpec, job_id: str) -> dict[str, Any]:
     .bullet-list li::before {{ content: "•"; color: var(--accent); font-weight: 700; margin-right: .55rem; }}
     .bullet-list li.ghost {{ color: var(--muted); font-style: italic; }}
     .side-col .panel-body, .check-card, .summary-quote {{ padding: 1.2rem 1.2rem; }}
+    .section-shell {{ gap: 2rem; }}
+    .section-head--hero h2 {{ max-width: 9ch; }}
+    .section-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 1rem; }}
+    .section-panel {{ padding: 1.1rem 1.2rem; border-radius: 20px; background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); min-height: 150px; }}
+    .section-panel.accent {{ background: color-mix(in srgb, var(--accent-soft) 72%, white); }}
+    .section-panel strong {{ display: block; margin-bottom: .4rem; text-transform: uppercase; letter-spacing: .16em; font-size: 12px; color: var(--muted); }}
+    .section-panel p {{ margin: 0; line-height: 1.8; font-size: clamp(16px, 1.2vw, 20px); }}
+    .quote-shell {{ grid-template-columns: 1.2fr .8fr; gap: 1.4rem; align-items: end; }}
+    .quote-copy {{ min-height: 58vh; display: flex; flex-direction: column; justify-content: center; }}
+    .quote-copy h2 {{ max-width: 9ch; }}
+    .quote-text {{ margin: 1rem 0 0; font-size: clamp(22px, 2vw, 34px); line-height: 1.55; max-width: 20ch; color: var(--ink); }}
+    .quote-side {{ padding: 1.2rem 1.2rem; border-radius: 24px; background: rgba(255,255,255,.58); border: 1px solid var(--border); box-shadow: var(--shadow); }}
+    .contrast-shell {{ gap: 1.4rem; }}
+    .contrast-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 1rem; }}
+    .contrast-card {{ padding: 1.2rem 1.2rem; border-radius: 24px; background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); }}
+    .contrast-card.accent {{ background: color-mix(in srgb, var(--accent-soft) 74%, white); }}
+    .contrast-card strong {{ display: block; margin-bottom: .75rem; text-transform: uppercase; letter-spacing: .16em; font-size: 12px; color: var(--muted); }}
+    .contrast-card ul {{ margin: 0; padding-left: 1.1rem; display: grid; gap: .7rem; line-height: 1.7; }}
     .check-grid {{ grid-template-columns: 1fr .95fr; }}
     .check-card ol {{ margin: 0; padding-left: 1.25rem; display: grid; gap: .75rem; line-height: 1.6; }}
     .check-card.accent {{ background: color-mix(in srgb, var(--accent-soft) 72%, white); }}
@@ -520,7 +639,7 @@ def render_html_deck(deck: HtmlDeckSpec, job_id: str) -> dict[str, Any]:
     .overview-card strong {{ display: block; margin: .5rem 0 .4rem; }}
     .overview-card span {{ color: var(--muted); font-size: 12px; }}
     @media (max-width: 1100px) {{
-      .hero-grid, .split-grid, .summary-grid, .check-grid {{ grid-template-columns: 1fr; }}
+      .hero-grid, .split-grid, .summary-grid, .check-grid, .section-grid, .quote-shell, .contrast-grid {{ grid-template-columns: 1fr; }}
       .workflow-grid, .agenda-grid {{ grid-template-columns: 1fr; }}
       .panel-grid {{ grid-template-columns: 1fr; }}
       .hero-copy {{ min-height: auto; }}

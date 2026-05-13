@@ -66,24 +66,78 @@ def _derive_title(topic: str) -> str:
     if not text:
         return "安全生产培训"
 
+    explicit_patterns = [
+        r"(?:培训名字为|培训名称为|培训名为|标题为|题目为|名称为|主题为|名字为|标题是|题目是|名称是|主题是)[:：]([^，,。；;]+)",
+        r"(?:培训名字为|培训名称为|培训名为|标题为|题目为|名称为|主题为|名字为|标题是|题目是|名称是|主题是)([^，,。；;]+)",
+    ]
+    for pattern in explicit_patterns:
+        match = re.search(pattern, text)
+        if match:
+            explicit = match.group(1).strip("：:，,。.;；/\\ ")
+            if explicit:
+                return explicit[:24]
+
     text = re.sub(r"^(请|请您|请重点|请突出|请围绕|围绕|关于|针对|以|以.*为主题|主题[:：])+", "", text)
     text = re.sub(r"^(生成|制作|输出|整理|汇总)(一个|一份|一套)?", "", text)
     text = text.strip("：:，,。.;；/\\")
+    fragments = [frag for frag in re.split(r"[。！？!?]", text) if frag]
+    if fragments:
+        text = fragments[0]
+    for prefix in (
+        "这是我公司的",
+        "这是我们公司的",
+        "这是本公司的",
+        "这是公司的",
+        "我公司的",
+        "我们公司的",
+        "本公司的",
+        "公司的",
+    ):
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+            break
 
     parts = [part for part in re.split(r"[、，,；;和与及/]+", text) if part]
+    parts = [part for part in parts if not re.search(r"(面向|针对|适用于|培训对象)", part)]
     if parts:
         # 优先保留最有信息量的前两到三段，避免变成整句需求
         title = "、".join(parts[:3])
     else:
         title = text
 
-    title = re.sub(r"(培训|方案|内容|材料|网页|页面|课件)$", "", title)
+    title = re.sub(r"^(开展|进行|组织|实施|举办|召开|学习)+", "", title)
+    title = re.sub(r"(方案|内容|材料|网页|页面|课件)$", "", title)
+    title = title.strip("：:，,。.;；/\\")
+    title = re.sub(r"(，|,).*?(培训对象|培训名字为|名称为|标题为|题目为|面向|针对|适用于).*", "", title)
     title = title.strip("：:，,。.;；/\\")
     if not title:
         title = text[:18] or "安全生产培训"
     if len(title) > 24:
         title = title[:24].rstrip("、，,") + "…"
     return title
+
+
+def _derive_audience(explicit: str | None, topic: str) -> str:
+    text = str(explicit or "").strip()
+    if text:
+        return text
+    source = re.sub(r"\s+", "", str(topic or ""))
+    patterns = [
+        r"培训对象(?:是|为|：|:)?([^，,。；;、/]+)",
+        r"面向([^，,。；;、/]+)",
+        r"适用于([^，,。；;、/]+)",
+        r"针对([^，,。；;、/]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, source)
+        if match:
+            audience = match.group(1).strip("：:，,。.;；/\\")
+            if audience:
+                return audience[:20]
+    for token in ("一线员工", "管理层", "班组长", "新员工", "全员", "特种作业人员", "维修人员", "仓库人员", "中层管理者"):
+        if token in source:
+            return token
+    return "相关岗位人员"
 
 
 def _keywords(text: str) -> list[str]:
@@ -148,7 +202,30 @@ def _read_wiki_page(page_path: Path, kb_id: str, page_name: str | None = None) -
     text = page_path.read_text(encoding="utf-8")
     title_match = re.search(r"^#\s+(.+)$", text, re.MULTILINE)
     title = title_match.group(1).strip() if title_match else (page_path.stem if page_name else page_path.stem)
-    return title, text
+    cleaned_lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            cleaned_lines.append("")
+            continue
+        if line.startswith("**Sources**"):
+            continue
+        summary_match = re.match(r"^\*\*Summary\*\*:\s*(.*)$", line, re.IGNORECASE)
+        if summary_match:
+            summary_text = summary_match.group(1).strip()
+            summary_text = re.sub(r"\(source:[^)]+\)", "", summary_text, flags=re.IGNORECASE).strip()
+            if summary_text:
+                cleaned_lines.append(summary_text)
+            continue
+        line = re.sub(r"^#+\s*", "", line)
+        line = line.replace("**", "")
+        line = re.sub(r"\(source:[^)]+\)", "", line, flags=re.IGNORECASE)
+        line = re.sub(r"`([^`]*)`", r"\1", line)
+        line = re.sub(r"\s+", " ", line).strip()
+        if line:
+            cleaned_lines.append(line)
+    cleaned = "\n".join(cleaned_lines).strip()
+    return title, cleaned or text
 
 
 def _load_wiki_sources(kb_id: str, page_name: str | None, pack: ContentPack) -> None:
@@ -178,7 +255,13 @@ def _load_wiki_sources(kb_id: str, page_name: str | None, pack: ContentPack) -> 
         _append_chunks(pack.chunks, title=title, chunk_type="wiki", text=text[:MAX_PACK_CHARS], refs=[ref])
 
 
-def _load_document_sources(kb_id: str, document_id: str | None, pack: ContentPack) -> None:
+def _load_document_sources(
+    kb_id: str,
+    document_id: str | None,
+    pack: ContentPack,
+    *,
+    prefer_wiki_pages: bool = False,
+) -> None:
     track = doc_service._load_doc_track(kb_id)
     docs = track.get("documents", {})
     if document_id:
@@ -191,10 +274,24 @@ def _load_document_sources(kb_id: str, document_id: str | None, pack: ContentPac
         if not doc_info:
             pack.warnings.append(f"知识库 {kb_id} 未找到文档 {doc_id}")
             continue
+
         file_path = raw_path / doc_info.get("file", "")
         if not file_path.exists():
             pack.warnings.append(f"文档文件不存在：{file_path.name}")
             continue
+
+        # HTML 训练页优先使用该文档关联的 wiki 页面，让输出更像已经整理过的讲稿，
+        # 避免直接把原始 PDF 段落铺到页面上。
+        if prefer_wiki_pages and doc_info.get("wiki_pages"):
+            wiki_pages = [
+                str(page_name)
+                for page_name in doc_info.get("wiki_pages", [])
+                if str(page_name).strip() and str(page_name) not in {"index.md", "log.md"}
+            ]
+            if wiki_pages:
+                for page_name in wiki_pages:
+                    _load_wiki_sources(kb_id, page_name, pack)
+                continue
 
         pages = extract_document_pages(file_path)
         if len(pages) == 1 and isinstance(pages[0].get("text"), str):
@@ -324,8 +421,9 @@ def build_content_pack(request: Any, job_id: str | None = None) -> ContentPack:
     sources = normalize_sources(payload)
     topic = str(payload.get("topic") or payload.get("prompt") or "安全生产培训")
     title = _derive_title(topic)
-    audience = str(payload.get("audience") or "一线员工")
+    audience = _derive_audience(payload.get("audience"), topic)
     duration_minutes = int(payload.get("duration_minutes") or payload.get("duration") or 60)
+    prefer_wiki_pages = bool(payload.get("prefer_wiki_pages"))
     pack = ContentPack(
         id=f"cp-{uuid.uuid4().hex[:10]}",
         title=title,
@@ -354,7 +452,7 @@ def build_content_pack(request: Any, job_id: str | None = None) -> ContentPack:
             if not source.kb_id:
                 pack.warnings.append("知识库文档来源缺少 kb_id")
                 continue
-            _load_document_sources(source.kb_id, source.document_id, pack)
+            _load_document_sources(source.kb_id, source.document_id, pack, prefer_wiki_pages=prefer_wiki_pages)
         elif source.type == "temporary_upload":
             if not source.upload_id:
                 raise ValueError("temporary_upload 来源缺少 upload_id")
