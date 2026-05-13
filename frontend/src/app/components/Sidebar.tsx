@@ -11,7 +11,7 @@ interface SidebarProps {
 const navItems = [
   { id: 'chat' as const, icon: MessageSquare, label: '对话' },
   { id: 'assistant' as const, icon: Bot, label: '专业助手' },
-  { id: 'search' as const, icon: Search, label: '知识库检索' },
+  { id: 'search' as const, icon: Search, label: '原文检索' },
   { id: 'knowledge' as const, icon: Database, label: '知识库管理' },
   { id: 'training' as const, icon: GraduationCap, label: 'PPT生成' },
 ];

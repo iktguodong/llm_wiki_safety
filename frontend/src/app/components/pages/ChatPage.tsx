@@ -10,6 +10,7 @@ import {
   Eraser,
   Trash2,
   Upload,
+  Pencil,
 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { useApp } from '../../../lib/context';
@@ -327,6 +328,28 @@ export default function ChatPage() {
     setChatHistory(prev => prev.filter(session => session.id !== sessionId));
     if (activeSessionId === sessionId) {
       openCurrentConversation();
+    }
+  };
+
+  const renameSession = (sessionId: string, currentTitle: string) => {
+    const nextTitle = window.prompt('请输入新的会话标题', currentTitle)?.trim();
+    if (!nextTitle) return;
+
+    if (sessionId === CURRENT_SESSION_ID) {
+      setDraftSessionTitle(nextTitle);
+      if (activeSessionId === CURRENT_SESSION_ID) {
+        setCurrentSessionTitle(nextTitle);
+      }
+      return;
+    }
+
+    setChatHistory(prev => prev.map(session => session.id === sessionId ? {
+      ...session,
+      title: nextTitle,
+    } : session));
+
+    if (activeSessionId === sessionId) {
+      setCurrentSessionTitle(nextTitle);
     }
   };
 
@@ -693,18 +716,28 @@ export default function ChatPage() {
                       <span className="flex-shrink-0">{session.time}</span>
                     </div>
                   </button>
-                  {session.id !== CURRENT_SESSION_ID ? (
+                  <div className="flex items-center gap-1 flex-shrink-0">
                     <button
                       type="button"
-                      onClick={() => deleteSession(session.id)}
-                      title="删除会话"
-                      className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                      onClick={() => renameSession(session.id, session.title)}
+                      title="修改标题"
+                      className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex-shrink-0"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Pencil className="w-3.5 h-3.5" />
                     </button>
-                  ) : (
-                    <div className="w-7 h-7 flex-shrink-0" />
-                  )}
+                    {session.id !== CURRENT_SESSION_ID ? (
+                      <button
+                        type="button"
+                        onClick={() => deleteSession(session.id)}
+                        title="删除会话"
+                        className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <div className="w-7 h-7 flex-shrink-0" />
+                    )}
+                  </div>
                 </div>
               </div>
             ))}

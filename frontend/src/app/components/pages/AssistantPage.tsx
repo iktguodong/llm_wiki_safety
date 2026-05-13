@@ -7,6 +7,7 @@ import {
   Globe,
   MessageSquare,
   Plus,
+  Pencil,
   Search,
   Send,
   Settings,
@@ -417,6 +418,17 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     }
   };
 
+  const renameTopic = (topicId: string, currentTitle: string) => {
+    const nextTitle = window.prompt('请输入新的话题标题', currentTitle)?.trim();
+    if (!nextTitle) return;
+
+    updateTopicById(topicId, topic => ({
+      ...topic,
+      title: nextTitle,
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
   const handleUploadDocument = async (file?: File | null) => {
     const targetKbId = selectedAssistant?.default_knowledge_base_ids[0];
     if (!targetKbId) {
@@ -743,6 +755,15 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                     >
                       <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
                       <span className="max-w-[160px] truncate">{topic.title}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => renameTopic(topic.id, topic.title)}
+                      className="opacity-0 group-hover:opacity-100 mr-1 inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex-shrink-0"
+                      aria-label={`修改话题 ${topic.title}`}
+                      title="修改标题"
+                    >
+                      <Pencil className="w-3 h-3" />
                     </button>
                     <button
                       type="button"
