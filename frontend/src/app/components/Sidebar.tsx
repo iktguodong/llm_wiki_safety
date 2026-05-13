@@ -89,7 +89,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
             <div style={{ color: '#0F172A', fontSize: '14px', fontWeight: 600, letterSpacing: '0.01em' }}>
               安牛
             </div>
-            <div style={{ color: '#CBD5E1', fontSize: '11px' }}>v1.0.0</div>
+            <div style={{ color: '#000000', fontSize: '11px' }}>个人知识助手</div>
           </div>
         </div>
       </div>
@@ -117,20 +117,6 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
               onClick={() => onPageChange(item.id)}
             />
           ))}
-        </div>
-
-        {/* User */}
-        <div
-          className="mt-2 flex items-center gap-2.5 px-3 py-2 rounded-lg"
-          style={{ background: '#F8FAFC' }}
-        >
-          <div
-            className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
-            style={{ background: '#EEF2FF', color: '#6366F1', fontSize: '11px', fontWeight: 500 }}
-          >
-            用
-          </div>
-          <span style={{ color: '#94A3B8', fontSize: '13px' }}>用户</span>
         </div>
       </div>
     </div>
