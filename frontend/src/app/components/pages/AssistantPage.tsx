@@ -24,7 +24,12 @@ import {
   isConversationLocked as isConversationLockedNow,
   useConversationLock,
 } from '../../lib/conversation-lock';
-import { renderAssistantBubble } from '../../lib/chat-render';
+import {
+  normalizeAssistantText,
+  renderAssistantBubble,
+  shouldExpandMessageLayout,
+} from '../../lib/chat-render';
+import { MessageActionBar } from '../MessageActionBar';
 import LogoMark from '../LogoMark';
 
 const ASSISTANT_CUSTOM_KEY = 'anniu-assistant-custom-v2';
@@ -148,6 +153,27 @@ type AssistantTopic = {
   contextCleared: boolean;
   updatedAt: string;
 };
+
+const CONTEXT_RESET_MESSAGE = '已清除当前话题上下文。接下来的回答将从新的上下文开始。';
+
+function preview(text: string, max = 30) {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+}
+
+function getTopicTitle(messages: AssistantMessage[], fallback = '新话题') {
+  const firstUserMessage = messages.find(message => message.role === 'user' && message.content.trim());
+  return preview(firstUserMessage?.content || fallback);
+}
+
+function hasContextResetMessage(messages: AssistantMessage[]) {
+  return messages.some(message => message.role === 'assistant' && message.content.includes(CONTEXT_RESET_MESSAGE));
+}
+
+function buildMessageExportName(role: AssistantMessage['role'], index: number, format: 'md' | 'txt') {
+  const prefix = role === 'assistant' ? '安牛助手回答' : '我的提问';
+  return `${prefix}-${index + 1}.${format}`;
+}
 
 export default function AssistantPage({ activeAssistantId, onStartChat }: AssistantPageProps) {
   const { knowledgeBases, providers, currentModelId } = useApp();
@@ -360,7 +386,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     updateCurrentTopic(topic => ({
       ...topic,
       contextCleared: true,
-      messages: [...topic.messages, { role: 'assistant', content: '已清除当前话题上下文。接下来的回答将从新的上下文开始。', time }],
+      messages: [...topic.messages, { role: 'assistant', content: CONTEXT_RESET_MESSAGE, time }],
       updatedAt: now.toISOString(),
     }));
   };
@@ -389,6 +415,48 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
         uploadInputRef.current.value = '';
       }
     }
+  };
+
+  const syncTopicMessages = (topicId: string, nextMessages: AssistantMessage[]) => {
+    const nextTitle = nextMessages.length ? getTopicTitle(nextMessages) : '新话题';
+    const nextContextCleared = hasContextResetMessage(nextMessages);
+
+    setTopics(prev => prev.map(topic => topic.id === topicId ? {
+      ...topic,
+      title: nextTitle,
+      messages: [...nextMessages],
+      contextCleared: nextContextCleared,
+      updatedAt: new Date().toISOString(),
+    } : topic));
+  };
+
+  const deleteMessage = (idx: number) => {
+    if (!currentTopic) return;
+    const currentMessages = currentTopic.messages;
+    const target = currentMessages[idx];
+    if (!target) return;
+
+    if (isLoading && idx === currentMessages.length - 1 && target.role === 'assistant' && !target.content.trim()) {
+      return;
+    }
+
+    const nextMessages = currentMessages.filter((_, index) => index !== idx);
+    syncTopicMessages(currentTopic.id, nextMessages);
+  };
+
+  const copyMessage = async (role: AssistantMessage['role'], text: string) => {
+    await navigator.clipboard.writeText(role === 'assistant' ? normalizeAssistantText(text) : text);
+  };
+
+  const exportMessage = (role: AssistantMessage['role'], text: string, idx: number, format: 'md' | 'txt') => {
+    const content = format === 'txt' ? normalizeAssistantText(text) : text;
+    const blob = new Blob([content], { type: format === 'txt' ? 'text/plain;charset=utf-8' : 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = buildMessageExportName(role, idx, format);
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const sendMessage = () => {
@@ -679,7 +747,10 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
 
               <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
                 {messages.length > 0 ? messages.map((msg, idx) => (
-                  <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                  <div
+                    key={idx}
+                    className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+                  >
                     <div
                       className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                       style={{
@@ -695,18 +766,30 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                         <User className="w-4 h-4 text-white" />
                       )}
                     </div>
-                    <div className={`max-w-2xl ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
+                    <div
+                      className={`flex min-w-0 flex-col gap-1 ${
+                        msg.role === 'user' ? 'items-end' : 'items-start'
+                      } ${shouldExpandMessageLayout(msg.content) ? 'flex-1' : 'max-w-2xl'}`}
+                    >
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-slate-400">
                           {msg.role === 'assistant' ? '安牛助手' : '我'}
                         </span>
                         <span className="text-xs text-slate-300">{msg.time}</span>
                       </div>
-                      <div className={`px-4 py-3 rounded-2xl whitespace-pre-wrap text-sm leading-relaxed ${
+                      <div className={`px-4 py-3 rounded-2xl whitespace-pre-wrap text-sm leading-relaxed w-full ${
+                        shouldExpandMessageLayout(msg.content) ? 'max-w-none' : 'max-w-full'
+                      } ${
                         msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
                       }`}>
                         {msg.role === 'assistant' ? renderAssistantBubble(msg.content) : msg.content}
                       </div>
+                      <MessageActionBar
+                        onCopy={() => copyMessage(msg.role, msg.content)}
+                        onExport={(format) => exportMessage(msg.role, msg.content, idx, format)}
+                        onDelete={() => deleteMessage(idx)}
+                        disableDelete={isLoading && idx === messages.length - 1 && msg.role === 'assistant' && !msg.content.trim()}
+                      />
                     </div>
                   </div>
                 )) : (

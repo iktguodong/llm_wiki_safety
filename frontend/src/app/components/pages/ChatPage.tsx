@@ -7,12 +7,7 @@ import {
   Layers,
   Plus,
   Globe,
-  Copy,
-  RefreshCw,
-  Download,
-  MoreHorizontal,
   Eraser,
-  MessageSquare,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -25,18 +20,25 @@ import {
   isConversationLocked as isConversationLockedNow,
   useConversationLock,
 } from '../../lib/conversation-lock';
-import { normalizeAssistantText, renderAssistantBubble } from '../../lib/chat-render';
+import {
+  normalizeAssistantText,
+  renderAssistantBubble,
+  shouldExpandMessageLayout,
+} from '../../lib/chat-render';
+import { MessageActionBar } from '../MessageActionBar';
 import LogoMark from '../LogoMark';
 import type { KnowledgeBase } from '../../../lib/types';
 
-const initialMessages = [
+type ChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+  time: string;
+};
+
+const initialMessages: ChatMessage[] = [
   {
     role: 'assistant',
-    content: `你好！我是安牛知识助手，可以帮助你查询企业安全知识。
-你可以这样问我：
-• 港口火灾应急响应流程是什么？
-• 淹溺事故的现场处置方法有哪些？
-• 应急预案的组织架构是怎样的？`,
+    content: '你好！我是你的“安牛助手”，可以帮助你查询个人知识库，或者进行知识问答。',
     time: '09:30',
   },
 ];
@@ -48,7 +50,7 @@ const STORAGE_KEYS = {
 
 type ChatSession = {
   id: string;
-  messages: typeof initialMessages;
+  messages: ChatMessage[];
   selectedKbs: string[];
   modelId: string;
   useWebSearch: boolean;
@@ -59,6 +61,13 @@ type ChatSession = {
 
 const CURRENT_SESSION_ID = 'current';
 const CONTEXT_RESET_MESSAGE = '已清除当前上下文。接下来的回答将从新的上下文开始。';
+type CurrentSessionSummary = {
+  id: string;
+  title: string;
+  time: string;
+  summary: string;
+  isCurrent: true;
+};
 
 function readLocal<T>(key: string, fallback: T): T {
   try {
@@ -82,7 +91,7 @@ function preview(text: string, max = 28) {
   return clean.length > max ? `${clean.slice(0, max)}…` : clean;
 }
 
-function getConversationTitle(messages: Array<{ role: string; content: string }>, fallback = '当前对话') {
+function getConversationTitle(messages: ChatMessage[], fallback = '当前对话') {
   let startIndex = 0;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
@@ -94,6 +103,20 @@ function getConversationTitle(messages: Array<{ role: string; content: string }>
 
   const firstUserMessage = messages.slice(startIndex).find(message => message.role === 'user' && message.content.trim());
   return preview(firstUserMessage?.content || fallback);
+}
+
+function getConversationTime(messages: ChatMessage[]) {
+  const lastMessage = [...messages].reverse().find(message => message.role === 'assistant' || message.role === 'user');
+  return lastMessage?.time || `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
+}
+
+function hasContextResetMessage(messages: ChatMessage[]) {
+  return messages.some(message => message.role === 'assistant' && message.content.includes(CONTEXT_RESET_MESSAGE));
+}
+
+function buildMessageExportName(role: ChatMessage['role'], index: number, format: 'md' | 'txt') {
+  const prefix = role === 'assistant' ? '安牛助手回答' : '我的提问';
+  return `${prefix}-${index + 1}.${format}`;
 }
 
 export default function ChatPage() {
@@ -181,7 +204,7 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
-  const messagesRef = useRef(messages);
+  const messagesRef = useRef<ChatMessage[]>(messages);
   const releaseSendLockRef = useRef<null | (() => void)>(null);
 
   useEffect(() => {
@@ -310,28 +333,16 @@ export default function ChatPage() {
   const clearContext = () => {
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    setContextCleared(true);
-    setMessages(prev => [
-      ...prev,
+    const nextMessages = [
+      ...messagesRef.current,
       {
         role: 'assistant',
         content: CONTEXT_RESET_MESSAGE,
         time,
       },
-    ]);
-    if (activeSessionId === CURRENT_SESSION_ID) {
-      setDraftContextCleared(true);
-      setDraftMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: CONTEXT_RESET_MESSAGE,
-          time,
-        },
-      ]);
-      setCurrentSessionTitle('当前对话');
-      setDraftSessionTitle('当前对话');
-    }
+    ];
+    syncConversationMessages(nextMessages, { preserveTitle: true });
+    setContextCleared(true);
   };
 
   const restoreSession = (session: ChatSession) => {
@@ -342,6 +353,46 @@ export default function ChatPage() {
     setContextCleared(session.contextCleared ?? false);
     setCurrentSessionTitle(session.title === '当前对话' ? getConversationTitle(session.messages) : session.title);
     setActiveSessionId(session.id);
+  };
+
+  const syncConversationMessages = (nextMessages: ChatMessage[], options?: { preserveTitle?: boolean }) => {
+    const nextTitle = options?.preserveTitle
+      ? (activeSessionId === CURRENT_SESSION_ID ? draftSessionTitle : currentSessionTitle)
+      : getConversationTitle(nextMessages);
+    const nextTime = getConversationTime(nextMessages);
+    const nextContextCleared = hasContextResetMessage(nextMessages);
+
+    setMessages(nextMessages);
+    setCurrentSessionTitle(nextTitle);
+    setContextCleared(nextContextCleared);
+
+    if (activeSessionId === CURRENT_SESSION_ID) {
+      setDraftMessages(nextMessages);
+      setDraftSessionTitle(nextTitle);
+      setDraftContextCleared(nextContextCleared);
+      return;
+    }
+
+    setChatHistory(prev => prev.map(session => session.id === activeSessionId ? {
+      ...session,
+      messages: [...nextMessages],
+      title: nextTitle,
+      time: nextTime,
+      contextCleared: nextContextCleared,
+    } : session));
+  };
+
+  const deleteMessage = (idx: number) => {
+    const currentMessages = messagesRef.current;
+    const target = currentMessages[idx];
+    if (!target) return;
+
+    if (isLoading && idx === currentMessages.length - 1 && target.role === 'assistant' && !target.content.trim()) {
+      return;
+    }
+
+    const nextMessages = currentMessages.filter((_, index) => index !== idx);
+    syncConversationMessages(nextMessages);
   };
 
   const handleSend = (questionOverride?: string) => {
@@ -442,16 +493,17 @@ export default function ChatPage() {
     );
   };
 
-  const copyMessage = (text: string) => {
-    navigator.clipboard?.writeText(normalizeAssistantText(text));
+  const copyMessage = async (role: ChatMessage['role'], text: string) => {
+    await navigator.clipboard.writeText(role === 'assistant' ? normalizeAssistantText(text) : text);
   };
 
-  const exportMessage = (text: string, idx: number) => {
-    const blob = new Blob([normalizeAssistantText(text)], { type: 'text/markdown;charset=utf-8' });
+  const exportMessage = (role: ChatMessage['role'], text: string, idx: number, format: 'md' | 'txt') => {
+    const content = format === 'txt' ? normalizeAssistantText(text) : text;
+    const blob = new Blob([content], { type: format === 'txt' ? 'text/plain;charset=utf-8' : 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `安牛回答-${idx + 1}.md`;
+    a.download = buildMessageExportName(role, idx, format);
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -477,7 +529,7 @@ export default function ChatPage() {
     return lastMessage?.time || `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
   })();
   const currentSessionSummary = draftSelectedKbs.length > 0 ? '知识库问答' : '纯模型问答';
-  const sessionList = [
+  const sessionList: Array<ChatSession | CurrentSessionSummary> = [
     {
       id: CURRENT_SESSION_ID,
       title: draftSessionTitle,
@@ -621,7 +673,9 @@ export default function ChatPage() {
                         openCurrentConversation();
                         return;
                       }
-                      restoreSession(session);
+                      if ('selectedKbs' in session) {
+                        restoreSession(session);
+                      }
                     }}
                     className="min-w-0 flex-1 text-left"
                   >
@@ -632,9 +686,9 @@ export default function ChatPage() {
                       activeSessionId === session.id ? 'text-indigo-400' : 'text-slate-400'
                     }`}>
                       <span className="truncate">
-                        {'isCurrent' in session && session.isCurrent
-                          ? session.summary
-                          : session.selectedKbs.map(id => knowledgeBases.find(k => k.id === id)?.name || id).join('、') || '纯模型问答'}
+                        {'selectedKbs' in session
+                          ? session.selectedKbs.map(id => knowledgeBases.find(k => k.id === id)?.name || id).join('、') || '纯模型问答'
+                          : session.summary}
                       </span>
                       <span className="flex-shrink-0">{session.time}</span>
                     </div>
@@ -663,7 +717,10 @@ export default function ChatPage() {
         <div className="flex-1 min-w-0 flex flex-col">
           <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
             {messages.map((msg, idx) => (
-              <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+              <div
+                key={idx}
+                className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+              >
                 <div
                   className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                   style={{
@@ -679,7 +736,11 @@ export default function ChatPage() {
                     <User className="w-4 h-4 text-white" />
                   )}
                 </div>
-                <div className={`max-w-2xl ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
+                <div
+                  className={`flex min-w-0 flex-col gap-1 ${
+                    msg.role === 'user' ? 'items-end' : 'items-start'
+                  } ${shouldExpandMessageLayout(msg.content) ? 'flex-1' : 'max-w-2xl'}`}
+                >
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-slate-400">
                       {msg.role === 'assistant' ? '安牛助手' : '我'}
@@ -687,7 +748,9 @@ export default function ChatPage() {
                     <span className="text-xs text-slate-300">{msg.time}</span>
                   </div>
                   <div
-                    className={`px-4 py-3 rounded-2xl whitespace-pre-wrap text-sm leading-relaxed ${
+                    className={`px-4 py-3 rounded-2xl whitespace-pre-wrap text-sm leading-relaxed w-full ${
+                      shouldExpandMessageLayout(msg.content) ? 'max-w-none' : 'max-w-full'
+                    } ${
                       msg.role === 'user'
                         ? 'bg-indigo-600 text-white rounded-tr-sm'
                         : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm shadow-sm'
@@ -695,40 +758,15 @@ export default function ChatPage() {
                   >
                     {msg.role === 'assistant' ? renderAssistantBubble(msg.content) : msg.content}
                   </div>
-                  <div className="flex items-center gap-1 text-slate-400">
-                    <button
-                      onClick={() => copyMessage(msg.content)}
-                      title="复制"
-                      className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-                    {msg.role === 'assistant' && idx > 0 && (
-                      <button
-                        onClick={() => regenerateMessage(idx)}
-                        title="重新生成"
-                        disabled={isLoading || isConversationLocked}
-                        className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    {msg.role === 'assistant' && (
-                      <button
-                        onClick={() => exportMessage(msg.content, idx)}
-                        title="导出"
-                        className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    <button
-                      title="更多"
-                      className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
-                    >
-                      <MoreHorizontal className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  <MessageActionBar
+                    onCopy={() => copyMessage(msg.role, msg.content)}
+                    onExport={(format) => exportMessage(msg.role, msg.content, idx, format)}
+                    onDelete={() => deleteMessage(idx)}
+                    onRegenerate={msg.role === 'assistant' && idx > 0 ? () => regenerateMessage(idx) : undefined}
+                    showRegenerate={msg.role === 'assistant' && idx > 0}
+                    disableRegenerate={isLoading || isConversationLocked}
+                    disableDelete={isLoading && idx === messages.length - 1 && msg.role === 'assistant' && !msg.content.trim()}
+                  />
                 </div>
               </div>
             ))}
@@ -801,7 +839,7 @@ export default function ChatPage() {
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
                   <button
-                    onClick={handleSend}
+                    onClick={() => handleSend()}
                     disabled={!input.trim() || isLoading || isConversationLocked}
                     title={isLoading || isConversationLocked ? '前一个回答仍在生成中' : ''}
                     className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
