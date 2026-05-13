@@ -5,7 +5,7 @@ LLM调用服务
 
 import json
 import httpx
-from typing import AsyncGenerator, Dict, List, Optional
+from typing import AsyncGenerator, Dict, List, Optional, Any
 from backend.config import config
 
 
@@ -35,7 +35,115 @@ class LLMService:
                         "model": model
                     }
         return None
-    
+
+    async def chat_events(
+        self,
+        messages: List[Dict[str, str]],
+        model_id: Optional[str] = None,
+        stream: bool = False,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        调用LLM并返回带结束信息的事件流。
+
+        事件类型：
+        - {"type": "chunk", "content": "..."}
+        - {"type": "done", "finish_reason": "..."}
+        - {"type": "error", "message": "..."}
+        """
+        model_id = model_id or config.get("current_model_id", "deepseek-v4-flash")
+        model_config = self._get_model_config(model_id)
+
+        if not model_config:
+            yield {"type": "error", "message": "错误：模型配置未找到"}
+            return
+
+        provider = model_config["provider"]
+        model = model_config["model"]
+
+        api_key = (provider.get("api_key") or "").strip()
+        if not api_key:
+            yield {"type": "error", "message": self._format_missing_api_key_message(provider, model)}
+            return
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": model["id"],
+            "messages": messages,
+            "stream": stream,
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+
+        try:
+            if not stream:
+                response = await self.client.post(
+                    f"{provider['base_url']}/chat/completions",
+                    headers=headers,
+                    json=payload
+                )
+                if response.status_code != 200:
+                    yield {"type": "error", "message": f"API错误 ({response.status_code}): {response.text}"}
+                    return
+
+                try:
+                    data = response.json()
+                except json.JSONDecodeError:
+                    yield {"type": "error", "message": f"API错误：无法解析返回内容：{response.text[:500]}"}
+                    return
+
+                choice = data.get("choices", [{}])[0]
+                content = choice.get("message", {}).get("content", "")
+                finish_reason = choice.get("finish_reason")
+                if content:
+                    yield {"type": "chunk", "content": content}
+                yield {"type": "done", "finish_reason": finish_reason}
+                return
+
+            finish_reason = None
+            async with self.client.stream(
+                "POST",
+                f"{provider['base_url']}/chat/completions",
+                headers=headers,
+                json=payload
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    yield {"type": "error", "message": f"API错误 ({response.status_code}): {error_text.decode()}"}
+                    return
+
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+
+                    data = line[6:]
+                    if data == "[DONE]":
+                        break
+
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+
+                    choice = chunk.get("choices", [{}])[0]
+                    delta = choice.get("delta", {})
+                    if "content" in delta and delta["content"]:
+                        yield {"type": "chunk", "content": delta["content"]}
+
+                    maybe_finish_reason = choice.get("finish_reason")
+                    if maybe_finish_reason:
+                        finish_reason = maybe_finish_reason
+
+            yield {"type": "done", "finish_reason": finish_reason}
+        except Exception as e:
+            yield {"type": "error", "message": f"请求错误: {str(e)}"}
+
     async def chat(
         self,
         messages: List[Dict[str, str]],
@@ -55,80 +163,14 @@ class LLMService:
         Yields:
             流式输出文本片段
         """
-        model_id = model_id or config.get("current_model_id", "deepseek-v4-flash")
-        model_config = self._get_model_config(model_id)
-        
-        if not model_config:
-            yield "错误：模型配置未找到"
-            return
-        
-        provider = model_config["provider"]
-        model = model_config["model"]
-
-        api_key = (provider.get("api_key") or "").strip()
-        if not api_key:
-            yield self._format_missing_api_key_message(provider, model)
-            return
-        
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "model": model["id"],
-            "messages": messages,
-            "stream": stream,
-            "temperature": temperature
-        }
-        
-        try:
-            if not stream:
-                response = await self.client.post(
-                    f"{provider['base_url']}/chat/completions",
-                    headers=headers,
-                    json=payload
-                )
-                if response.status_code != 200:
-                    yield f"API错误 ({response.status_code}): {response.text}"
-                    return
-
-                try:
-                    data = response.json()
-                except json.JSONDecodeError:
-                    yield f"API错误：无法解析返回内容：{response.text[:500]}"
-                    return
-
-                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        async for event in self.chat_events(messages, model_id=model_id, stream=stream, temperature=temperature):
+            if event.get("type") == "chunk":
+                content = event.get("content") or ""
                 if content:
                     yield content
+            elif event.get("type") == "error":
+                yield event.get("message") or "请求错误"
                 return
-
-            async with self.client.stream(
-                "POST",
-                f"{provider['base_url']}/chat/completions",
-                headers=headers,
-                json=payload
-            ) as response:
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    yield f"API错误 ({response.status_code}): {error_text.decode()}"
-                    return
-                
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data = line[6:]
-                        if data == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data)
-                            delta = chunk.get("choices", [{}])[0].get("delta", {})
-                            if "content" in delta:
-                                yield delta["content"]
-                        except json.JSONDecodeError:
-                            continue
-        except Exception as e:
-            yield f"请求错误: {str(e)}"
     
     async def chat_sync(
         self,

@@ -99,6 +99,7 @@ When information conflicts, prefer:
 - The current UI is a light, card-based, indigo-accented workspace.
 - Favor the existing visual language: white surfaces, slate backgrounds, rounded cards, restrained shadows, and clear spacing.
 - Avoid changing layout patterns unless the task explicitly asks for a redesign.
+- Keep shared message controls consistent between the Chat and Assistant pages. If you add or change copy/export/delete/regenerate behavior in one place, mirror it in the other page unless the user explicitly asks for a divergence.
 
 ### Handle file mutations carefully
 
@@ -133,3 +134,4 @@ If you add or rename an endpoint, update the frontend client and any affected ty
 - Keep `wiki/index.md` and `wiki/log.md` reserved.
 - Prefer a small number of high-value wiki pages over many thin pages.
 - Answers from chat should stay grounded in the wiki and clearly state when the knowledge base does not contain enough information.
+- Chat and Assistant responses should avoid user-visible truncation. If the upstream model stops because of length, the backend should continue the answer rather than surfacing a half-finished reply.

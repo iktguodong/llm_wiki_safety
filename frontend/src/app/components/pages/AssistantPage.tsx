@@ -4,6 +4,7 @@ import {
   Eraser,
   ChevronLeft,
   ChevronRight,
+  Globe,
   MessageSquare,
   Plus,
   Search,
@@ -156,6 +157,7 @@ type AssistantTopic = {
   title: string;
   messages: AssistantMessage[];
   contextCleared: boolean;
+  useWebSearch?: boolean;
   updatedAt: string;
 };
 
@@ -259,7 +261,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
       setCurrentTopicId(existing.id);
       return;
     }
-    const topic = createTopic(selectedAssistant.id);
+    const topic = createTopic(selectedAssistant);
     setTopics(prev => [topic, ...prev]);
     setCurrentTopicId(topic.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -356,18 +358,19 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     }
   };
 
-  const createTopic = (assistantId: string): AssistantTopic => ({
+  const createTopic = (assistant: AssistantDefinition): AssistantTopic => ({
     id: `topic-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    assistantId,
+    assistantId: assistant.id,
     title: '新话题',
     messages: [],
     contextCleared: false,
+    useWebSearch: assistant.use_web_search,
     updatedAt: new Date().toISOString(),
   });
 
   const newTopic = () => {
     if (!selectedAssistant) return;
-    const topic = createTopic(selectedAssistant.id);
+    const topic = createTopic(selectedAssistant);
     setTopics(prev => [topic, ...prev]);
     setCurrentTopicId(topic.id);
   };
@@ -381,8 +384,12 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     setTopics(prev => prev.map(topic => topic.id === topicId ? updater(topic) : topic));
   };
 
-  const clearCurrentMessages = () => {
-    updateCurrentTopic(topic => ({ ...topic, messages: [], updatedAt: new Date().toISOString() }));
+  const toggleWebSearch = () => {
+    updateCurrentTopic(topic => ({
+      ...topic,
+      useWebSearch: !(topic.useWebSearch ?? selectedAssistant?.use_web_search ?? false),
+      updatedAt: new Date().toISOString(),
+    }));
   };
 
   const clearCurrentContext = () => {
@@ -397,6 +404,12 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   };
 
   const deleteTopic = (topicId: string) => {
+    const assistantTopicCount = topics.filter(topic => topic.assistantId === selectedAssistant?.id).length;
+    if (assistantTopicCount <= 1) {
+      window.alert('至少保留一个话题，不能删除最后一个话题。');
+      return;
+    }
+
     setTopics(prev => prev.filter(topic => topic.id !== topicId));
     if (currentTopicId === topicId) {
       const next = topics.find(topic => topic.id !== topicId && topic.assistantId === selectedAssistant?.id);
@@ -464,8 +477,19 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     URL.revokeObjectURL(url);
   };
 
-  const sendMessage = () => {
-    const question = input.trim();
+  const regenerateMessage = (idx: number) => {
+    if (!currentTopic) return;
+    for (let i = idx - 1; i >= 0; i -= 1) {
+      const msg = currentTopic.messages[i];
+      if (msg?.role === 'user') {
+        sendMessage(msg.content);
+        return;
+      }
+    }
+  };
+
+  const sendMessage = (questionOverride?: string) => {
+    const question = (questionOverride ?? input).trim();
     if (!question || isLoading || isConversationLockedNow() || !selectedAssistant) return;
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -480,7 +504,9 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
       messages: [...topic.messages, { role: 'user', content: question, time }, { role: 'assistant', content: '', time }],
       updatedAt: now.toISOString(),
     }));
-    setInput('');
+    if (!questionOverride) {
+      setInput('');
+    }
     const releaseLock = acquireConversationLock();
     let settled = false;
     const finish = () => {
@@ -498,7 +524,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
           messages: historyMessages,
           knowledge_base_ids: selectedAssistant.default_knowledge_base_ids,
           model_id: selectedAssistant.default_model_id || currentModelId,
-          use_web_search: selectedAssistant.use_web_search,
+          use_web_search: currentTopic?.useWebSearch ?? selectedAssistant.use_web_search,
           assistant_id: selectedAssistant.id,
           assistant_prompt: selectedAssistant.system_prompt,
         },
@@ -703,13 +729,6 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
               </div>
 
               <div className="flex-shrink-0 bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-2 overflow-x-auto">
-                <button
-                  onClick={newTopic}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-dashed border-slate-300 text-sm text-slate-600 hover:border-indigo-300 hover:text-indigo-600 flex-shrink-0"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  新话题
-                </button>
                 {assistantTopics.map(topic => (
                   <div
                     key={topic.id}
@@ -728,8 +747,10 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                     <button
                       type="button"
                       onClick={() => deleteTopic(topic.id)}
-                      className="mr-2 text-slate-300 hover:text-red-500"
+                      disabled={assistantTopics.length <= 1}
+                      className="mr-2 text-slate-300 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-slate-300"
                       aria-label={`删除话题 ${topic.title}`}
+                      title={assistantTopics.length <= 1 ? '至少保留一个话题' : `删除话题 ${topic.title}`}
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -780,6 +801,9 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                         onCopy={() => copyMessage(msg.role, msg.content)}
                         onExport={(format) => exportMessage(msg.role, msg.content, idx, format)}
                         onDelete={() => deleteMessage(idx)}
+                        onRegenerate={msg.role === 'assistant' && idx > 0 ? () => regenerateMessage(idx) : undefined}
+                        showRegenerate={msg.role === 'assistant' && idx > 0}
+                        disableRegenerate={isLoading || isConversationLocked}
                         disableDelete={isLoading && idx === messages.length - 1 && msg.role === 'assistant' && !msg.content.trim()}
                       />
                     </div>
@@ -811,32 +835,43 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                   <div className="flex items-center gap-2">
                       <button
                         onClick={() => uploadInputRef.current?.click()}
-                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+                        className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
                         title="上传文档"
                         aria-label="上传文档"
                       >
-                        <Upload className="w-3.5 h-3.5" />
+                        <Upload className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={toggleWebSearch}
+                        className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                          (currentTopic?.useWebSearch ?? selectedAssistant.use_web_search)
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                            : 'text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        联网搜索
+                      </button>
+                      <button
+                        onClick={newTopic}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        新话题
                       </button>
                       <button
                         onClick={clearCurrentContext}
-                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
                       >
                         <Eraser className="w-3.5 h-3.5" />
                         清除上下文
-                      </button>
-                      <button
-                        onClick={clearCurrentMessages}
-                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        清空消息
                       </button>
                     </div>
                     <button
                       onClick={sendMessage}
                       disabled={!input.trim() || isLoading || isConversationLocked}
                       title={isLoading || isConversationLocked ? '前一个回答仍在生成中' : ''}
-                      className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
                     >
                       <Send className="w-3.5 h-3.5" />
                       发送
