@@ -1022,9 +1022,9 @@ export default function TrainingPage() {
                   ))}
                 </div>
 
-                <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-                  <div className="grid flex-1 gap-3 min-w-0 xl:max-w-[1050px] xl:grid-cols-[repeat(4,minmax(0,1fr))]">
-                    <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-stretch">
+                  <div className="grid flex-1 gap-3 min-w-0 xl:grid-cols-4">
+                    <div className="h-full space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                       <Label className="text-sm font-medium text-slate-700">选择文档</Label>
                       <Popover open={documentPickerOpen} onOpenChange={setDocumentPickerOpen}>
                         <PopoverTrigger asChild>
@@ -1114,7 +1114,7 @@ export default function TrainingPage() {
                       </Popover>
                     </div>
 
-                    <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <div className="h-full space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                       <Label className="text-sm font-medium text-slate-700">选择页数</Label>
                       <Select value={setupDraft.slideCountChoice} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, slideCountChoice: value as SlideCountChoice }))}>
                         <SelectTrigger className="h-10 w-full rounded-[18px] border-slate-200 bg-white px-4 shadow-sm">
@@ -1143,7 +1143,7 @@ export default function TrainingPage() {
                       )}
                     </div>
 
-                    <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <div className="h-full space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                       <Label className="text-sm font-medium text-slate-700">选择风格</Label>
                       <Select value={setupDraft.style} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, style: value as TrainingStyle }))}>
                         <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 shadow-sm">
@@ -1159,7 +1159,7 @@ export default function TrainingPage() {
                       </Select>
                     </div>
 
-                    <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <div className="h-full space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                       <Label className="text-sm font-medium text-slate-700">有无备注</Label>
                       <Select
                         value={setupDraft.includeSpeakerNotes ? 'yes' : 'no'}
