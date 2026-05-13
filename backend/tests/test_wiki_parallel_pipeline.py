@@ -10,6 +10,7 @@ from backend.services.document import doc_service
 from backend.services.llm import llm_service
 from backend.services.knowledge_base import kb_service
 from backend.services.wiki import WikiService, wiki_service
+from backend.config import get_kb_index_path, get_kb_log_path
 
 
 def test_split_document_into_chunks_preserves_content():
@@ -37,6 +38,21 @@ def test_build_system_content_omits_conflicting_output_contract():
     assert "Return only a valid JSON array" not in system_content
     assert "## Output contract" not in system_content
     assert "## Page selection" in system_content
+
+
+@pytest.mark.asyncio
+async def test_update_knowledge_base_renames_generated_files(isolated_training_env, monkeypatch):
+    monkeypatch.setitem(config_module.config, "knowledge_bases", {})
+
+    kb = await kb_service.create(KnowledgeBaseCreate(name="原始名称", description="原始描述"))
+
+    updated = await kb_service.update(kb.id, KnowledgeBaseCreate(name="新名称"))
+
+    assert updated is not None
+    assert updated.name == "新名称"
+    assert config_module.config["knowledge_bases"][kb.id]["name"] == "新名称"
+    assert get_kb_index_path(kb.id).read_text(encoding="utf-8").splitlines()[0] == "# 新名称 知识库索引"
+    assert get_kb_log_path(kb.id).read_text(encoding="utf-8").splitlines()[0] == "# 新名称 知识库操作日志"
 
 
 @pytest.mark.asyncio

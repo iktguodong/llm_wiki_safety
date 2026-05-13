@@ -159,6 +159,15 @@ async def create_knowledge_base(data: KnowledgeBaseCreate):
     return ApiResponse(data=kb, message=f"知识库「{kb.name}」创建成功")
 
 
+@app.put("/api/knowledge-bases/{kb_id}", response_model=ApiResponse)
+async def update_knowledge_base(kb_id: str, data: KnowledgeBaseCreate):
+    """更新知识库名称或描述"""
+    kb = await kb_service.update(kb_id, data)
+    if not kb:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+    return ApiResponse(data=kb, message=f"知识库「{kb.name}」已更新")
+
+
 @app.get("/api/knowledge-bases/{kb_id}", response_model=ApiResponse)
 async def get_knowledge_base(kb_id: str):
     """获取知识库详情"""

@@ -682,10 +682,10 @@ export default function ChatPage() {
             {sessionList.map(session => (
               <div
                 key={session.id}
-                className={`group w-full text-left rounded-lg px-3 py-2 transition-colors ${
+                className={`group w-full text-left rounded-lg px-3 py-2 transition-colors border ${
                   activeSessionId === session.id
-                    ? 'bg-indigo-50 border border-indigo-100'
-                    : 'hover:bg-slate-50'
+                    ? 'bg-indigo-50 border-indigo-100 shadow-sm'
+                    : 'bg-white/80 border-slate-100 hover:bg-slate-50'
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">

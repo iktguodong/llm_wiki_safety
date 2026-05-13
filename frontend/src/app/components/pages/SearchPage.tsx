@@ -254,106 +254,101 @@ export default function SearchPage({ openReader }: SearchPageProps) {
         {/* Search panel */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6 shadow-sm">
           {/* Search input */}
-          <div className="relative">
-            <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              placeholder="输入关键词搜索，如：应急响应流程"
-              className="w-full pl-11 pr-10 py-3.5 border border-slate-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-700 placeholder-slate-400"
-            />
-            {query && (
-              <button
-                onClick={() => { setQuery(''); setShowResults(false); }}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative flex-1">
+              <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                placeholder="输入关键词搜索，如：应急响应流程"
+                className="w-full pl-11 pr-10 py-3.5 border border-slate-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-700 placeholder-slate-400"
+              />
+              {query && (
+                <button
+                  onClick={() => { setQuery(''); setShowResults(false); }}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={handleSearch}
+              disabled={!query.trim() || selectedKbs.length === 0}
+              className="flex h-12 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 transition-colors md:shrink-0"
+            >
+              <SearchIcon className="w-3.5 h-3.5" />
+              搜索
+            </button>
           </div>
 
           {/* Search scope */}
           <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm text-slate-700" style={{ fontWeight: 500 }}>搜索范围</div>
-              </div>
-              <Popover.Root>
-                <Popover.Trigger asChild>
-                  <button className="flex items-center gap-2 px-3 py-2 text-sm text-indigo-600 border border-indigo-200 rounded-lg bg-white hover:bg-indigo-50 transition-colors">
-                    <Layers className="w-4 h-4" />
-                    选择知识库
-                    <ChevronDown className="w-3.5 h-3.5 text-indigo-400" />
-                  </button>
-                </Popover.Trigger>
-                <Popover.Portal>
-                  <Popover.Content
-                    sideOffset={8}
-                    align="end"
-                    className="z-50 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-lg"
-                  >
-                    {knowledgeBases.length > 0 ? (
-                      <div className="max-h-64 overflow-auto">
-                        {knowledgeBases.map(kb => {
-                          const isSelected = selectedKbs.includes(kb.id);
-                          return (
-                            <button
-                              key={kb.id}
-                              onClick={() => toggleKb(kb.id)}
-                              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
-                                isSelected ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700'
-                              }`}
-                            >
-                              <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-indigo-500' : 'bg-slate-300'}`} />
-                              <span className="flex-1 text-sm">{kb.name}</span>
-                              <span className="text-xs text-slate-400">{kb.document_count}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="px-3 py-4 text-center text-sm text-slate-400">暂无可选知识库</div>
-                    )}
-                  </Popover.Content>
-                </Popover.Portal>
-              </Popover.Root>
-            </div>
-            <div className="mt-3">
-              {selectedKbs.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {selectedKbs.map(kbId => {
+            <div className="flex flex-col gap-3">
+              <div className="text-sm text-slate-700" style={{ fontWeight: 500 }}>搜索范围</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Popover.Root>
+                  <Popover.Trigger asChild>
+                    <button className="flex h-10 w-fit items-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 text-sm text-indigo-600 transition-colors hover:bg-indigo-50">
+                      <Layers className="w-4 h-4" />
+                      选择知识库
+                      <ChevronDown className="w-3.5 h-3.5 text-indigo-400" />
+                    </button>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content
+                      sideOffset={8}
+                      align="start"
+                      className="z-50 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-lg"
+                    >
+                      {knowledgeBases.length > 0 ? (
+                        <div className="max-h-64 overflow-auto">
+                          {knowledgeBases.map(kb => {
+                            const isSelected = selectedKbs.includes(kb.id);
+                            return (
+                              <button
+                                key={kb.id}
+                                onClick={() => toggleKb(kb.id)}
+                                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
+                                  isSelected ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700'
+                                }`}
+                              >
+                                <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-indigo-500' : 'bg-slate-300'}`} />
+                                <span className="flex-1 text-sm">{kb.name}</span>
+                                <span className="text-xs text-slate-400">{kb.document_count}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="px-3 py-4 text-center text-sm text-slate-400">暂无可选知识库</div>
+                      )}
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+
+                {selectedKbs.length > 0 ? (
+                  selectedKbs.map(kbId => {
                     const kb = knowledgeBases.find(item => item.id === kbId);
                     return kb ? (
                       <button
                         key={kb.id}
                         onClick={() => toggleKb(kb.id)}
-                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
+                        className="flex h-10 items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-100/90 px-3 text-sm text-indigo-700 shadow-sm transition-colors hover:bg-indigo-100"
                       >
                         <span className="w-2 h-2 rounded-full bg-indigo-500" />
                         {kb.name}
                         <X className="w-3.5 h-3.5" />
                       </button>
                     ) : null;
-                  })}
-                </div>
-              ) : (
-                <div className="text-xs text-slate-400">当前未选择知识库，请先选择范围后再搜索。</div>
-              )}
+                  })
+                ) : (
+                  <div className="text-xs text-slate-400">当前未选择知识库，请先选择范围后再搜索。</div>
+                )}
+              </div>
             </div>
-          </div>
-
-          {/* Search action */}
-          <div className="flex items-center justify-end mt-5">
-            <button
-              onClick={handleSearch}
-              disabled={!query.trim() || selectedKbs.length === 0}
-              className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <SearchIcon className="w-3.5 h-3.5" />
-              搜索
-            </button>
           </div>
         </div>
 

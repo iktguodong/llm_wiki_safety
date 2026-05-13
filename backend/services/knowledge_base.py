@@ -87,6 +87,20 @@ def init_kb_log(kb_id: str, name: str):
         f.write(log_content)
 
 
+def rewrite_kb_title(file_path: Path, title: str):
+    """更新知识库生成文件的标题行"""
+    if not file_path.exists():
+        return
+
+    content = file_path.read_text(encoding="utf-8")
+    if not content:
+        return
+
+    lines = content.splitlines()
+    lines[0] = title
+    file_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def init_doc_track(kb_id: str):
     """初始化文档追踪文件"""
     track_path = get_kb_doc_track_path(kb_id)
@@ -220,7 +234,33 @@ class KnowledgeBaseService:
             wiki_page_count=count_wiki_pages(kb_id),
             total_size_mb=get_kb_size(kb_id)
         )
-    
+
+    @staticmethod
+    async def update(kb_id: str, data: KnowledgeBaseCreate) -> Optional[KnowledgeBase]:
+        """更新知识库名称或描述"""
+        meta = get_kb_meta(kb_id)
+        if not meta:
+            return None
+
+        old_name = meta.get("name", "")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        meta["name"] = data.name
+        if data.description is not None:
+            meta["description"] = data.description
+        meta["updated_at"] = now
+        save_kb_meta(kb_id, meta)
+
+        if kb_id in config.get("knowledge_bases", {}):
+            config["knowledge_bases"][kb_id]["name"] = data.name
+            save_config(config)
+
+        if old_name != data.name:
+            rewrite_kb_title(get_kb_index_path(kb_id), f"# {data.name} 知识库索引")
+            rewrite_kb_title(get_kb_log_path(kb_id), f"# {data.name} 知识库操作日志")
+
+        return await KnowledgeBaseService.get(kb_id)
+
     @staticmethod
     async def delete(kb_id: str) -> bool:
         """删除知识库"""
