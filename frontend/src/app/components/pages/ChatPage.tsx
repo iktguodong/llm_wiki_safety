@@ -17,11 +17,6 @@ import { useApp } from '../../../lib/context';
 import { chatApi, docApi } from '../../../lib/api';
 import { buildChatMemory } from '../../lib/chat-memory';
 import {
-  acquireConversationLock,
-  isConversationLocked as isConversationLockedNow,
-  useConversationLock,
-} from '../../lib/conversation-lock';
-import {
   normalizeAssistantText,
   renderAssistantBubble,
   shouldExpandMessageLayout,
@@ -122,7 +117,6 @@ function buildMessageExportName(role: ChatMessage['role'], index: number, format
 
 export default function ChatPage() {
   const { knowledgeBases, providers, currentModelId } = useApp();
-  const isConversationLocked = useConversationLock();
   const [draftSelectedKbs, setDraftSelectedKbs] = useState<string[]>(() => readLocal(STORAGE_KEYS.current, {
     messages: initialMessages,
     selectedKbs: [],
@@ -159,7 +153,6 @@ export default function ChatPage() {
     modelId: currentModelId,
     useWebSearch: false,
   }).messages || initialMessages);
-  const [isLoading, setIsLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatSession[]>(() => readLocal(STORAGE_KEYS.history, []));
   const [draftSessionTitle, setDraftSessionTitle] = useState(() => getConversationTitle(readLocal(STORAGE_KEYS.current, {
     messages: initialMessages,
@@ -202,11 +195,15 @@ export default function ChatPage() {
     useWebSearch: false,
     contextCleared: false,
   }).contextCleared ?? false);
+  const [loadingSessionIds, setLoadingSessionIds] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef<ChatMessage[]>(messages);
-  const releaseSendLockRef = useRef<null | (() => void)>(null);
+  const activeSessionIdRef = useRef(activeSessionId);
+  const loadingSessionIdsRef = useRef<Record<string, boolean>>({});
+  const currentSessionLoading = !!loadingSessionIds[activeSessionId];
+  const currentConversationLoading = !!loadingSessionIds[CURRENT_SESSION_ID];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -215,6 +212,10 @@ export default function ChatPage() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -242,6 +243,26 @@ export default function ChatPage() {
   useEffect(() => {
     writeLocal(STORAGE_KEYS.history, chatHistory);
   }, [chatHistory]);
+
+  useEffect(() => {
+    loadingSessionIdsRef.current = loadingSessionIds;
+  }, [loadingSessionIds]);
+
+  const setSessionLoading = (sessionId: string, loading: boolean) => {
+    loadingSessionIdsRef.current = {
+      ...loadingSessionIdsRef.current,
+      [sessionId]: loading,
+    };
+    setLoadingSessionIds(prev => {
+      const next = { ...prev };
+      if (loading) {
+        next[sessionId] = true;
+      } else {
+        delete next[sessionId];
+      }
+      return next;
+    });
+  };
 
   const toggleKb = (kbId: string) => {
     setSelectedKbs(prev => {
@@ -282,6 +303,7 @@ export default function ChatPage() {
   };
 
   const resetCurrentConversation = () => {
+    setSessionLoading(CURRENT_SESSION_ID, false);
     setDraftMessages(initialMessages);
     setDraftSelectedKbs([]);
     setDraftSelectedModelId(currentModelId);
@@ -295,11 +317,11 @@ export default function ChatPage() {
     setContextCleared(false);
     setCurrentSessionTitle('当前对话');
     setInput('');
-    setIsLoading(false);
     setActiveSessionId(CURRENT_SESSION_ID);
   };
 
   const newConversation = () => {
+    if (currentConversationLoading) return;
     const hasUserMessage = draftMessages.some(message => message.role === 'user');
     if (hasUserMessage) {
       const lastMessage = [...draftMessages].reverse().find(message => message.role === 'assistant' || message.role === 'user');
@@ -354,6 +376,7 @@ export default function ChatPage() {
   };
 
   const clearContext = () => {
+    if (currentConversationLoading) return;
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const nextMessages = [
@@ -410,7 +433,7 @@ export default function ChatPage() {
     const target = currentMessages[idx];
     if (!target) return;
 
-    if (isLoading && idx === currentMessages.length - 1 && target.role === 'assistant' && !target.content.trim()) {
+    if (currentSessionLoading && idx === currentMessages.length - 1 && target.role === 'assistant' && !target.content.trim()) {
       return;
     }
 
@@ -420,98 +443,109 @@ export default function ChatPage() {
 
   const handleSend = (questionOverride?: string) => {
     const question = (questionOverride ?? input).trim();
-    if (!question || isLoading || isConversationLockedNow()) return;
+    if (!question || currentSessionLoading) return;
     const sessionIdAtSend = activeSessionId;
-    const updateActiveConversation = (
-      updater: Parameters<typeof setMessages>[0],
-      draftUpdater?: Parameters<typeof setDraftMessages>[0]
-    ) => {
-      setMessages(updater);
-      if (sessionIdAtSend === CURRENT_SESSION_ID) {
-        setDraftMessages(draftUpdater || updater);
-      }
-    };
+    const isCurrentSession = sessionIdAtSend === CURRENT_SESSION_ID;
+    const sourceMessages = isCurrentSession ? draftMessages : messages;
+    const sourceSelectedKbs = isCurrentSession ? draftSelectedKbs : selectedKbs;
+    const sourceModelId = isCurrentSession ? draftSelectedModelId : selectedModelId;
+    const sourceUseWebSearch = isCurrentSession ? draftUseWebSearch : useWebSearch;
+    const sourceTitle = isCurrentSession ? draftSessionTitle : currentSessionTitle;
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const historyMessages = buildChatMemory(messagesRef.current, {
+    const historyMessages = buildChatMemory(sourceMessages, {
       resetMarkers: [CONTEXT_RESET_MESSAGE],
     });
-    updateActiveConversation(prev => [...prev, { role: 'user', content: question, time }]);
-    const titleSeed = currentSessionTitle !== '当前对话'
-      ? currentSessionTitle
-      : getConversationTitle([
-        ...messagesRef.current,
-        { role: 'user', content: question, time },
-      ]);
-    setCurrentSessionTitle(titleSeed);
-    if (sessionIdAtSend === CURRENT_SESSION_ID) {
-      setDraftSessionTitle(titleSeed);
-    }
-    if (!questionOverride) setInput('');
-    const releaseLock = acquireConversationLock();
-    releaseSendLockRef.current = releaseLock;
-    setIsLoading(true);
+    let workingMessages = [
+      ...sourceMessages,
+      { role: 'user', content: question, time },
+      { role: 'assistant', content: '', time },
+    ] as ChatMessage[];
+    const titleSeed = sourceTitle !== '当前对话'
+      ? sourceTitle
+      : getConversationTitle(workingMessages);
+    const commitSessionState = (nextMessages: ChatMessage[]) => {
+      const nextTitle = titleSeed;
+      const nextTime = getConversationTime(nextMessages);
+      const nextContextCleared = hasContextResetMessage(nextMessages);
 
-    // 添加助手占位消息
-    updateActiveConversation(prev => [...prev, { role: 'assistant', content: '', time }]);
+      const activeSessionIdNow = activeSessionIdRef.current;
+
+      if (isCurrentSession) {
+        setDraftMessages([...nextMessages]);
+        setDraftSelectedKbs([...sourceSelectedKbs]);
+        setDraftSelectedModelId(sourceModelId);
+        setDraftUseWebSearch(sourceUseWebSearch);
+        setDraftContextCleared(nextContextCleared);
+        setDraftSessionTitle(nextTitle);
+        if (activeSessionIdNow === CURRENT_SESSION_ID) {
+          setMessages([...nextMessages]);
+          setSelectedKbs([...sourceSelectedKbs]);
+          setSelectedModelId(sourceModelId);
+          setUseWebSearch(sourceUseWebSearch);
+          setContextCleared(nextContextCleared);
+          setCurrentSessionTitle(nextTitle);
+        }
+        return;
+      }
+
+      setChatHistory(prev => prev.map(session => session.id === sessionIdAtSend ? {
+        ...session,
+        messages: [...nextMessages],
+        selectedKbs: [...sourceSelectedKbs],
+        modelId: sourceModelId,
+        useWebSearch: sourceUseWebSearch,
+        contextCleared: nextContextCleared,
+        title: nextTitle,
+        time: nextTime,
+      } : session));
+
+      if (activeSessionIdNow === sessionIdAtSend) {
+        setMessages([...nextMessages]);
+        setSelectedKbs([...sourceSelectedKbs]);
+        setSelectedModelId(sourceModelId);
+        setUseWebSearch(sourceUseWebSearch);
+        setContextCleared(nextContextCleared);
+        setCurrentSessionTitle(nextTitle);
+      }
+    };
+
+    commitSessionState(workingMessages);
+    if (!questionOverride) setInput('');
+    setSessionLoading(sessionIdAtSend, true);
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      setSessionLoading(sessionIdAtSend, false);
+    };
 
     chatApi.ask(
       {
         question,
         messages: historyMessages,
-        knowledge_base_ids: selectedKbs,
-        model_id: selectedModelId,
-        use_web_search: useWebSearch,
+        knowledge_base_ids: sourceSelectedKbs,
+        model_id: sourceModelId,
+        use_web_search: sourceUseWebSearch,
       },
       (chunk) => {
-        updateActiveConversation(prev => {
-          const last = prev[prev.length - 1];
-          if (last.role === 'assistant') {
-            return [...prev.slice(0, -1), { ...last, content: last.content + chunk }];
-          }
-          return prev;
-        });
+        const last = workingMessages[workingMessages.length - 1];
+        if (last?.role === 'assistant') {
+          workingMessages = [...workingMessages.slice(0, -1), { ...last, content: last.content + chunk }];
+          commitSessionState(workingMessages);
+        }
       },
       (err) => {
-        updateActiveConversation(prev => {
-          const last = prev[prev.length - 1];
-          if (last.role === 'assistant') {
-            return [...prev.slice(0, -1), { ...last, content: `请求失败: ${err.message}` }];
-          }
-          return prev;
-        });
-        if (sessionIdAtSend !== CURRENT_SESSION_ID) {
-          setChatHistory(prev => prev.map(session => session.id === sessionIdAtSend ? {
-            ...session,
-            messages: [...messagesRef.current],
-            selectedKbs: [...selectedKbs],
-            modelId: selectedModelId,
-            useWebSearch,
-            contextCleared,
-            title: currentSessionTitle,
-            time,
-          } : session));
+        const last = workingMessages[workingMessages.length - 1];
+        if (last?.role === 'assistant') {
+          workingMessages = [...workingMessages.slice(0, -1), { ...last, content: `请求失败: ${err.message}` }];
+          commitSessionState(workingMessages);
         }
-        releaseSendLockRef.current?.();
-        releaseSendLockRef.current = null;
-        setIsLoading(false);
+        finish();
       },
       () => {
-        if (sessionIdAtSend !== CURRENT_SESSION_ID) {
-          setChatHistory(prev => prev.map(session => session.id === sessionIdAtSend ? {
-            ...session,
-            messages: [...messagesRef.current],
-            selectedKbs: [...selectedKbs],
-            modelId: selectedModelId,
-            useWebSearch,
-            contextCleared,
-            title: currentSessionTitle,
-            time,
-          } : session));
-        }
-        releaseSendLockRef.current?.();
-        releaseSendLockRef.current = null;
-        setIsLoading(false);
+        commitSessionState(workingMessages);
+        finish();
       }
     );
   };
@@ -791,15 +825,15 @@ export default function ChatPage() {
                   >
                     {msg.role === 'assistant' ? renderAssistantBubble(msg.content) : msg.content}
                   </div>
-                  <MessageActionBar
-                    onCopy={() => copyMessage(msg.role, msg.content)}
-                    onExport={(format) => exportMessage(msg.role, msg.content, idx, format)}
-                    onDelete={() => deleteMessage(idx)}
-                    onRegenerate={msg.role === 'assistant' && idx > 0 ? () => regenerateMessage(idx) : undefined}
-                    showRegenerate={msg.role === 'assistant' && idx > 0}
-                    disableRegenerate={isLoading || isConversationLocked}
-                    disableDelete={isLoading && idx === messages.length - 1 && msg.role === 'assistant' && !msg.content.trim()}
-                  />
+                    <MessageActionBar
+                      onCopy={() => copyMessage(msg.role, msg.content)}
+                      onExport={(format) => exportMessage(msg.role, msg.content, idx, format)}
+                      onDelete={() => deleteMessage(idx)}
+                      onRegenerate={msg.role === 'assistant' && idx > 0 ? () => regenerateMessage(idx) : undefined}
+                      showRegenerate={msg.role === 'assistant' && idx > 0}
+                      disableRegenerate={currentSessionLoading}
+                      disableDelete={currentSessionLoading && idx === messages.length - 1 && msg.role === 'assistant' && !msg.content.trim()}
+                    />
                 </div>
               </div>
             ))}
@@ -857,6 +891,7 @@ export default function ChatPage() {
                   </button>
                   <button
                     onClick={newConversation}
+                    disabled={currentConversationLoading}
                     className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
                   >
                     <Plus className="w-3.5 h-3.5" />
@@ -864,6 +899,7 @@ export default function ChatPage() {
                   </button>
                   <button
                     onClick={clearContext}
+                    disabled={currentConversationLoading}
                     className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
                   >
                     <Eraser className="w-3.5 h-3.5" />
@@ -871,12 +907,12 @@ export default function ChatPage() {
                   </button>
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
-                  <button
-                    onClick={() => handleSend()}
-                    disabled={!input.trim() || isLoading || isConversationLocked}
-                    title={isLoading || isConversationLocked ? '前一个回答仍在生成中' : ''}
-                    className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
-                  >
+                    <button
+                      onClick={() => handleSend()}
+                      disabled={!input.trim() || currentSessionLoading}
+                      title={currentSessionLoading ? '当前会话仍在生成中' : ''}
+                      className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
+                    >
                     <Send className="w-3.5 h-3.5" />
                     发送
                   </button>

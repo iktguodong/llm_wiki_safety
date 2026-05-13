@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
@@ -12,6 +13,8 @@ from backend.services.llm import llm_service
 from .models import ContentPack, SourceRef, TrainingOutline, TrainingOutlineSection, TrainingOutlineSlide
 
 ALLOWED_STYLES = {"standard_training", "management_briefing", "frontline_shift_training"}
+OUTLINE_MAX_TOKENS = 1500
+OUTLINE_TIMEOUT_SECONDS = 60.0
 
 
 def _coerce_style(value: str) -> str:
@@ -460,12 +463,25 @@ async def generate_outline(content_pack: ContentPack, settings: Any, llm_client=
                 },
                 {"role": "user", "content": prompt},
             ]
-            response = await llm_client.chat_sync(messages, model_id=model_id, temperature=0.2)
+            response = await asyncio.wait_for(
+                llm_client.chat_sync(
+                    messages,
+                    model_id=model_id,
+                    temperature=0.2,
+                    max_tokens=OUTLINE_MAX_TOKENS,
+                ),
+                timeout=OUTLINE_TIMEOUT_SECONDS,
+            )
             data = _extract_json(response or "")
             if data:
                 outline = _outline_from_llm(data, content_pack, settings_dict)
                 if outline:
                     return outline
+            content_pack.warnings.append("LLM 大纲生成结果未通过结构解析，已回退到规则大纲")
+        except asyncio.TimeoutError:
+            content_pack.warnings.append(
+                f"LLM 大纲生成超时（{OUTLINE_TIMEOUT_SECONDS:.0f} 秒），已回退到规则大纲"
+            )
         except Exception as exc:
             content_pack.warnings.append(f"LLM 大纲生成失败，已回退到规则大纲：{str(exc)[:200]}")
 

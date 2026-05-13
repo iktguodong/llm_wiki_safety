@@ -149,7 +149,8 @@ class LLMService:
         messages: List[Dict[str, str]],
         model_id: Optional[str] = None,
         stream: bool = False,
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
     ) -> AsyncGenerator[str, None]:
         """
         调用LLM进行对话
@@ -163,7 +164,13 @@ class LLMService:
         Yields:
             流式输出文本片段
         """
-        async for event in self.chat_events(messages, model_id=model_id, stream=stream, temperature=temperature):
+        async for event in self.chat_events(
+            messages,
+            model_id=model_id,
+            stream=stream,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ):
             if event.get("type") == "chunk":
                 content = event.get("content") or ""
                 if content:
@@ -176,12 +183,25 @@ class LLMService:
         self,
         messages: List[Dict[str, str]],
         model_id: Optional[str] = None,
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
     ) -> str:
         """同步调用LLM，返回完整文本"""
         result = []
-        async for chunk in self.chat(messages, model_id, stream=False, temperature=temperature):
-            result.append(chunk)
+        async for event in self.chat_events(
+            messages,
+            model_id=model_id,
+            stream=False,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ):
+            if event.get("type") == "chunk":
+                content = event.get("content") or ""
+                if content:
+                    result.append(content)
+            elif event.get("type") == "error":
+                result.append(event.get("message") or "请求错误")
+                return "".join(result)
         return "".join(result)
     
     async def validate(self, provider_id: str, api_key: str, base_url: str) -> Dict:

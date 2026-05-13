@@ -40,7 +40,7 @@ class ModelRoles(BaseModel):
     """模型用途分配"""
     doc_parse: str = "deepseek-v4-flash"
     qa_chat: str = "deepseek-v4-flash"
-    ppt_gen: str = "deepseek-v4-pro"
+    ppt_gen: str = "deepseek-v4-flash"
 
 
 class AppConfig(BaseModel):

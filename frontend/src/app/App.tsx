@@ -74,20 +74,25 @@ function AppInner() {
         />
       );
     }
-    switch (currentPage) {
-      case 'chat':      return <ChatPage activeAssistant={activeAssistant} />;
-      case 'assistant': return (
-        <AssistantPage
-          activeAssistantId={activeAssistant?.id}
-          onStartChat={setActiveAssistant}
-        />
-      );
-      case 'search':    return <SearchPage openReader={openReader} />;
-      case 'knowledge': return <KnowledgeBasePage openReader={openReader} />;
-      case 'training':  return <TrainingPage />;
-      case 'settings':  return <SettingsPage />;
-      default:          return <ChatPage />;
-    }
+
+    // Chat / Assistant 需要在切页时保持挂载，这样流式生成中的请求不会因为卸载而丢失状态。
+    return (
+      <>
+        <div className={currentPage === 'chat' ? 'h-full' : 'hidden'}>
+          <ChatPage activeAssistant={activeAssistant} />
+        </div>
+        <div className={currentPage === 'assistant' ? 'h-full' : 'hidden'}>
+          <AssistantPage
+            activeAssistantId={activeAssistant?.id}
+            onStartChat={setActiveAssistant}
+          />
+        </div>
+        {currentPage === 'search' && <SearchPage openReader={openReader} />}
+        {currentPage === 'knowledge' && <KnowledgeBasePage openReader={openReader} />}
+        {currentPage === 'training' && <TrainingPage />}
+        {currentPage === 'settings' && <SettingsPage />}
+      </>
+    );
   };
 
   return (

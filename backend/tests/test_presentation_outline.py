@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
+import backend.config as config_module
 from backend.services.presentation.content_pack import build_content_pack
+from backend.services.presentation import outline_builder
 from backend.services.presentation.outline_builder import generate_outline
 from backend.services.document import doc_service
 from backend.config import get_kb_wiki_path, get_kb_raw_path
@@ -26,6 +28,55 @@ def test_prompt_only_outline_falls_back_to_default_sections(isolated_training_en
     assert len(outline.slides) >= 3
     assert len(outline.sections) >= 1
     assert any("未绑定企业原文来源" in warning for warning in outline.warnings)
+
+
+def test_outline_generation_times_out_and_falls_back(isolated_training_env, monkeypatch):
+    class SlowLLM:
+        def __init__(self):
+            self.calls = []
+
+        async def chat_sync(self, messages, model_id=None, temperature=0.7, max_tokens=None):
+            self.calls.append({
+                "model_id": model_id,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            })
+            await asyncio.sleep(1)
+            return '{"slides":[{"title":"应该不会被用到","key_points":["A"],"notes":"B","layout_hint":"C","slide_type":"content"}]}'
+
+    monkeypatch.setattr(outline_builder, "OUTLINE_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setitem(
+        config_module.config["models"],
+        "providers",
+        [
+            {
+                "id": "deepseek",
+                "name": "DeepSeek",
+                "base_url": "https://api.deepseek.com",
+                "api_key": "sk-test",
+                "models": [
+                    {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "type": "chat"},
+                ],
+            }
+        ],
+    )
+    monkeypatch.setitem(
+        config_module.config["models"],
+        "model_roles",
+        {
+            "doc_parse": "deepseek-v4-flash",
+            "qa_chat": "deepseek-v4-flash",
+            "ppt_gen": "deepseek-v4-flash",
+        },
+    )
+
+    llm = SlowLLM()
+    req = PromptReq()
+    outline = asyncio.run(generate_outline(build_content_pack(req), req, llm_client=llm))
+
+    assert len(outline.slides) >= 3
+    assert any("超时" in warning for warning in outline.warnings)
+    assert llm.calls and llm.calls[0]["max_tokens"] == outline_builder.OUTLINE_MAX_TOKENS
 
 
 def test_temporary_upload_outline(isolated_training_env):

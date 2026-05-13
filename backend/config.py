@@ -5,6 +5,7 @@
 
 import json
 import os
+from copy import deepcopy
 from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
@@ -39,7 +40,7 @@ DEFAULT_CONFIG = {
         "model_roles": {
             "doc_parse": "deepseek-v4-flash",
             "qa_chat": "deepseek-v4-flash",
-            "ppt_gen": "deepseek-v4-pro"
+            "ppt_gen": "deepseek-v4-flash"
         }
     },
     "knowledge_bases": {},
@@ -61,10 +62,18 @@ def ensure_config_dir():
 def load_config() -> dict:
     """加载配置"""
     ensure_config_dir()
+    config = deepcopy(DEFAULT_CONFIG)
     if CONFIG_FILE.exists():
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return DEFAULT_CONFIG.copy()
+            loaded = json.load(f)
+        config.update(loaded)
+
+    model_roles = config.get("models", {}).get("model_roles", {})
+    if model_roles.get("ppt_gen") == "deepseek-v4-pro":
+        model_roles["ppt_gen"] = "deepseek-v4-flash"
+        save_config(config)
+
+    return config
 
 
 def save_config(config: dict):

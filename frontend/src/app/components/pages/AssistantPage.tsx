@@ -26,11 +26,6 @@ import { useApp } from '../../../lib/context';
 import { assistantApi, chatApi, docApi } from '../../../lib/api';
 import { buildChatMemory } from '../../lib/chat-memory';
 import {
-  acquireConversationLock,
-  isConversationLocked as isConversationLockedNow,
-  useConversationLock,
-} from '../../lib/conversation-lock';
-import {
   normalizeAssistantText,
   renderAssistantBubble,
   shouldExpandMessageLayout,
@@ -185,7 +180,6 @@ function buildMessageExportName(role: AssistantMessage['role'], index: number, f
 
 export default function AssistantPage({ activeAssistantId, onStartChat }: AssistantPageProps) {
   const { knowledgeBases, providers, currentModelId } = useApp();
-  const isConversationLocked = useConversationLock();
   const initialLegacyState = useMemo(() => migrateLegacyAssistants(), []);
   const [customAssistants, setCustomAssistants] = useState<AssistantDefinition[]>(() => {
     const raw = localStorage.getItem(ASSISTANT_CUSTOM_KEY);
@@ -213,12 +207,13 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     }
   });
   const [currentTopicId, setCurrentTopicId] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [loadingTopicIds, setLoadingTopicIds] = useState<Record<string, boolean>>({});
   const [searchOpen, setSearchOpen] = useState(false);
   const [showAssistantList, setShowAssistantList] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const loadingTopicIdsRef = useRef<Record<string, boolean>>({});
   const allModels = providers.flatMap(p => p.models);
   const items = useMemo(
     () => buildMergedAssistants(customAssistants, overrides, hiddenDefaultIds),
@@ -228,6 +223,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   const assistantTopics = topics.filter(topic => topic.assistantId === selectedAssistant?.id);
   const currentTopic = topics.find(topic => topic.id === currentTopicId && topic.assistantId === selectedAssistant?.id) || assistantTopics[0];
   const messages = currentTopic?.messages || [];
+  const currentTopicLoading = currentTopic ? !!loadingTopicIds[currentTopic.id] : false;
 
   useEffect(() => {
     localStorage.setItem(ASSISTANT_CUSTOM_KEY, JSON.stringify(customAssistants));
@@ -244,6 +240,10 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   useEffect(() => {
     localStorage.setItem('anniu-assistant-topics-v1', JSON.stringify(topics));
   }, [topics]);
+
+  useEffect(() => {
+    loadingTopicIdsRef.current = loadingTopicIds;
+  }, [loadingTopicIds]);
 
   useEffect(() => {
     if (activeAssistantId) {
@@ -460,13 +460,29 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     } : topic));
   };
 
+  const setTopicLoading = (topicId: string, loading: boolean) => {
+    loadingTopicIdsRef.current = {
+      ...loadingTopicIdsRef.current,
+      [topicId]: loading,
+    };
+    setLoadingTopicIds(prev => {
+      const next = { ...prev };
+      if (loading) {
+        next[topicId] = true;
+      } else {
+        delete next[topicId];
+      }
+      return next;
+    });
+  };
+
   const deleteMessage = (idx: number) => {
     if (!currentTopic) return;
     const currentMessages = currentTopic.messages;
     const target = currentMessages[idx];
     if (!target) return;
 
-    if (isLoading && idx === currentMessages.length - 1 && target.role === 'assistant' && !target.content.trim()) {
+    if (currentTopicLoading && idx === currentMessages.length - 1 && target.role === 'assistant' && !target.content.trim()) {
       return;
     }
 
@@ -502,10 +518,9 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
 
   const sendMessage = (questionOverride?: string) => {
     const question = (questionOverride ?? input).trim();
-    if (!question || isLoading || isConversationLockedNow() || !selectedAssistant) return;
+    if (!question || !selectedAssistant || !currentTopic || currentTopicLoading) return;
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    if (!currentTopic) return;
     const targetTopicId = currentTopic.id;
     const historyMessages = buildChatMemory(currentTopic.messages, {
       resetMarkers: ['已清除当前话题上下文。接下来的回答将从新的上下文开始。'],
@@ -519,15 +534,13 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     if (!questionOverride) {
       setInput('');
     }
-    const releaseLock = acquireConversationLock();
+    setTopicLoading(targetTopicId, true);
     let settled = false;
     const finish = () => {
       if (settled) return;
       settled = true;
-      releaseLock();
-      setIsLoading(false);
+      setTopicLoading(targetTopicId, false);
     };
-    setIsLoading(true);
 
     try {
       chatApi.ask(
@@ -824,8 +837,8 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                         onDelete={() => deleteMessage(idx)}
                         onRegenerate={msg.role === 'assistant' && idx > 0 ? () => regenerateMessage(idx) : undefined}
                         showRegenerate={msg.role === 'assistant' && idx > 0}
-                        disableRegenerate={isLoading || isConversationLocked}
-                        disableDelete={isLoading && idx === messages.length - 1 && msg.role === 'assistant' && !msg.content.trim()}
+                        disableRegenerate={currentTopicLoading}
+                        disableDelete={currentTopicLoading && idx === messages.length - 1 && msg.role === 'assistant' && !msg.content.trim()}
                       />
                     </div>
                   </div>
@@ -890,8 +903,8 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                     </div>
                     <button
                       onClick={sendMessage}
-                      disabled={!input.trim() || isLoading || isConversationLocked}
-                      title={isLoading || isConversationLocked ? '前一个回答仍在生成中' : ''}
+                      disabled={!input.trim() || currentTopicLoading}
+                      title={currentTopicLoading ? '当前话题仍在生成中' : ''}
                       className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
                     >
                       <Send className="w-3.5 h-3.5" />
