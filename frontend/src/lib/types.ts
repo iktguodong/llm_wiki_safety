@@ -337,62 +337,24 @@ export interface TrainingGenerateResponse {
   notes_filename?: string | null;
 }
 
-/** Style A 电子杂志风 — 本项目唯一允许的风格，不支持 Style B（swiss）。 */
-export type HtmlDeckStyle = 'magazine';
-export type HtmlDeckTheme = 'ink' | 'indigo' | 'forest' | 'kraft' | 'dune';
-
-export interface HtmlDeckPage {
-  id: string;
-  page_no: number;
-  layout: string;
+export interface TrainingHtmlGenerateRequest {
+  kb_id?: string | null;
   title: string;
-  subtitle?: string | null;
-  summary?: string | null;
-  bullets: string[];
-  notes?: string | null;
-  source_refs: TrainingSourceRef[];
-  hero: boolean;
-  kicker?: string | null;
-  chrome?: string | null;
+  report_date?: string | null;
+  presenter?: string | null;
+  audience?: string | null;
+  requirements?: string | null;
+  document_ids: string[];
+  page_count: number;
 }
 
-export interface HtmlDeckSpec {
-  id: string;
+export interface TrainingHtmlGenerateResponse {
   title: string;
-  topic: string;
-  audience: string;
-  duration_minutes: number;
-  style: HtmlDeckStyle;
-  theme: HtmlDeckTheme;
-  template_id: string;
-  pages: HtmlDeckPage[];
-  quality_warnings: string[];
-}
-
-export interface HtmlGenerateRequest {
-  job_id?: string;
-  sources?: TrainingSourceInput[];
-  topic?: string;
-  audience?: string;
-  duration_minutes?: number;
-  slide_count?: number;
-  style?: TrainingStyle;
-  focus_areas?: string[];
-  include_quiz?: boolean;
-  include_speaker_notes?: boolean;
-  render_style?: HtmlDeckStyle;
-  theme?: HtmlDeckTheme;
-  template_id?: string;
-  outline?: TrainingOutline;
-}
-
-export interface HtmlGenerateResponse {
-  job_id: string;
-  status: string;
-  deck: HtmlDeckSpec;
   filename: string;
   download_url: string;
   preview_url?: string | null;
+  html: string;
+  slide_count: number;
 }
 
 export interface TemporaryTrainingUploadResponse {

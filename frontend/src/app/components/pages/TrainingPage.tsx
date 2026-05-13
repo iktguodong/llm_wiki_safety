@@ -9,9 +9,7 @@ import type {
   PresentationSpec,
   QualityReport,
   TrainingGenerateResponse,
-  HtmlDeckStyle,
-  HtmlDeckTheme,
-  HtmlGenerateResponse,
+  TrainingHtmlGenerateResponse,
   TrainingOutline,
   TrainingOutlineResponse,
   TrainingOutlineSlide,
@@ -29,7 +27,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 
 type MainMode = 'html' | 'ppt';
 type SourceMode = 'kb_document' | 'temporary_upload';
-type SlideCountChoice = '5' | '15' | '20' | '30' | 'custom';
+type SlideCountChoice = '8' | '10' | '12' | '15' | '18' | '20' | '25' | 'custom';
 
 const TRAINING_MODE_KEY = 'anniu-training-mode-v1';
 
@@ -48,8 +46,6 @@ type PptSetupDraft = {
   customSlideCount: number;
   style: TrainingStyle;
   includeSpeakerNotes: boolean;
-  renderStyle: HtmlDeckStyle;
-  theme: HtmlDeckTheme;
 };
 
 const styleOptions: { value: TrainingStyle; label: string; desc: string }[] = [
@@ -58,13 +54,12 @@ const styleOptions: { value: TrainingStyle; label: string; desc: string }[] = [
   { value: 'frontline_shift_training', label: '班组宣贯', desc: '字更大、少字、动作导向' },
 ];
 
-const htmlThemeOptions: { value: HtmlDeckTheme; label: string; desc: string }[] = [
-  { value: 'ink', label: '墨水经典', desc: '深墨黑 + 暖米白，最稳妥的默认视觉' },
-  { value: 'indigo', label: '靛蓝瓷', desc: '更冷静的蓝色系统，适合技术和数据' },
-  { value: 'forest', label: '森林墨', desc: '偏自然的绿调，适合文化与稳重内容' },
-  { value: 'kraft', label: '牛皮纸', desc: '偏怀旧的人文底色，适合叙事型内容' },
-  { value: 'dune', label: '沙丘', desc: '更克制的中性色，适合设计与品牌感' },
-];
+const strongFieldClassName =
+  'border-slate-300 bg-white shadow-sm shadow-slate-100/80 focus-visible:border-indigo-500 focus-visible:ring-indigo-200/60';
+const strongSelectTriggerClassName =
+  'border-slate-300 bg-white shadow-sm shadow-slate-100/80 focus-visible:border-indigo-500 focus-visible:ring-indigo-200/60';
+const strongTextareaClassName =
+  'border-slate-300 bg-white shadow-sm shadow-slate-100/80 focus-visible:border-indigo-500 focus-visible:ring-indigo-200/60';
 
 function durationFromSlideCount(slideCount: number) {
   if (slideCount <= 5) return 15;
@@ -108,7 +103,7 @@ function sourceLabel(source: TrainingSourceInput, knowledgeBases: KnowledgeBase[
 
 function buildSlideCount(choice: SlideCountChoice, customSlideCount: number) {
   if (choice === 'custom') {
-    return Math.max(1, customSlideCount || 1);
+    return Math.min(30, Math.max(5, customSlideCount || 15));
   }
   return Number(choice);
 }
@@ -171,12 +166,16 @@ function OutlineSlideCard({
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-1">
             <Label>页面标题</Label>
-            <Input value={slide.title} onChange={(e) => onChange({ ...slide, title: e.target.value })} />
+            <Input
+              value={slide.title}
+              onChange={(e) => onChange({ ...slide, title: e.target.value })}
+              className={strongFieldClassName}
+            />
           </div>
           <div className="space-y-1">
             <Label>页面类型</Label>
             <Select value={slide.slide_type} onValueChange={(value) => onChange({ ...slide, slide_type: value as TrainingOutlineSlide['slide_type'] })}>
-              <SelectTrigger>
+              <SelectTrigger className={strongSelectTriggerClassName}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -208,6 +207,7 @@ function OutlineSlideCard({
             value={slide.key_points.join('\n')}
             onChange={(e) => onChange({ ...slide, key_points: normalizePoints(e.target.value) })}
             placeholder="每行一个要点"
+            className={strongTextareaClassName}
           />
         </div>
         <div className="space-y-1">
@@ -217,11 +217,17 @@ function OutlineSlideCard({
             value={slide.notes || ''}
             onChange={(e) => onChange({ ...slide, notes: e.target.value })}
             placeholder="用于讲解时的备注"
+            className={strongTextareaClassName}
           />
         </div>
         <div className="space-y-1">
           <Label>版式提示</Label>
-          <Input value={slide.layout_hint || ''} onChange={(e) => onChange({ ...slide, layout_hint: e.target.value })} placeholder="例如：两栏 / 时间线 / 卡片" />
+          <Input
+            value={slide.layout_hint || ''}
+            onChange={(e) => onChange({ ...slide, layout_hint: e.target.value })}
+            placeholder="例如：两栏 / 时间线 / 卡片"
+            className={strongFieldClassName}
+          />
         </div>
       </CardContent>
     </Card>
@@ -288,9 +294,14 @@ export default function TrainingPage() {
     customSlideCount: 12,
     style: 'standard_training',
     includeSpeakerNotes: true,
-    renderStyle: 'magazine',
-    theme: 'ink',
   });
+  const [htmlTitle, setHtmlTitle] = useState('');
+  const [htmlReportDate, setHtmlReportDate] = useState('');
+  const [htmlPresenter, setHtmlPresenter] = useState('');
+  const [htmlAudience, setHtmlAudience] = useState('');
+  const [htmlRequirements, setHtmlRequirements] = useState(
+    '例如：请根据应急预案生成一份面向班组长的应急处置培训材料，重点突出报警流程、初期处置、岗位职责和常见错误。',
+  );
   const [selectedSources, setSelectedSources] = useState<TrainingSourceInput[]>([]);
   const [kbResources, setKbResources] = useState<Record<string, KbResources>>({});
   const [outline, setOutline] = useState<TrainingOutline | null>(null);
@@ -329,10 +340,6 @@ export default function TrainingPage() {
     return `${slideCount} 页`;
   }, [slideCount, setupDraft.customSlideCount, setupDraft.slideCountChoice]);
   const styleSummary = useMemo(() => styleOptions.find((item) => item.value === setupDraft.style)?.label || '选择风格', [setupDraft.style]);
-  const themeSummary = useMemo(
-    () => htmlThemeOptions.find((item) => item.value === setupDraft.theme)?.label || '墨水经典',
-    [setupDraft.theme],
-  );
   const notesSummary = setupDraft.includeSpeakerNotes ? '有' : '无';
 
   useEffect(() => {
@@ -396,9 +403,12 @@ export default function TrainingPage() {
       customSlideCount: 12,
       style: 'standard_training',
       includeSpeakerNotes: true,
-      renderStyle: 'magazine',
-      theme: 'ink',
     });
+    setHtmlTitle('');
+    setHtmlReportDate('');
+    setHtmlPresenter('');
+    setHtmlAudience('');
+    setHtmlRequirements('');
     setSelectedSources([]);
     setOutline(null);
     setPresentation(null);
@@ -647,7 +657,13 @@ export default function TrainingPage() {
   };
 
   const generateHtml = async () => {
-    if (!resolveSetupSource(true)) {
+    const title = htmlTitle.trim();
+    if (!title) {
+      setError('请输入本次材料标题');
+      return;
+    }
+    if (!Number.isFinite(slideCount) || slideCount < 5 || slideCount > 30) {
+      setError('页数必须是 5 到 30 之间的有效数字');
       return;
     }
     setError(null);
@@ -659,40 +675,37 @@ export default function TrainingPage() {
     setNotesDownloadUrl('');
     setNotesFilename('');
     try {
-      const res: HtmlGenerateResponse = await trainingApi.generateHtml({
-        job_id: jobId || undefined,
-        sources: selectedSources,
-        topic: setupDraft.requirement.trim(),
-        audience: '',
-        duration_minutes: durationMinutes,
-        slide_count: slideCount,
-        style: setupDraft.style,
-        focus_areas: [],
-        include_quiz: true,
-        include_speaker_notes: false,
-        render_style: setupDraft.renderStyle,
-        theme: setupDraft.theme,
-        template_id: setupDraft.renderStyle,
+      const documentIds = selectedSources
+        .filter((source) => source.type === 'kb_document' && source.document_id)
+        .map((source) => source.document_id as string);
+      const res: TrainingHtmlGenerateResponse = await trainingApi.generateTrainingHtml({
+        kb_id: setupDraft.kbId || currentKbId || null,
+        title,
+        report_date: htmlReportDate.trim() || null,
+        presenter: htmlPresenter.trim() || null,
+        audience: htmlAudience.trim() || null,
+        requirements: htmlRequirements.trim() || null,
+        document_ids: documentIds,
+        page_count: slideCount,
       });
       updateHtmlGeneration({
         loading: false,
         error: null,
-        jobId: res.job_id,
-        title: res.deck.title || setupDraft.requirement.trim() || 'HTML 网页',
-        deck: res.deck,
-        downloadUrl: trainingApi.downloadHtml(res.job_id, res.filename),
-        previewUrl: trainingApi.previewHtml(res.job_id, res.filename),
+        title: res.title,
+        html: res.html,
+        slideCount: res.slide_count,
+        downloadUrl: trainingApi.resolveUrl(res.download_url),
+        previewUrl: trainingApi.resolveUrl(res.preview_url || res.download_url),
         filename: res.filename,
       });
       if (isMountedRef.current) {
-        setJobId(res.job_id);
         setPresentation(null);
         setQualityReport(null);
         setNotesDownloadUrl('');
         setNotesFilename('');
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : '生成 HTML 失败';
+      const message = err instanceof Error ? err.message : '生成网页失败';
       if (isMountedRef.current) {
         setError(message);
       }
@@ -701,6 +714,19 @@ export default function TrainingPage() {
         error: message,
       });
     }
+  };
+
+  const openHtmlPreview = () => {
+    if (!htmlGeneration.html) return;
+    const previewWindow = window.open('', '_blank');
+    if (!previewWindow) {
+      setError('浏览器阻止了新窗口，请允许弹窗后重试');
+      return;
+    }
+    previewWindow.document.open();
+    previewWindow.document.write(htmlGeneration.html);
+    previewWindow.document.close();
+    previewWindow.focus();
   };
 
   return (
@@ -726,7 +752,7 @@ export default function TrainingPage() {
                     <Globe className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-900">生成 HTML</div>
+                    <div className="text-sm font-medium text-slate-900">生成网页</div>
                     <div className="text-xs text-slate-500">适合做成网页形式的培训内容</div>
                   </div>
                 </button>
@@ -753,7 +779,7 @@ export default function TrainingPage() {
         <div className="mb-5 flex gap-3">
           <TopModeCard
             active={mode === 'html'}
-            title="生成精美的HTML网页"
+            title="生成精美网页"
             subtitle="适用日常汇报培训"
             icon={<Globe className="h-5 w-5" />}
             onClick={() => setMode('html')}
@@ -776,14 +802,61 @@ export default function TrainingPage() {
         {mode === 'html' ? (
           <div className="space-y-6">
             <Card className="border-slate-200 shadow-sm">
-              <CardContent className="space-y-4 p-4">
-                <Textarea
-                  rows={3}
-                  value={setupDraft.requirement}
-                  onChange={(e) => setSetupDraft((prev) => ({ ...prev, requirement: e.target.value }))}
-                  placeholder="HTML 网页主题 / 需求"
-                  className="min-h-[112px] bg-slate-50"
-                />
+              <CardContent className="space-y-5 p-4">
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium text-slate-800">本次材料标题 <span className="text-rose-500">*</span></Label>
+                    <Input
+                      value={htmlTitle}
+                      onChange={(e) => setHtmlTitle(e.target.value)}
+                      placeholder="请输入本次培训/汇报/展示材料标题"
+                      className={`h-11 ${strongFieldClassName}`}
+                    />
+                    <p className="text-xs text-slate-500">将展示在第一页封面，并作为整份材料的主题。</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium text-slate-800">汇报时间</Label>
+                    <Input
+                      value={htmlReportDate}
+                      onChange={(e) => setHtmlReportDate(e.target.value)}
+                      placeholder="例如：2026年5月 / 2026年5月12日"
+                      className={`h-11 ${strongFieldClassName}`}
+                    />
+                    <p className="text-xs text-slate-500">选填，将展示在第一页。</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium text-slate-800">汇报人</Label>
+                    <Input
+                      value={htmlPresenter}
+                      onChange={(e) => setHtmlPresenter(e.target.value)}
+                      placeholder="例如：安全管理部 / 张三"
+                      className={`h-11 ${strongFieldClassName}`}
+                    />
+                    <p className="text-xs text-slate-500">选填，将展示在第一页。</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium text-slate-800">汇报对象</Label>
+                    <Input
+                      value={htmlAudience}
+                      onChange={(e) => setHtmlAudience(e.target.value)}
+                      placeholder="例如：一线作业人员、班组长、企业主要负责人、监管检查组"
+                      className={`h-11 ${strongFieldClassName}`}
+                    />
+                    <p className="text-xs text-slate-500">用于调整内容深度、语气和展示方式，不一定展示在封面。</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium text-slate-800">生成要求 / 内容说明</Label>
+                  <p className="text-xs text-slate-500">请说明本次材料的用途、重点、受众、希望强调的内容、是否需要事故案例/互动题/检查清单等。</p>
+                  <Textarea
+                    rows={5}
+                    value={htmlRequirements}
+                    onChange={(e) => setHtmlRequirements(e.target.value)}
+                    placeholder="例如：请根据应急预案生成一份面向班组长的应急处置培训材料，重点突出报警流程、初期处置、岗位职责和常见错误。"
+                    className={`min-h-[140px] ${strongTextareaClassName}`}
+                  />
+                </div>
 
                 {selectedSources.length > 0 && (
                   <div className="flex flex-wrap gap-2">
@@ -806,7 +879,7 @@ export default function TrainingPage() {
                   </div>
                 )}
 
-                <div className="grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(220px,.78fr)_minmax(220px,.78fr)_minmax(220px,.82fr)_auto] xl:items-center">
+                <div className="grid gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(220px,.7fr)_auto] xl:items-center">
                   <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                     <Label className="text-sm font-medium text-slate-700">选择文档</Label>
                     <Popover open={documentPickerOpen} onOpenChange={setDocumentPickerOpen}>
@@ -821,29 +894,12 @@ export default function TrainingPage() {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent align="start" className="w-[640px] max-w-[calc(100vw-2rem)] rounded-[24px] border-slate-200 p-4 shadow-2xl">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setSetupDraft((prev) => ({ ...prev, sourceMode: 'kb_document' }))}
-                            className={`rounded-full border px-3 py-1.5 text-sm transition ${
-                              setupDraft.sourceMode === 'kb_document' ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-white text-slate-700'
-                            }`}
-                          >
-                            来自知识库
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSetupDraft((prev) => ({ ...prev, sourceMode: 'temporary_upload' }))}
-                            className={`rounded-full border px-3 py-1.5 text-sm transition ${
-                              setupDraft.sourceMode === 'temporary_upload' ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-white text-slate-700'
-                            }`}
-                          >
-                            上传文档
-                          </button>
-                        </div>
-
-                        {setupDraft.sourceMode === 'kb_document' ? (
-                          <div className="mt-4 space-y-3">
+                        {knowledgeBases.length === 0 ? (
+                          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                            当前还没有知识库文档。可以不选文档直接生成通用材料，或先到知识库页面上传安全制度、应急预案、操作规程等资料。
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
                             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto]">
                               <Select
                                 value={setupDraft.kbId}
@@ -876,21 +932,9 @@ export default function TrainingPage() {
                                 加入
                               </Button>
                             </div>
-                          </div>
-                        ) : (
-                          <div className="mt-4">
-                            <Button variant="outline" className="h-10" onClick={() => uploadInputRef.current?.click()}>
-                              <Upload className="mr-2 h-4 w-4" />
-                              上传文档
-                            </Button>
-                            <input
-                              ref={uploadInputRef}
-                              type="file"
-                              multiple
-                              accept=".pdf,.doc,.docx,.txt,.md,.markdown"
-                              className="hidden"
-                              onChange={(e) => e.target.files && void handleUpload(e.target.files)}
-                            />
+                            {setupDraft.kbId && !kbResources[setupDraft.kbId]?.loading && (kbResources[setupDraft.kbId]?.docs || []).length === 0 && (
+                              <p className="text-sm text-slate-500">当前知识库暂无可选文档，可以不选文档直接生成。</p>
+                            )}
                           </div>
                         )}
                       </PopoverContent>
@@ -900,11 +944,11 @@ export default function TrainingPage() {
                   <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                     <Label className="text-sm font-medium text-slate-700">选择页数</Label>
                     <Select value={setupDraft.slideCountChoice} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, slideCountChoice: value as SlideCountChoice }))}>
-                      <SelectTrigger className="h-10 w-full rounded-[18px] border-slate-200 bg-white px-4 shadow-sm">
+                      <SelectTrigger className={`h-10 w-full rounded-[18px] px-4 ${strongSelectTriggerClassName}`}>
                         <SelectValue>{slideCountSummary}</SelectValue>
                       </SelectTrigger>
                       <SelectContent className="w-[240px] rounded-[28px] border-slate-200 bg-white p-3 shadow-2xl">
-                        {['5', '15', '20', '30'].map((item) => (
+                        {['8', '10', '12', '15', '18', '20', '25'].map((item) => (
                           <SelectItem key={item} value={item} className="my-1 rounded-2xl bg-white px-5 py-4 text-base font-medium text-slate-800">
                             {item} 页
                           </SelectItem>
@@ -917,98 +961,65 @@ export default function TrainingPage() {
                     {setupDraft.slideCountChoice === 'custom' && (
                       <Input
                         type="number"
-                        min={1}
+                        min={5}
+                        max={30}
                         value={setupDraft.customSlideCount}
-                        onChange={(e) => setSetupDraft((prev) => ({ ...prev, customSlideCount: Number(e.target.value) || 1 }))}
-                        className="h-10 w-full rounded-[18px] border-slate-200 bg-white shadow-sm"
+                        onChange={(e) => setSetupDraft((prev) => ({ ...prev, customSlideCount: Number(e.target.value) || 15 }))}
+                        className={`h-10 w-full rounded-[18px] ${strongFieldClassName}`}
                         placeholder="请输入页数"
                       />
                     )}
                   </div>
 
-                  <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                    <Label className="text-sm font-medium text-slate-700">网页主题色</Label>
-                    <Select value={setupDraft.theme} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, theme: value as HtmlDeckTheme }))}>
-                      <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 shadow-sm">
-                        <SelectValue>{themeSummary}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {htmlThemeOptions.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                    <Label className="text-sm font-medium text-slate-700">内容风格</Label>
-                    <Select value={setupDraft.style} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, style: value as TrainingStyle }))}>
-                      <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 shadow-sm">
-                        <SelectValue>{styleSummary}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {styleOptions.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
                   <div className="flex items-center justify-end xl:self-center">
                     <Button
                       onClick={generateHtml}
-                      disabled={htmlGeneration.loading || !setupDraft.requirement.trim()}
+                      disabled={htmlGeneration.loading || !htmlTitle.trim()}
                       className="h-10 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700"
                     >
                       {htmlGeneration.loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Globe className="mr-2 h-4 w-4" />}
-                      生成html网页
+                      生成网页
                     </Button>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {(htmlGeneration.downloadUrl || htmlGeneration.previewUrl || htmlGeneration.deck || htmlGeneration.error) && (
+            {(htmlGeneration.downloadUrl || htmlGeneration.html || htmlGeneration.error) && (
               <Card className="border-slate-200 shadow-sm">
                 <CardHeader>
                   <div className="flex items-center justify-between gap-3">
                     <CardTitle className="flex items-center gap-2 text-base text-slate-900">
                       <Globe className="h-4 w-4 text-emerald-600" />
-                      HTML 结果
+                      网页结果
                     </CardTitle>
-                  <div className="flex flex-wrap gap-2">
-                    {htmlGeneration.previewUrl && (
-                      <Button asChild variant="outline">
-                        <a href={htmlGeneration.previewUrl} target="_blank" rel="noreferrer">
+                    <div className="flex flex-wrap gap-2">
+                      {htmlGeneration.html && (
+                        <Button type="button" variant="outline" onClick={openHtmlPreview}>
                           <Globe className="mr-2 h-4 w-4" />
-                          预览 HTML
-                        </a>
-                      </Button>
-                    )}
-                    {htmlGeneration.downloadUrl && (
-                      <Button asChild variant="outline">
-                        <a href={htmlGeneration.downloadUrl} target="_blank" rel="noreferrer" download>
-                          <Download className="mr-2 h-4 w-4" />
-                          下载 HTML网页
-                        </a>
-                      </Button>
-                    )}
+                          新窗口预览
+                        </Button>
+                      )}
+                      {htmlGeneration.downloadUrl && (
+                        <Button asChild variant="outline">
+                          <a href={htmlGeneration.downloadUrl} target="_blank" rel="noreferrer" download>
+                            <Download className="mr-2 h-4 w-4" />
+                            下载网页文件
+                          </a>
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm text-slate-600">
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                       <div className="font-medium text-slate-900">标题</div>
-                      <div className="mt-1 truncate">{htmlGeneration.title || 'HTML 网页'}</div>
+                      <div className="mt-1 truncate">{htmlGeneration.title || '网页'}</div>
                     </div>
                     <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                      <div className="font-medium text-slate-900">主题色</div>
-                      <div className="mt-1">{themeSummary}</div>
+                      <div className="font-medium text-slate-900">页数</div>
+                      <div className="mt-1">{htmlGeneration.slideCount || slideCount} 页</div>
                     </div>
                   </div>
                   {htmlGeneration.error && (
@@ -1016,10 +1027,14 @@ export default function TrainingPage() {
                       {htmlGeneration.error}
                     </div>
                   )}
-                  {htmlGeneration.deck && (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                      <div>页数：{htmlGeneration.deck.pages.length}</div>
-                      <div>模板：{htmlGeneration.deck.template_id}</div>
+                  {htmlGeneration.html && (
+                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                      <iframe
+                        title="网页汇报展示材料预览"
+                        srcDoc={htmlGeneration.html}
+                        sandbox="allow-scripts allow-same-origin"
+                        className="h-[620px] w-full bg-white"
+                      />
                     </div>
                   )}
                 </CardContent>
@@ -1035,7 +1050,7 @@ export default function TrainingPage() {
                   value={setupDraft.requirement}
                   onChange={(e) => setSetupDraft((prev) => ({ ...prev, requirement: e.target.value }))}
                   placeholder="PPT主题 / 需求"
-                  className="min-h-[112px] bg-slate-50"
+                  className={`min-h-[112px] ${strongTextareaClassName}`}
                 />
 
                 <div className="flex flex-wrap gap-2">
@@ -1066,7 +1081,7 @@ export default function TrainingPage() {
                           <Button
                             type="button"
                             variant="outline"
-                            className="h-10 w-full justify-between rounded-xl border-slate-200 bg-white px-3 text-slate-900 shadow-sm"
+                            className={`h-10 w-full justify-between rounded-xl px-3 text-slate-900 ${strongSelectTriggerClassName}`}
                           >
                             <span className="truncate text-left">{selectedSourceSummary}</span>
                             <span className="ml-3 shrink-0 text-slate-400">▾</span>
@@ -1101,7 +1116,7 @@ export default function TrainingPage() {
                                   value={setupDraft.kbId}
                                   onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, kbId: value, documentId: '' }))}
                                 >
-                                  <SelectTrigger className="h-10 min-w-0">
+                                  <SelectTrigger className={`h-10 min-w-0 ${strongSelectTriggerClassName}`}>
                                     <SelectValue placeholder="选择知识库" />
                                   </SelectTrigger>
                                   <SelectContent>
@@ -1113,7 +1128,7 @@ export default function TrainingPage() {
                                   </SelectContent>
                                 </Select>
                                 <Select value={setupDraft.documentId} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, documentId: value }))}>
-                                  <SelectTrigger className="h-10 min-w-0">
+                                  <SelectTrigger className={`h-10 min-w-0 ${strongSelectTriggerClassName}`}>
                                     <SelectValue placeholder="选择文档" />
                                   </SelectTrigger>
                                   <SelectContent>
@@ -1152,7 +1167,7 @@ export default function TrainingPage() {
                     <div className="h-full space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                       <Label className="text-sm font-medium text-slate-700">选择页数</Label>
                       <Select value={setupDraft.slideCountChoice} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, slideCountChoice: value as SlideCountChoice }))}>
-                        <SelectTrigger className="h-10 w-full rounded-[18px] border-slate-200 bg-white px-4 shadow-sm">
+                        <SelectTrigger className={`h-10 w-full rounded-[18px] px-4 ${strongSelectTriggerClassName}`}>
                           <SelectValue>{slideCountSummary}</SelectValue>
                         </SelectTrigger>
                         <SelectContent className="w-[240px] rounded-[28px] border-slate-200 bg-white p-3 shadow-2xl">
@@ -1172,7 +1187,7 @@ export default function TrainingPage() {
                           min={1}
                           value={setupDraft.customSlideCount}
                           onChange={(e) => setSetupDraft((prev) => ({ ...prev, customSlideCount: Number(e.target.value) || 1 }))}
-                          className="h-10 w-full rounded-[18px] border-slate-200 bg-white shadow-sm"
+                          className={`h-10 w-full rounded-[18px] ${strongFieldClassName}`}
                           placeholder="请输入页数"
                         />
                       )}
@@ -1181,7 +1196,7 @@ export default function TrainingPage() {
                     <div className="h-full space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                       <Label className="text-sm font-medium text-slate-700">选择风格</Label>
                       <Select value={setupDraft.style} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, style: value as TrainingStyle }))}>
-                        <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 shadow-sm">
+                        <SelectTrigger className={`h-10 w-full rounded-xl px-3 ${strongSelectTriggerClassName}`}>
                           <SelectValue>{styleSummary}</SelectValue>
                         </SelectTrigger>
                         <SelectContent>
@@ -1200,7 +1215,7 @@ export default function TrainingPage() {
                         value={setupDraft.includeSpeakerNotes ? 'yes' : 'no'}
                         onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, includeSpeakerNotes: value === 'yes' }))}
                       >
-                        <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 shadow-sm">
+                        <SelectTrigger className={`h-10 w-full rounded-xl px-3 ${strongSelectTriggerClassName}`}>
                           <SelectValue>{notesSummary}</SelectValue>
                         </SelectTrigger>
                         <SelectContent>

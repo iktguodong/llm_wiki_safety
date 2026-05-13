@@ -9,7 +9,7 @@ import backend.config as config_module
 import backend.services.presentation.project_store as project_store
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=True)
 def isolated_training_env(monkeypatch, tmp_path):
     kb_root = tmp_path / "knowledge-bases"
     output_dir = tmp_path / "output"

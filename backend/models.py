@@ -5,7 +5,7 @@ Pydantic数据模型
 
 from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
 # ==================== 通用模型 ====================
@@ -490,61 +490,34 @@ class TrainingGenerateResponse(BaseModel):
     notes_filename: Optional[str] = None
 
 
-class HtmlDeckPage(BaseModel):
-    id: str
-    page_no: int
-    layout: str
+class TrainingHtmlGenerateRequest(BaseModel):
+    """生成单文件 HTML 汇报展示材料请求"""
+    kb_id: Optional[str] = None
+    title: str = Field(..., min_length=1, description="本次材料标题")
+    report_date: Optional[str] = None
+    presenter: Optional[str] = None
+    audience: Optional[str] = None
+    requirements: Optional[str] = None
+    document_ids: List[str] = Field(default_factory=list)
+    page_count: int = Field(default=15, ge=5, le=30)
+
+    @field_validator("title")
+    @classmethod
+    def title_must_not_be_blank(cls, value: str) -> str:
+        title = value.strip()
+        if not title:
+            raise ValueError("本次材料标题不能为空")
+        return title
+
+
+class TrainingHtmlGenerateResponse(BaseModel):
+    """生成单文件 HTML 汇报展示材料响应"""
     title: str
-    subtitle: Optional[str] = None
-    summary: Optional[str] = None
-    bullets: List[str] = Field(default_factory=list)
-    notes: Optional[str] = None
-    source_refs: List[TrainingSourceRef] = Field(default_factory=list)
-    hero: bool = False
-    kicker: Optional[str] = None
-    chrome: Optional[str] = None
-
-
-class HtmlDeckSpec(BaseModel):
-    id: str
-    title: str
-    topic: str
-    audience: str
-    duration_minutes: int
-    style: Literal["magazine"]
-    theme: str
-    template_id: str
-    pages: List[HtmlDeckPage] = Field(default_factory=list)
-    quality_warnings: List[str] = Field(default_factory=list)
-
-
-class HtmlGenerateRequest(BaseModel):
-    job_id: Optional[str] = None
-    sources: List[TrainingSourceInput] = Field(default_factory=list)
-    topic: str = ""
-    audience: str = "一线员工"
-    duration_minutes: int = 60
-    slide_count: int = 12
-    style: Literal["standard_training", "management_briefing", "frontline_shift_training"] = "standard_training"
-    focus_areas: List[str] = Field(default_factory=list)
-    include_quiz: bool = True
-    include_speaker_notes: bool = False
-    render_style: Literal["magazine"] = "magazine"
-    theme: str = "ink"
-    template_id: str = "magazine"
-    # legacy compatibility
-    source_type: Optional[str] = None
-    source_ids: List[str] = Field(default_factory=list)
-    config: Optional[TrainingConfig] = None
-
-
-class HtmlGenerateResponse(BaseModel):
-    job_id: str
-    status: str
-    deck: HtmlDeckSpec
     filename: str
     download_url: str
     preview_url: Optional[str] = None
+    html: str
+    slide_count: int
 
 
 class TemporaryTrainingUploadResponse(BaseModel):

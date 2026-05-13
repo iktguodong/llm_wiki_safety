@@ -14,7 +14,7 @@ if __name__ == "__main__":
 
 from typing import List, Optional, Any
 from fastapi import FastAPI, File, UploadFile, HTTPException, Body
-from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -38,7 +38,8 @@ from backend.models import (
     TrainingOutlineV2,
     PresentationSpec,
     QualityReport,
-    HtmlGenerateResponse,
+    TrainingHtmlGenerateRequest,
+    TrainingHtmlGenerateResponse,
 )
 from backend.services.knowledge_base import kb_service
 from backend.services.document import doc_service
@@ -65,10 +66,6 @@ from backend.services.presentation.project_store import (
     save_upload_metadata,
 )
 from backend.services.presentation.safety_templates import get_template
-from backend.services.presentation.html_planner import build_html_deck
-from backend.services.presentation.html_quality import check_html_deck
-from backend.services.presentation.html_deck import deck_to_dict, render_html_deck, resolve_html_path
-from backend.services.presentation.html_llm_planner import HtmlGenerationError
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -429,14 +426,22 @@ def _training_payload_to_request(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _html_payload_to_request(payload: dict[str, Any]) -> dict[str, Any]:
-    request = _training_payload_to_request(payload)
-    request["render_style"] = payload.get("render_style") or payload.get("deck_style") or "magazine"
-    request["theme"] = payload.get("theme") or "ink"
-    request["template_id"] = payload.get("template_id") or request["render_style"]
-    request["include_speaker_notes"] = payload.get("include_speaker_notes", False)
-    request["prefer_wiki_pages"] = True
-    return request
+def resolve_training_html_path(filename: str) -> Path:
+    if not filename or filename != Path(filename).name or Path(filename).suffix.lower() != ".html":
+        raise ValueError("文件名无效，只允许下载 HTML 文件")
+    file_path = (config_module_output_dir() / filename).resolve()
+    output_root = config_module_output_dir().resolve()
+    if output_root not in file_path.parents and file_path.parent != output_root:
+        raise ValueError("文件名无效")
+    if not file_path.exists() or not file_path.is_file():
+        raise FileNotFoundError("文件不存在")
+    return file_path
+
+
+def config_module_output_dir() -> Path:
+    from backend.config import OUTPUT_DIR
+
+    return OUTPUT_DIR
 
 
 @app.post("/api/training/uploads", response_model=ApiResponse)
@@ -572,32 +577,14 @@ async def generate_training_ppt(payload: dict = Body(...)):
 
 
 @app.post("/api/training/html", response_model=ApiResponse)
-async def generate_training_html(payload: dict = Body(...)):
-    """生成 HTML 网页培训材料。"""
-    request = _html_payload_to_request(payload)
-    job = create_job("html", job_id=request.get("job_id"))
+async def generate_training_html(payload: TrainingHtmlGenerateRequest):
+    """生成单文件 HTML 汇报展示材料，不复用 PPT/旧 HTML Deck 链路。"""
     try:
-        content_pack = build_content_pack(request, job.job_id)
-        deck = await build_html_deck(content_pack, request)
-        quality_report = check_html_deck(deck, content_pack, request)
-        render_info = render_html_deck(deck, job.job_id)
-    except HtmlGenerationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        result = await training_service.generate_html_material(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    save_content_pack(job.job_id, content_pack.model_dump())
-    save_spec(job.job_id, deck_to_dict(deck))
-    save_quality_report(job.job_id, quality_report.model_dump())
-
-    response = HtmlGenerateResponse(
-        job_id=job.job_id,
-        status="completed" if quality_report.passed else "completed_with_warnings",
-        deck=deck_to_dict(deck),
-        filename=render_info["filename"],
-        download_url=render_info["download_url"],
-        preview_url=render_info.get("preview_url"),
-    )
+    response = TrainingHtmlGenerateResponse(**result)
     return ApiResponse(data=response)
 
 
@@ -613,28 +600,28 @@ async def download_training_ppt(filename: str):
     return FileResponse(str(file_path), filename=file_path.name)
 
 
-@app.get("/api/training/download-html/{job_id}/{filename}")
-async def download_training_html(job_id: str, filename: str):
+@app.get("/api/training/download-html/{filename}")
+async def download_training_html(filename: str):
     """安全下载生成的 HTML 文件。"""
     try:
-        file_path = resolve_html_path(job_id, filename)
+        file_path = resolve_training_html_path(filename)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="文件不存在")
-    return FileResponse(str(file_path), filename=file_path.name)
+    return FileResponse(str(file_path), filename=file_path.name, media_type="text/html")
 
 
-@app.get("/api/training/preview-html/{job_id}/{filename}")
-async def preview_training_html(job_id: str, filename: str):
-    """在线预览生成的 HTML 文件。"""
+@app.get("/api/training/preview-html/{filename}")
+async def preview_training_html(filename: str):
+    """安全预览生成的 HTML 文件。"""
     try:
-        file_path = resolve_html_path(job_id, filename)
+        file_path = resolve_training_html_path(filename)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="文件不存在")
-    return HTMLResponse(content=file_path.read_text(encoding="utf-8"), media_type="text/html")
+    return Response(content=file_path.read_text(encoding="utf-8"), media_type="text/html; charset=utf-8")
 
 
 @app.get("/api/training/download-notes/{filename}")

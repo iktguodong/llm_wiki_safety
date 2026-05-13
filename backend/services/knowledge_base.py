@@ -10,10 +10,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import backend.config as config_module
 from backend.config import (
     get_kb_path, get_kb_meta_path, get_kb_raw_path,
     get_kb_wiki_path, get_kb_index_path, get_kb_log_path,
-    get_kb_doc_track_path, KB_ROOT, config, save_config
+    get_kb_doc_track_path, config, save_config
 )
 from backend.models import KnowledgeBase, KnowledgeBaseCreate
 
@@ -197,10 +198,11 @@ class KnowledgeBaseService:
     async def list_all() -> List[KnowledgeBase]:
         """列出所有知识库"""
         result = []
-        if not KB_ROOT.exists():
+        kb_root = config_module.KB_ROOT
+        if not kb_root.exists():
             return result
         
-        for kb_dir in KB_ROOT.iterdir():
+        for kb_dir in kb_root.iterdir():
             if kb_dir.is_dir():
                 meta = get_kb_meta(kb_dir.name)
                 if meta:
