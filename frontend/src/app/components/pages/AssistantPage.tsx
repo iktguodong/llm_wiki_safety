@@ -19,6 +19,11 @@ import { assistants as defaultAssistants, type AssistantDefinition } from '../..
 import { useApp } from '../../../lib/context';
 import { chatApi, docApi } from '../../../lib/api';
 import { buildChatMemory } from '../../lib/chat-memory';
+import {
+  acquireConversationLock,
+  isConversationLocked as isConversationLockedNow,
+  useConversationLock,
+} from '../../lib/conversation-lock';
 import { renderAssistantBubble } from '../../lib/chat-render';
 import LogoMark from '../LogoMark';
 
@@ -146,6 +151,7 @@ type AssistantTopic = {
 
 export default function AssistantPage({ activeAssistantId, onStartChat }: AssistantPageProps) {
   const { knowledgeBases, providers, currentModelId } = useApp();
+  const isConversationLocked = useConversationLock();
   const initialLegacyState = useMemo(() => migrateLegacyAssistants(), []);
   const [customAssistants, setCustomAssistants] = useState<AssistantDefinition[]>(() => {
     const raw = localStorage.getItem(ASSISTANT_CUSTOM_KEY);
@@ -387,7 +393,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
 
   const sendMessage = () => {
     const question = input.trim();
-    if (!question || isLoading || !selectedAssistant) return;
+    if (!question || isLoading || isConversationLockedNow() || !selectedAssistant) return;
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     if (!currentTopic) return;
@@ -402,43 +408,64 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
       updatedAt: now.toISOString(),
     }));
     setInput('');
+    const releaseLock = acquireConversationLock();
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      releaseLock();
+      setIsLoading(false);
+    };
     setIsLoading(true);
 
-    chatApi.ask(
-      {
-        question,
-        messages: historyMessages,
-        knowledge_base_ids: selectedAssistant.default_knowledge_base_ids,
-        model_id: selectedAssistant.default_model_id || currentModelId,
-        use_web_search: selectedAssistant.use_web_search,
-        assistant_id: selectedAssistant.id,
-        assistant_prompt: selectedAssistant.system_prompt,
-      },
-      (chunk) => {
-        updateTopicById(targetTopicId, topic => {
-          const last = topic.messages[topic.messages.length - 1];
-          if (last?.role !== 'assistant') return topic;
-          return {
-            ...topic,
-            messages: [...topic.messages.slice(0, -1), { ...last, content: last.content + chunk }],
-            updatedAt: new Date().toISOString(),
-          };
-        });
-      },
-      (err) => {
-        updateTopicById(targetTopicId, topic => {
-          const last = topic.messages[topic.messages.length - 1];
-          if (last?.role !== 'assistant') return topic;
-          return {
-            ...topic,
-            messages: [...topic.messages.slice(0, -1), { ...last, content: `请求失败: ${err.message}` }],
-            updatedAt: new Date().toISOString(),
-          };
-        });
-        setIsLoading(false);
-      },
-      () => setIsLoading(false)
-    );
+    try {
+      chatApi.ask(
+        {
+          question,
+          messages: historyMessages,
+          knowledge_base_ids: selectedAssistant.default_knowledge_base_ids,
+          model_id: selectedAssistant.default_model_id || currentModelId,
+          use_web_search: selectedAssistant.use_web_search,
+          assistant_id: selectedAssistant.id,
+          assistant_prompt: selectedAssistant.system_prompt,
+        },
+        (chunk) => {
+          updateTopicById(targetTopicId, topic => {
+            const last = topic.messages[topic.messages.length - 1];
+            if (last?.role !== 'assistant') return topic;
+            return {
+              ...topic,
+              messages: [...topic.messages.slice(0, -1), { ...last, content: last.content + chunk }],
+              updatedAt: new Date().toISOString(),
+            };
+          });
+        },
+        (err) => {
+          updateTopicById(targetTopicId, topic => {
+            const last = topic.messages[topic.messages.length - 1];
+            if (last?.role !== 'assistant') return topic;
+            return {
+              ...topic,
+              messages: [...topic.messages.slice(0, -1), { ...last, content: `请求失败: ${err.message}` }],
+              updatedAt: new Date().toISOString(),
+            };
+          });
+          finish();
+        },
+        () => finish()
+      );
+    } catch (err) {
+      updateTopicById(targetTopicId, topic => {
+        const last = topic.messages[topic.messages.length - 1];
+        if (last?.role !== 'assistant') return topic;
+        return {
+          ...topic,
+          messages: [...topic.messages.slice(0, -1), { ...last, content: `请求失败: ${err instanceof Error ? err.message : '发送失败'}` }],
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      finish();
+    }
   };
 
   const promptPreview = selectedAssistant?.system_prompt || '';
@@ -732,7 +759,8 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                     </div>
                     <button
                       onClick={sendMessage}
-                      disabled={!input.trim() || isLoading}
+                      disabled={!input.trim() || isLoading || isConversationLocked}
+                      title={isLoading || isConversationLocked ? '前一个回答仍在生成中' : ''}
                       className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <Send className="w-3.5 h-3.5" />

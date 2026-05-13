@@ -97,12 +97,16 @@ export default function SettingsPage() {
   const handleTest = async (provider: ModelProvider) => {
     setTesting(prev => ({ ...prev, [provider.id]: true }));
     try {
-      await configApi.validateModel({
+      const result = await configApi.validateModel({
         provider_id: provider.id,
         api_key: provider.api_key,
         base_url: provider.base_url,
       });
-      alert('连接成功');
+      if (result.valid) {
+        alert('连接成功');
+      } else {
+        alert(`连接失败: ${result.message}`);
+      }
     } catch (err) {
       alert('连接失败: ' + (err instanceof Error ? err.message : '未知错误'));
     } finally {

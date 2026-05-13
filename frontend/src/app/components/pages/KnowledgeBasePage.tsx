@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, ChevronDown, FileText, Trash2, Eye, Upload, ShieldCheck, X, Sparkles } from 'lucide-react';
 import { useApp } from '../../../lib/context';
 import { kbApi, docApi, wikiApi } from '../../../lib/api';
@@ -16,25 +16,60 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
   const [uploading, setUploading] = useState(false);
   const [lintResults, setLintResults] = useState<Record<string, { loading: boolean; result?: import('../../../lib/types').WikiLintResult; open: boolean }>>({});
   const [uploadGuides, setUploadGuides] = useState<Record<string, boolean>>({});
+  const [pollVersion, setPollVersion] = useState(0);
+  const loadingDocsRef = useRef<Record<string, boolean>>({});
 
   const loadDocs = useCallback(async (kbId: string) => {
-    if (loadingDocs[kbId]) return;
+    if (loadingDocsRef.current[kbId]) return null;
+    loadingDocsRef.current[kbId] = true;
     setLoadingDocs(prev => ({ ...prev, [kbId]: true }));
     try {
       const res = await docApi.list(kbId);
       setDocuments(prev => ({ ...prev, [kbId]: res.items }));
+      return res.items;
     } catch (err) {
       console.error('加载文档失败', err);
+      return null;
     } finally {
+      loadingDocsRef.current[kbId] = false;
       setLoadingDocs(prev => ({ ...prev, [kbId]: false }));
     }
-  }, [loadingDocs]);
+  }, []);
 
   useEffect(() => {
     if (expandedKb) {
       loadDocs(expandedKb);
     }
   }, [expandedKb, loadDocs]);
+
+  useEffect(() => {
+    if (!expandedKb) return;
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      const docs = await loadDocs(expandedKb);
+      if (cancelled || !docs) return;
+
+      const hasPending = docs.some(doc => doc.parse_status === 'pending' || doc.parse_status === 'parsing');
+      if (!hasPending) {
+        await refreshKbs();
+        return;
+      }
+
+      timeoutId = setTimeout(() => {
+        void tick();
+      }, 3000);
+    };
+
+    void tick();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [expandedKb, pollVersion, loadDocs, refreshKbs]);
 
   const handleCreateKb = async () => {
     const name = prompt('请输入知识库名称');
@@ -53,6 +88,7 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
       await docApi.upload(kbId, file);
       await loadDocs(kbId);
       await refreshKbs();
+      setPollVersion(v => v + 1);
       // 显示上传后的操作引导
       setUploadGuides(prev => ({ ...prev, [kbId]: true }));
       // 5秒后自动隐藏引导

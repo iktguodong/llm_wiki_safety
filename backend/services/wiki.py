@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 
 from backend.config import (
     get_kb_wiki_path, get_kb_index_path, get_kb_log_path,
-    get_kb_doc_track_path, get_kb_meta_path
+    get_kb_doc_track_path
 )
 from backend.services.llm import llm_service
 from backend.services.text_extraction import extract_document_text
@@ -23,6 +23,14 @@ _AGENTS_INSTRUCTION = ""
 if _AGENTS_MD_PATH.exists():
     with open(_AGENTS_MD_PATH, "r", encoding="utf-8") as f:
         _AGENTS_INSTRUCTION = f.read()
+
+    # 保留写作与结构规范，但移除全局输出契约，避免它和不同阶段的 prompt 互相冲突。
+    _AGENTS_INSTRUCTION = re.sub(
+        r"\n## Output contract\n[\s\S]*?(?=\n## )",
+        "\n",
+        _AGENTS_INSTRUCTION,
+        count=1,
+    ).strip()
 
 # 文档解析Prompt
 DOC_PARSE_PROMPT = """你是一个专业知识库助手。请阅读以下文档内容，并按照LLM Wiki规范生成结构化知识页面。
@@ -63,6 +71,75 @@ DOC_PARSE_PROMPT = """你是一个专业知识库助手。请阅读以下文档�
 {document_content}
 """
 
+CHUNK_ANALYSIS_PROMPT = """你正在处理一份长文档的一个分块。请只基于当前分块提取结构化知识，不要臆测分块外的内容。
+
+## 目标
+
+1. 提炼当前分块的核心主题和关键事实。
+2. 识别适合独立成页的概念、流程、角色、阈值、规则或风险。
+3. 为每个候选页面给出稳定的英文小写连字符 slug。
+4. 候选页面只保留当前分块真正支持的内容。
+
+## 输出要求
+
+请只返回 JSON 对象，不要返回额外解释，不要使用 markdown 代码块。
+
+```json
+{{
+  "chunk_summary": "当前分块的简短总结",
+  "key_points": ["关键点1", "关键点2"],
+  "candidate_pages": [
+    {{
+      "slug": "company-law-overview",
+      "title": "公司法概览",
+      "page_type": "concept",
+      "importance": 1,
+      "summary": "该页应回答什么问题",
+      "key_facts": ["事实1", "事实2"],
+      "evidence": ["能够支撑这些结论的原文短句"],
+      "related_pages": ["相关页面 slug"]
+    }}
+  ]
+}}
+```
+
+## 文档信息
+
+- 文档名：{doc_name}
+- 分块编号：{chunk_index}/{chunk_total}
+
+## 当前分块内容
+
+{chunk_content}
+"""
+
+PAGE_RENDER_PROMPT = """你正在把结构化资料写成适合知识库检索与问答的 Markdown 页面。
+
+## 写作要求
+
+1. 只输出完整 Markdown，不要输出 JSON，不要输出解释。
+2. 页面必须以 `# {page_title}` 开头。
+3. 必须包含 `**Summary**`、`**Sources**`、`**Last updated**`。
+4. 内容要忠实于给定资料，不要补充未给出的事实、阈值、流程、职责或法律结论。
+5. 如果资料不足，明确写出“不足以从当前文档直接确认”的表述，而不是编造。
+6. 如果是概览页，优先组织成“核心内容 / 主要主题 / 相关概念”。
+7. 如果是概念页，优先组织成“定义 / 适用范围 / 关键规则 / 相关页面”。
+
+## 页面计划
+
+- 页面类型：{page_type}
+- 页面 slug：{page_slug}
+- 关联源文件：{source_file}
+
+## 可用资料
+
+{page_context}
+"""
+
+MAX_CHUNK_CHARS = 7000
+MAX_PARALLEL_LLM_CALLS = 3
+MAX_CONCEPT_PAGES = 8
+
 
 class WikiService:
     """Wiki生成服务"""
@@ -88,6 +165,281 @@ class WikiService:
             return None
 
         return value if isinstance(value, list) else None
+
+    @staticmethod
+    def _extract_json_object(response_text: str):
+        """从模型回复中提取 JSON 对象。"""
+        if not response_text:
+            return None
+
+        cleaned = response_text.strip()
+        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
+        if fence_match:
+            cleaned = fence_match.group(1).strip()
+
+        start = cleaned.find("{")
+        if start == -1:
+            return None
+
+        try:
+            value, _ = json.JSONDecoder().raw_decode(cleaned[start:])
+        except json.JSONDecodeError:
+            return None
+
+        return value if isinstance(value, dict) else None
+
+    @staticmethod
+    def _slugify_page_name(value: str, fallback: str = "page") -> str:
+        """将标题或 slug 规范化为适合文件名的形式。"""
+        slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+        slug = re.sub(r"-{2,}", "-", slug)
+        return slug or fallback
+
+    @staticmethod
+    def _split_document_into_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> List[str]:
+        """按自然段和标题边界切分长文档。"""
+        normalized = re.sub(r"\r\n?", "\n", text).strip()
+        if not normalized:
+            return []
+        if len(normalized) <= max_chars:
+            return [normalized]
+
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", normalized) if p.strip()]
+        chunks: List[str] = []
+        current: List[str] = []
+        current_len = 0
+
+        def flush_current():
+            nonlocal current, current_len
+            if current:
+                chunks.append("\n\n".join(current).strip())
+                current = []
+                current_len = 0
+
+        for paragraph in paragraphs:
+            heading_like = bool(
+                re.match(r"^(#{1,6}\s+|第[一二三四五六七八九十百千0-9]+[章节条款编卷部分]?|[一二三四五六七八九十]+、)", paragraph)
+            )
+
+            if len(paragraph) > max_chars:
+                flush_current()
+                lines = [line.strip() for line in paragraph.split("\n") if line.strip()]
+                line_buffer: List[str] = []
+                line_len = 0
+                for line in lines:
+                    line_size = len(line)
+                    if line_buffer and line_len + line_size + 1 > max_chars:
+                        chunks.append("\n".join(line_buffer).strip())
+                        line_buffer = [line]
+                        line_len = line_size
+                    else:
+                        line_buffer.append(line)
+                        line_len += line_size + (1 if line_buffer else 0)
+                if line_buffer:
+                    chunks.append("\n".join(line_buffer).strip())
+                continue
+
+            if current and (current_len + len(paragraph) + 2 > max_chars or (heading_like and current_len > max_chars * 0.35)):
+                flush_current()
+
+            current.append(paragraph)
+            current_len += len(paragraph) + 2
+
+        flush_current()
+
+        merged: List[str] = []
+        for chunk in chunks:
+            if not chunk:
+                continue
+            if merged and len(chunk) < max_chars * 0.2 and len(merged[-1]) + len(chunk) + 2 <= max_chars:
+                merged[-1] = merged[-1] + "\n\n" + chunk
+            else:
+                merged.append(chunk)
+
+        return merged
+
+    @staticmethod
+    def _build_system_content() -> str:
+        """组装 system prompt。"""
+        system_content = "你是一个专业的知识库助手，擅长将文档转化为结构化的Wiki知识页面。"
+        if _AGENTS_INSTRUCTION:
+            system_content += "\n\n## 工作流规范\n\n" + _AGENTS_INSTRUCTION
+        return system_content
+
+    @staticmethod
+    def _merge_chunk_cards(chunk_cards: List[Dict], source_file: str):
+        """把多个分块的抽取结果合并成页面计划。"""
+        merged: Dict[str, Dict] = {}
+        doc_summary_notes: List[str] = []
+        doc_key_points: List[str] = []
+
+        for card in chunk_cards:
+            if not isinstance(card, dict):
+                continue
+
+            chunk_summary = str(card.get("chunk_summary", "")).strip()
+            if chunk_summary:
+                doc_summary_notes.append(chunk_summary)
+
+            for key_point in card.get("key_points", []) or []:
+                if isinstance(key_point, str) and key_point.strip():
+                    doc_key_points.append(key_point.strip())
+
+            for candidate in card.get("candidate_pages", []) or []:
+                if not isinstance(candidate, dict):
+                    continue
+
+                raw_title = str(candidate.get("title") or candidate.get("slug") or "").strip()
+                raw_slug = str(candidate.get("slug") or raw_title).strip()
+                page_slug = WikiService._slugify_page_name(raw_slug, fallback="page")
+                if not page_slug:
+                    continue
+
+                importance = candidate.get("importance", 1)
+                try:
+                    importance_value = int(importance)
+                except (TypeError, ValueError):
+                    importance_value = 1
+
+                page_entry = merged.setdefault(page_slug, {
+                    "slug": page_slug,
+                    "title": raw_title or page_slug,
+                    "page_type": str(candidate.get("page_type") or "concept"),
+                    "importance": 0,
+                    "occurrences": 0,
+                    "summary_notes": [],
+                    "key_facts": [],
+                    "evidence": [],
+                    "related_pages": set(),
+                })
+
+                if raw_title and page_entry["title"] == page_slug:
+                    page_entry["title"] = raw_title
+                if candidate.get("page_type"):
+                    page_entry["page_type"] = str(candidate.get("page_type"))
+
+                page_entry["importance"] = max(page_entry["importance"], importance_value)
+                page_entry["occurrences"] += 1
+
+                summary = str(candidate.get("summary", "")).strip()
+                if summary:
+                    page_entry["summary_notes"].append(summary)
+
+                for fact in candidate.get("key_facts", []) or []:
+                    if isinstance(fact, str) and fact.strip():
+                        page_entry["key_facts"].append(fact.strip())
+
+                for evidence in candidate.get("evidence", []) or []:
+                    if isinstance(evidence, str) and evidence.strip():
+                        page_entry["evidence"].append(evidence.strip())
+
+                for related in candidate.get("related_pages", []) or []:
+                    if isinstance(related, str) and related.strip():
+                        page_entry["related_pages"].add(WikiService._slugify_page_name(related.strip()))
+
+        def score(item: Dict) -> float:
+            return float(item["importance"]) * 2.0 + float(item["occurrences"]) + min(len(item["evidence"]), 12) * 0.2
+
+        ranked = sorted(merged.values(), key=score, reverse=True)
+        selected = ranked[:MAX_CONCEPT_PAGES]
+
+        summary_plan = {
+            "slug": f"{Path(source_file).stem}-summary",
+            "title": Path(source_file).stem,
+            "page_type": "summary",
+            "chunk_summaries": doc_summary_notes,
+            "key_points": doc_key_points,
+        }
+
+        return summary_plan, selected
+
+    @staticmethod
+    def _fallback_markdown_page(page_title: str, source_file: str, summary_text: str, body_lines: List[str]) -> str:
+        """生成保底 Markdown 页面。"""
+        lines = [
+            f"# {page_title}",
+            "",
+            f"**Summary**: {summary_text}",
+            "",
+            f"**Sources**: {source_file}",
+            "",
+            f"**Last updated**: {datetime.now().strftime('%Y-%m-%d')}",
+            "",
+            "---",
+            "",
+        ]
+        lines.extend(body_lines)
+        return "\n".join(lines).strip() + "\n"
+
+    @staticmethod
+    async def _extract_chunk_card(
+        *,
+        system_content: str,
+        doc_name: str,
+        chunk_text: str,
+        chunk_index: int,
+        chunk_total: int,
+        model_id: str,
+    ) -> Dict:
+        """对单个文档分块做结构化抽取。"""
+        prompt = CHUNK_ANALYSIS_PROMPT.format(
+            doc_name=doc_name,
+            chunk_index=chunk_index,
+            chunk_total=chunk_total,
+            chunk_content=chunk_text,
+        )
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": prompt},
+        ]
+        response = await llm_service.chat_sync(messages, model_id=model_id, temperature=0.2)
+        if not response.strip():
+            return {}
+        card = WikiService._extract_json_object(response)
+        if not card:
+            card_list = WikiService._extract_json_array(response)
+            if card_list and isinstance(card_list[0], dict):
+                return card_list[0]
+            return {}
+        return card
+
+    @staticmethod
+    async def _render_page_markdown(
+        *,
+        system_content: str,
+        page_plan: Dict,
+        source_file: str,
+        model_id: str,
+    ) -> str:
+        """根据页面计划渲染最终 Markdown。"""
+        page_context = {
+            "title": page_plan.get("title"),
+            "slug": page_plan.get("slug"),
+            "page_type": page_plan.get("page_type"),
+            "summary_notes": page_plan.get("summary_notes", []),
+            "key_facts": page_plan.get("key_facts", []),
+            "evidence": page_plan.get("evidence", []),
+            "related_pages": sorted(page_plan.get("related_pages", [])),
+            "importance": page_plan.get("importance", 1),
+            "occurrences": page_plan.get("occurrences", 1),
+        }
+        prompt = PAGE_RENDER_PROMPT.format(
+            page_title=page_plan.get("title") or page_plan.get("slug"),
+            page_type=page_plan.get("page_type", "concept"),
+            page_slug=page_plan.get("slug"),
+            source_file=source_file,
+            page_context=json.dumps(page_context, ensure_ascii=False, indent=2),
+        )
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": prompt},
+        ]
+        response = await llm_service.chat_sync(messages, model_id=model_id, temperature=0.25)
+        cleaned = response.strip()
+        fence_match = re.search(r"```(?:markdown|md)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
+        if fence_match:
+            cleaned = fence_match.group(1).strip()
+        return cleaned
 
     @staticmethod
     def _is_reserved_page(file_name: str) -> bool:
@@ -172,55 +524,137 @@ class WikiService:
                 await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message=text.strip("[]"))
                 return
 
-            # 构建Prompt
-            prompt = DOC_PARSE_PROMPT.format(document_content=text[:15000])  # 限制长度
+            system_content = WikiService._build_system_content()
+            chunks = WikiService._split_document_into_chunks(text)
+            if not chunks:
+                chunks = [text]
 
-            # 使用AGENTS.md作为system prompt
-            system_content = "你是一个专业的知识库助手，擅长将文档转化为结构化的Wiki知识页面。"
-            if _AGENTS_INSTRUCTION:
-                system_content += "\n\n## 工作流规范\n\n" + _AGENTS_INSTRUCTION
+            import asyncio
 
-            messages = [
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": prompt}
+            semaphore = asyncio.Semaphore(MAX_PARALLEL_LLM_CALLS)
+
+            async def limited(coro):
+                async with semaphore:
+                    return await coro
+
+            chunk_tasks = [
+                limited(
+                    WikiService._extract_chunk_card(
+                        system_content=system_content,
+                        doc_name=doc_info["file"],
+                        chunk_text=chunk,
+                        chunk_index=index + 1,
+                        chunk_total=len(chunks),
+                        model_id=target_model_id,
+                    )
+                )
+                for index, chunk in enumerate(chunks)
             ]
+            chunk_results = await asyncio.gather(*chunk_tasks, return_exceptions=True)
+            chunk_cards: List[Dict] = []
+            for result in chunk_results:
+                if isinstance(result, Exception):
+                    continue
+                if isinstance(result, dict) and result:
+                    chunk_cards.append(result)
 
-            # 调用LLM生成Wiki
-            response = await llm_service.chat_sync(messages, model_id=target_model_id, temperature=0.3)
+            summary_plan, concept_plans = WikiService._merge_chunk_cards(chunk_cards, doc_info["file"])
+            if not summary_plan.get("chunk_summaries"):
+                source_excerpt = text[:2000].strip()
+                summary_plan["chunk_summaries"] = [source_excerpt] if source_excerpt else [
+                    "当前文档未提取到可读摘要，请检查源文档或模型输出"
+                ]
+            summary_plan["source_excerpt"] = text[:2000].strip()
+            page_plans = [summary_plan] + concept_plans
 
-            # 如果 LLM 返回的是错误文本（形如 "API错误 (401): ..." 或 "请求错误: ..."）—— 直接失败
-            if response and (response.startswith("API错误") or response.startswith("请求错误") or response.startswith("错误：")):
-                await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message=response[:500])
-                return
-
-            if not response.strip():
-                await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message="LLM 返回空响应，未生成 Wiki 内容")
-                return
-            
-            # 解析JSON响应
-            wiki_files = WikiService._extract_json_array(response)
-            if wiki_files is None:
-                # 如果无法解析JSON，创建简单的摘要页面
-                wiki_files = [{
-                    "file": f"wiki/{doc_info['file'].split('.')[0]}-summary.md",
-                    "content": f"# {doc_info['file']}\n\n**Summary**: 文档摘要\n\n**Sources**: {doc_info['file']}\n\n**Last updated**: {datetime.now().strftime('%Y-%m-%d')}\n\n---\n\n{text[:5000]}"
+            if not page_plans:
+                page_plans = [{
+                    "slug": f"{Path(doc_info['file']).stem}-summary",
+                    "title": Path(doc_info["file"]).stem,
+                    "page_type": "summary",
+                    "chunk_summaries": [text[:2000]],
+                    "key_points": [],
                 }]
 
+            page_tasks = [
+                limited(
+                    WikiService._render_page_markdown(
+                        system_content=system_content,
+                        page_plan=page_plan,
+                        source_file=doc_info["file"],
+                        model_id=target_model_id,
+                    )
+                )
+                for page_plan in page_plans
+            ]
+            rendered_pages = await asyncio.gather(*page_tasks, return_exceptions=True)
+
             filtered_wiki_files = []
-            for wiki_file in wiki_files:
-                if not isinstance(wiki_file, dict):
+            for page_plan, rendered in zip(page_plans, rendered_pages):
+                page_slug = WikiService._slugify_page_name(str(page_plan.get("slug") or page_plan.get("title") or "page"))
+                if not page_slug or WikiService._is_reserved_page(page_slug):
                     continue
-                file_name = str(wiki_file.get("file", "")).replace("wiki/", "")
-                if not file_name or WikiService._is_reserved_page(file_name):
-                    continue
-                if not isinstance(wiki_file.get("content"), str) or not wiki_file["content"].strip():
-                    continue
-                filtered_wiki_files.append(wiki_file)
+
+                content = ""
+                if isinstance(rendered, str):
+                    content = rendered.strip()
+                if not content or content.startswith("API错误") or content.startswith("请求错误") or content.startswith("错误："):
+                    page_title = str(page_plan.get("title") or page_slug)
+                    page_type = str(page_plan.get("page_type") or "concept")
+                    if page_type == "summary":
+                        summary_text = "；".join(page_plan.get("chunk_summaries", [])[:3]) or "文档摘要"
+                        body_lines = ["## 核心内容", ""]
+                        summary_notes = [note for note in page_plan.get("chunk_summaries", [])[:5] if note]
+                        if summary_notes:
+                            for note in summary_notes:
+                                body_lines.append(f"- {note}")
+                        else:
+                            source_excerpt = str(page_plan.get("source_excerpt") or "").strip()
+                            if source_excerpt:
+                                body_lines.append(f"- {source_excerpt}")
+                            else:
+                                body_lines.append("- 当前模型未抽取到可用摘要，请检查源文档或模型输出")
+                        if page_plan.get("key_points"):
+                            body_lines.extend(["", "## 关键要点", ""])
+                            for point in page_plan.get("key_points", [])[:10]:
+                                body_lines.append(f"- {point}")
+                    else:
+                        summary_text = "；".join(page_plan.get("summary_notes", [])[:2]) or "概念页面"
+                        body_lines = []
+                        if page_plan.get("key_facts"):
+                            body_lines.extend(["## 关键事实", ""])
+                            for fact in page_plan.get("key_facts", [])[:12]:
+                                body_lines.append(f"- {fact}")
+                        if page_plan.get("evidence"):
+                            body_lines.extend(["", "## 依据片段", ""])
+                            for evidence in page_plan.get("evidence", [])[:8]:
+                                body_lines.append(f"- {evidence}")
+                        if page_plan.get("related_pages"):
+                            body_lines.extend(["", "## 相关页面", ""])
+                            for related in sorted(page_plan.get("related_pages", []))[:8]:
+                                body_lines.append(f"- [[{related}]]")
+
+                    content = WikiService._fallback_markdown_page(
+                        page_title=page_title,
+                        source_file=doc_info["file"],
+                        summary_text=summary_text,
+                        body_lines=body_lines or ["正文内容"],
+                    )
+
+                filtered_wiki_files.append({
+                    "file": f"wiki/{page_slug}.md",
+                    "content": content,
+                })
 
             if not filtered_wiki_files:
                 filtered_wiki_files = [{
                     "file": f"wiki/{Path(doc_info['file']).stem}-summary.md",
-                    "content": f"# {doc_info['file']}\n\n**Summary**: 文档摘要\n\n**Sources**: {doc_info['file']}\n\n**Last updated**: {datetime.now().strftime('%Y-%m-%d')}\n\n---\n\n{text[:5000]}"
+                    "content": WikiService._fallback_markdown_page(
+                        page_title=Path(doc_info["file"]).stem,
+                        source_file=doc_info["file"],
+                        summary_text="文档摘要",
+                        body_lines=["正文内容"],
+                    )
                 }]
             
             # 保存Wiki文件
@@ -487,7 +921,6 @@ class WikiService:
         
         for page in all_pages:
             # 排除自身引用和index引用
-            inbound = {p for p in linked_pages if p == page}
             # 检查是否有其他页面引用此页面
             has_inbound = False
             for other_page, content in page_contents.items():

@@ -20,6 +20,11 @@ import * as Popover from '@radix-ui/react-popover';
 import { useApp } from '../../../lib/context';
 import { chatApi, docApi } from '../../../lib/api';
 import { buildChatMemory } from '../../lib/chat-memory';
+import {
+  acquireConversationLock,
+  isConversationLocked as isConversationLockedNow,
+  useConversationLock,
+} from '../../lib/conversation-lock';
 import { normalizeAssistantText, renderAssistantBubble } from '../../lib/chat-render';
 import LogoMark from '../LogoMark';
 import type { KnowledgeBase } from '../../../lib/types';
@@ -93,6 +98,7 @@ function getConversationTitle(messages: Array<{ role: string; content: string }>
 
 export default function ChatPage() {
   const { knowledgeBases, providers, currentModelId } = useApp();
+  const isConversationLocked = useConversationLock();
   const [draftSelectedKbs, setDraftSelectedKbs] = useState<string[]>(() => readLocal(STORAGE_KEYS.current, {
     messages: initialMessages,
     selectedKbs: [],
@@ -176,6 +182,7 @@ export default function ChatPage() {
   const modelRef = useRef<HTMLDivElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef(messages);
+  const releaseSendLockRef = useRef<null | (() => void)>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -339,7 +346,7 @@ export default function ChatPage() {
 
   const handleSend = (questionOverride?: string) => {
     const question = (questionOverride ?? input).trim();
-    if (!question || isLoading) return;
+    if (!question || isLoading || isConversationLockedNow()) return;
     const sessionIdAtSend = activeSessionId;
     const updateActiveConversation = (
       updater: Parameters<typeof setMessages>[0],
@@ -367,6 +374,8 @@ export default function ChatPage() {
       setDraftSessionTitle(titleSeed);
     }
     if (!questionOverride) setInput('');
+    const releaseLock = acquireConversationLock();
+    releaseSendLockRef.current = releaseLock;
     setIsLoading(true);
 
     // 添加助手占位消息
@@ -409,25 +418,28 @@ export default function ChatPage() {
             time,
           } : session));
         }
+        releaseSendLockRef.current?.();
+        releaseSendLockRef.current = null;
+        setIsLoading(false);
+      },
+      () => {
+        if (sessionIdAtSend !== CURRENT_SESSION_ID) {
+          setChatHistory(prev => prev.map(session => session.id === sessionIdAtSend ? {
+            ...session,
+            messages: [...messagesRef.current],
+            selectedKbs: [...selectedKbs],
+            modelId: selectedModelId,
+            useWebSearch,
+            contextCleared,
+            title: currentSessionTitle,
+            time,
+          } : session));
+        }
+        releaseSendLockRef.current?.();
+        releaseSendLockRef.current = null;
         setIsLoading(false);
       }
     );
-    // 一秒后恢复发送能力（流式输出不阻止输入）
-    setTimeout(() => {
-      if (sessionIdAtSend !== CURRENT_SESSION_ID) {
-        setChatHistory(prev => prev.map(session => session.id === sessionIdAtSend ? {
-          ...session,
-          messages: [...messagesRef.current],
-          selectedKbs: [...selectedKbs],
-          modelId: selectedModelId,
-          useWebSearch,
-          contextCleared,
-          title: currentSessionTitle,
-          time,
-        } : session));
-      }
-      setIsLoading(false);
-    }, 1000);
   };
 
   const copyMessage = (text: string) => {
@@ -695,7 +707,8 @@ export default function ChatPage() {
                       <button
                         onClick={() => regenerateMessage(idx)}
                         title="重新生成"
-                        className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                        disabled={isLoading || isConversationLocked}
+                        className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-100 hover:text-slate-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <RefreshCw className="w-3.5 h-3.5" />
                       </button>
@@ -789,8 +802,8 @@ export default function ChatPage() {
                 <div className="flex items-center gap-3 flex-shrink-0">
                   <button
                     onClick={handleSend}
-                    disabled={!input.trim() || isLoading}
-                    title={isLoading ? '正在生成中...' : ''}
+                    disabled={!input.trim() || isLoading || isConversationLocked}
+                    title={isLoading || isConversationLocked ? '前一个回答仍在生成中' : ''}
                     className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
                   >
                     <Send className="w-3.5 h-3.5" />

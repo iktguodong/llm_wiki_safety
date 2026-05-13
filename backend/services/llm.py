@@ -14,7 +14,16 @@ class LLMService:
     
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=120.0)
-    
+
+    @staticmethod
+    def _format_missing_api_key_message(provider: Dict, model: Dict) -> str:
+        provider_name = provider.get("name") or provider.get("id") or "模型服务商"
+        model_name = model.get("name") or model.get("id") or "当前模型"
+        return (
+            f"API Key 未配置，当前使用的是「{provider_name} / {model_name}」。"
+            "请前往「设置」页补充 API Key 后再重试。"
+        )
+
     def _get_model_config(self, model_id: str) -> Optional[Dict]:
         """获取模型配置"""
         providers = config.get("models", {}).get("providers", [])
@@ -55,9 +64,14 @@ class LLMService:
         
         provider = model_config["provider"]
         model = model_config["model"]
+
+        api_key = (provider.get("api_key") or "").strip()
+        if not api_key:
+            yield self._format_missing_api_key_message(provider, model)
+            return
         
         headers = {
-            "Authorization": f"Bearer {provider.get('api_key', '')}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
         
@@ -135,9 +149,16 @@ class LLMService:
         Returns:
             {"valid": bool, "message": str, "available_models": List[str]}
         """
+        if not api_key or not api_key.strip():
+            return {
+                "valid": False,
+                "message": "API Key 为空，请先在「设置」页填写后再测试连接。",
+                "available_models": []
+            }
+
         try:
             headers = {
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {api_key.strip()}",
                 "Content-Type": "application/json"
             }
             
