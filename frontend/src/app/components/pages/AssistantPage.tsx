@@ -213,9 +213,11 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   const [searchOpen, setSearchOpen] = useState(false);
   const [showAssistantList, setShowAssistantList] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const loadingTopicIdsRef = useRef<Record<string, boolean>>({});
+  const autoScrollEnabledRef = useRef(true);
   const allModels = providers.flatMap(p => p.models);
   const items = useMemo(
     () => buildMergedAssistants(customAssistants, overrides, hiddenDefaultIds),
@@ -271,8 +273,27 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAssistant?.id]);
 
+  const scrollMessagesToBottom = (behavior: ScrollBehavior = 'auto') => {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior });
+  };
+
+  const syncAutoScrollState = () => {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    autoScrollEnabledRef.current = distanceFromBottom < 96;
+  };
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    autoScrollEnabledRef.current = true;
+    scrollMessagesToBottom('auto');
+  }, [currentTopicId]);
+
+  useEffect(() => {
+    if (!autoScrollEnabledRef.current) return;
+    scrollMessagesToBottom('auto');
   }, [messages]);
 
   useEffect(() => {
@@ -798,7 +819,11 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                 ))}
               </div>
 
-              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+              <div
+                ref={messagesScrollRef}
+                onScroll={syncAutoScrollState}
+                className="flex-1 overflow-y-auto px-6 py-5 space-y-5"
+              >
                 {messages.length > 0 ? messages.map((msg, idx) => (
                   <div
                     key={idx}

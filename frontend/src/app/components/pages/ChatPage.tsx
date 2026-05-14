@@ -150,16 +150,37 @@ export default function ChatPage() {
   const [contextCleared, setContextCleared] = useState(() => currentSessionStorage.contextCleared ?? false);
   const [loadingSessionIds, setLoadingSessionIds] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef<ChatMessage[]>(messages);
   const activeSessionIdRef = useRef(activeSessionId);
   const loadingSessionIdsRef = useRef<Record<string, boolean>>({});
+  const autoScrollEnabledRef = useRef(true);
   const currentSessionLoading = !!loadingSessionIds[activeSessionId];
   const currentConversationLoading = !!loadingSessionIds[CURRENT_SESSION_ID];
 
+  const scrollMessagesToBottom = (behavior: ScrollBehavior = 'auto') => {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior });
+  };
+
+  const syncAutoScrollState = () => {
+    const container = messagesScrollRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    autoScrollEnabledRef.current = distanceFromBottom < 96;
+  };
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    autoScrollEnabledRef.current = true;
+    scrollMessagesToBottom('auto');
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    if (!autoScrollEnabledRef.current) return;
+    scrollMessagesToBottom('auto');
   }, [messages]);
 
   useEffect(() => {
@@ -768,7 +789,11 @@ export default function ChatPage() {
         </aside>
 
         <div className="flex-1 min-w-0 flex flex-col">
-          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+          <div
+            ref={messagesScrollRef}
+            onScroll={syncAutoScrollState}
+            className="flex-1 overflow-y-auto px-6 py-6 space-y-6"
+          >
             {messages.map((msg, idx) => (
               <div
                 key={idx}
