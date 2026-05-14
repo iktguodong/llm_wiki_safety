@@ -576,11 +576,12 @@ def inject_training_html_safety_styles(html: str) -> str:
     html, body {
       width: 100%;
       height: 100%;
+      margin: 0;
+      padding: 0;
       -webkit-text-size-adjust: 100%;
       text-rendering: optimizeLegibility;
     }
     body {
-      margin: 0;
       min-height: 100vh;
       overflow: hidden;
       color: var(--training-text);
@@ -591,8 +592,8 @@ def inject_training_html_safety_styles(html: str) -> str:
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
     }
     .deck {
-      width: 100vw;
-      height: 100vh;
+      position: fixed;
+      inset: 0;
       display: grid;
       place-items: center;
       padding: var(--training-deck-pad-y) var(--training-deck-pad-x);
@@ -630,6 +631,14 @@ def inject_training_html_safety_styles(html: str) -> str:
     }
     .slide.active {
       display: flex !important;
+    }
+    .slide.dense {
+      padding: clamp(20px, 1.9vw, 34px) clamp(24px, 2.2vw, 46px) clamp(58px, 5.6vh, 78px);
+      gap: clamp(8px, 0.8vw, 14px);
+    }
+    .slide.very-dense {
+      padding: clamp(16px, 1.6vw, 28px) clamp(20px, 1.9vw, 40px) clamp(50px, 4.8vh, 66px);
+      gap: clamp(6px, 0.7vw, 12px);
     }
     .slide :is(p, li, td, th, div, span) {
       overflow-wrap: break-word;
@@ -887,10 +896,28 @@ def inject_training_html_safety_styles(html: str) -> str:
     .compare-item {
       padding: clamp(14px, 1.6vw, 22px);
     }
+    .slide.dense .card,
+    .slide.dense .qa-card,
+    .slide.dense .compare-col,
+    .slide.dense .compare-item {
+      padding: clamp(12px, 1.3vw, 18px);
+    }
+    .slide.very-dense .card,
+    .slide.very-dense .qa-card,
+    .slide.very-dense .compare-col,
+    .slide.very-dense .compare-item {
+      padding: clamp(10px, 1.1vw, 15px);
+    }
     .card-body {
       display: flex;
       flex-direction: column;
       gap: clamp(8px, 0.8vw, 12px);
+    }
+    .slide.dense .card-body {
+      gap: clamp(6px, 0.7vw, 10px);
+    }
+    .slide.very-dense .card-body {
+      gap: clamp(4px, 0.55vw, 8px);
     }
     .card-body > * {
       flex: 0 0 auto;
@@ -1191,6 +1218,84 @@ def inject_training_html_safety_styles(html: str) -> str:
     .slide .card[style*="color: #ffffff"] :is(p, li, span, div, strong, b, em, .card-title, .card-body) {
       color: #ffffff !important;
     }
+    .slide.dense h1,
+    .slide.dense .slide-title {
+      margin-bottom: 14px;
+      font-size: clamp(28px, 2.2vw, 38px) !important;
+    }
+    .slide.dense h2 {
+      margin-bottom: 14px;
+      font-size: clamp(22px, 1.8vw, 30px) !important;
+    }
+    .slide.dense h3,
+    .slide.dense .card-title {
+      margin-bottom: 10px;
+      font-size: clamp(17px, 1.2vw, 21px) !important;
+    }
+    .slide.dense p,
+    .slide.dense li {
+      font-size: clamp(14px, 0.95vw, 17px) !important;
+      line-height: 1.42 !important;
+    }
+    .slide.dense .page-title {
+      font-size: clamp(24px, 1.85vw, 32px) !important;
+    }
+    .slide.dense .page-core,
+    .slide.dense .slide-subtitle,
+    .slide.dense .cover-meta {
+      font-size: clamp(15px, 0.98vw, 18px) !important;
+      line-height: 1.36 !important;
+    }
+    .slide.dense .content-grid {
+      gap: clamp(10px, 1.05vw, 18px);
+    }
+    .slide.dense .table-wrap th,
+    .slide.dense .table-wrap td {
+      padding: 12px 14px;
+      font-size: clamp(13px, 0.92vw, 16px) !important;
+    }
+    .slide.dense .flow-step {
+      padding: 12px 10px;
+    }
+    .slide.very-dense h1,
+    .slide.very-dense .slide-title {
+      margin-bottom: 12px;
+      font-size: clamp(24px, 2vw, 34px) !important;
+    }
+    .slide.very-dense h2 {
+      margin-bottom: 12px;
+      font-size: clamp(20px, 1.65vw, 28px) !important;
+    }
+    .slide.very-dense h3,
+    .slide.very-dense .card-title {
+      margin-bottom: 8px;
+      font-size: clamp(15px, 1.05vw, 19px) !important;
+    }
+    .slide.very-dense p,
+    .slide.very-dense li {
+      font-size: clamp(13px, 0.88vw, 15px) !important;
+      line-height: 1.35 !important;
+    }
+    .slide.very-dense .page-title {
+      font-size: clamp(22px, 1.7vw, 30px) !important;
+    }
+    .slide.very-dense .page-core,
+    .slide.very-dense .slide-subtitle,
+    .slide.very-dense .cover-meta {
+      font-size: clamp(14px, 0.9vw, 16px) !important;
+      line-height: 1.3 !important;
+    }
+    .slide.very-dense .content-grid {
+      gap: clamp(8px, 0.85vw, 14px);
+    }
+    .slide.very-dense .table-wrap th,
+    .slide.very-dense .table-wrap td {
+      padding: 10px 12px;
+      font-size: clamp(12px, 0.82vw, 14px) !important;
+    }
+    .slide.very-dense .flow-step {
+      padding: 10px 8px;
+    }
     /* 防止白底白字：如果卡片同时设了浅色/白色背景及白色文字，则强制转为深色文字 */
     .slide .card[style*="color:#fff"][style*="background:#fff"],
     .slide .card[style*="color: #fff"][style*="background: #fff"],
@@ -1349,7 +1454,7 @@ def inject_training_html_controls(html: str) -> str:
             if "active" in classes:
                 slide["class"] = [c for c in classes if c != "active"]
 
-    cleaned_html = str(soup)
+    cleaned_html = _apply_density_classes(str(soup))
     if "</body>" not in cleaned_html:
         return cleaned_html
 
@@ -1369,6 +1474,10 @@ def inject_training_html_controls(html: str) -> str:
       const progressBar = document.getElementById('progressBar');
       let currentSlide = 0;
 
+      function syncFullscreenState() {
+        document.body.classList.toggle('training-html-fullscreen', !!document.fullscreenElement);
+      }
+
       function showSlide(index) {
         if (!slides.length) return;
         currentSlide = (index + slides.length) % slides.length;
@@ -1386,6 +1495,9 @@ def inject_training_html_controls(html: str) -> str:
           document.documentElement.requestFullscreen?.();
         }
       };
+
+      document.addEventListener('fullscreenchange', syncFullscreenState);
+      syncFullscreenState();
 
       window.addEventListener('keydown', (event) => {
         if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
@@ -1444,8 +1556,43 @@ def _slide_sections_from_text(text: str) -> list[str]:
     )
 
 
+def _slide_density_level(slide_tag: Any) -> str | None:
+    text = re.sub(r"\s+", "", slide_tag.get_text(" ", strip=True))
+    if not text:
+        return None
+
+    card_count = len(slide_tag.select(".card, .qa-card, .compare-col, .compare-item, .flow-step, .alert-box, .table-wrap"))
+    table_count = len(slide_tag.select("table"))
+    list_count = len(slide_tag.select("ul, ol"))
+    heading_count = len(slide_tag.select("h1, h2, h3"))
+
+    density_score = len(text)
+    density_score += card_count * 260
+    density_score += table_count * 520
+    density_score += list_count * 120
+    density_score += heading_count * 60
+
+    if density_score >= 5200:
+        return "very-dense"
+    if density_score >= 3000:
+        return "dense"
+    return None
+
+
+def _apply_density_classes(html: str) -> str:
+    soup = BeautifulSoup(html or "", "html.parser")
+    for slide in soup.select(".slide"):
+        level = _slide_density_level(slide)
+        classes = slide.get("class") or []
+        classes = [cls for cls in classes if cls not in {"dense", "very-dense"}]
+        if level:
+            classes.append(level)
+        slide["class"] = classes
+    return str(soup)
+
+
 def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> str:
-    slides = "\n".join(slide_fragments)
+    slides = "\n".join(_apply_density_classes(fragment) for fragment in slide_fragments)
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1465,9 +1612,8 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     *,
     *::before,
     *::after {{ box-sizing: border-box; }}
-    html, body {{ width: 100%; height: 100%; }}
+    html, body {{ width: 100%; height: 100%; margin: 0; padding: 0; }}
     body {{
-      margin: 0;
       min-height: 100vh;
       background: #eef2ff;
       color: var(--slide-text);
@@ -1477,8 +1623,8 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
       text-rendering: optimizeLegibility;
     }}
     .deck {{
-      width: 100vw;
-      height: 100vh;
+      position: fixed;
+      inset: 0;
       display: grid;
       place-items: center;
       padding: var(--deck-pad-y) var(--deck-pad-x);
@@ -1510,6 +1656,14 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     .slide.active {{
       display: flex;
       flex-direction: column;
+    }}
+    .slide.dense {{
+      padding: clamp(20px, 1.9vw, 34px) clamp(24px, 2.2vw, 46px) clamp(58px, 5.6vh, 78px);
+      gap: clamp(8px, 0.8vw, 14px);
+    }}
+    .slide.very-dense {{
+      padding: clamp(16px, 1.6vw, 28px) clamp(20px, 1.9vw, 40px) clamp(50px, 4.8vh, 66px);
+      gap: clamp(6px, 0.7vw, 12px);
     }}
     .slide :is(p, li, td, th, div, span) {{
       overflow-wrap: break-word;
@@ -1564,7 +1718,9 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     .card,
     .qa-card,
     .compare-col,
-    .compare-item,
+    .compare-item {{
+      overflow: visible;
+    }}
     .flow-step,
     .alert-box {{
       overflow: hidden;
@@ -1587,10 +1743,28 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     .compare-item {{
       padding: clamp(14px, 1.6vw, 22px);
     }}
+    .slide.dense .card,
+    .slide.dense .qa-card,
+    .slide.dense .compare-col,
+    .slide.dense .compare-item {{
+      padding: clamp(12px, 1.3vw, 18px);
+    }}
+    .slide.very-dense .card,
+    .slide.very-dense .qa-card,
+    .slide.very-dense .compare-col,
+    .slide.very-dense .compare-item {{
+      padding: clamp(10px, 1.1vw, 15px);
+    }}
     .card-body {{
       display: flex;
       flex-direction: column;
       gap: clamp(8px, 0.8vw, 12px);
+    }}
+    .slide.dense .card-body {{
+      gap: clamp(6px, 0.7vw, 10px);
+    }}
+    .slide.very-dense .card-body {{
+      gap: clamp(4px, 0.55vw, 8px);
     }}
     .card-body > * {{
       flex: 0 0 auto;
@@ -1723,6 +1897,10 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     .page-indicator {{ min-width: 78px; text-align: center; font-size: 14px; color: #334155; }}
     .progress {{ position: fixed; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(148,163,184,.28); }}
     .progress-bar {{ height: 100%; width: 0; background: #f97316; transition: width .25s ease; }}
+    body.training-html-fullscreen .controls,
+    body.training-html-fullscreen .progress {{
+      display: none !important;
+    }}
     .slide .card[style*="color:#fff"],
     .slide .card[style*="color: #fff"],
     .slide .card[style*="color:#ffffff"],
@@ -1734,6 +1912,84 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     .slide .card[style*="color:#ffffff"] :is(p, li, span, div, strong, b, em, .card-title, .card-body),
     .slide .card[style*="color: #ffffff"] :is(p, li, span, div, strong, b, em, .card-title, .card-body) {{
       color: #ffffff !important;
+    }}
+    .slide.dense h1,
+    .slide.dense .slide-title {{
+      margin-bottom: 14px;
+      font-size: clamp(28px, 2.2vw, 38px) !important;
+    }}
+    .slide.dense h2 {{
+      margin-bottom: 14px;
+      font-size: clamp(22px, 1.8vw, 30px) !important;
+    }}
+    .slide.dense h3,
+    .slide.dense .card-title {{
+      margin-bottom: 10px;
+      font-size: clamp(17px, 1.2vw, 21px) !important;
+    }}
+    .slide.dense p,
+    .slide.dense li {{
+      font-size: clamp(14px, 0.95vw, 17px) !important;
+      line-height: 1.42 !important;
+    }}
+    .slide.dense .page-title {{
+      font-size: clamp(24px, 1.85vw, 32px) !important;
+    }}
+    .slide.dense .page-core,
+    .slide.dense .slide-subtitle,
+    .slide.dense .cover-meta {{
+      font-size: clamp(15px, 0.98vw, 18px) !important;
+      line-height: 1.36 !important;
+    }}
+    .slide.dense .content-grid {{
+      gap: clamp(10px, 1.05vw, 18px);
+    }}
+    .slide.dense .table-wrap th,
+    .slide.dense .table-wrap td {{
+      padding: 12px 14px;
+      font-size: clamp(13px, 0.92vw, 16px) !important;
+    }}
+    .slide.dense .flow-step {{
+      padding: 12px 10px;
+    }}
+    .slide.very-dense h1,
+    .slide.very-dense .slide-title {{
+      margin-bottom: 12px;
+      font-size: clamp(24px, 2vw, 34px) !important;
+    }}
+    .slide.very-dense h2 {{
+      margin-bottom: 12px;
+      font-size: clamp(20px, 1.65vw, 28px) !important;
+    }}
+    .slide.very-dense h3,
+    .slide.very-dense .card-title {{
+      margin-bottom: 8px;
+      font-size: clamp(15px, 1.05vw, 19px) !important;
+    }}
+    .slide.very-dense p,
+    .slide.very-dense li {{
+      font-size: clamp(13px, 0.88vw, 15px) !important;
+      line-height: 1.35 !important;
+    }}
+    .slide.very-dense .page-title {{
+      font-size: clamp(22px, 1.7vw, 30px) !important;
+    }}
+    .slide.very-dense .page-core,
+    .slide.very-dense .slide-subtitle,
+    .slide.very-dense .cover-meta {{
+      font-size: clamp(14px, 0.9vw, 16px) !important;
+      line-height: 1.3 !important;
+    }}
+    .slide.very-dense .content-grid {{
+      gap: clamp(8px, 0.85vw, 14px);
+    }}
+    .slide.very-dense .table-wrap th,
+    .slide.very-dense .table-wrap td {{
+      padding: 10px 12px;
+      font-size: clamp(12px, 0.82vw, 14px) !important;
+    }}
+    .slide.very-dense .flow-step {{
+      padding: 10px 8px;
     }}
     @page {{
       size: 16in 9in;
@@ -1787,6 +2043,9 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     const slides = Array.from(document.querySelectorAll('.slide'));
     const pageIndicator = document.getElementById('pageIndicator');
     const progressBar = document.getElementById('progressBar');
+    function syncFullscreenState() {{
+      document.body.classList.toggle('training-html-fullscreen', !!document.fullscreenElement);
+    }}
     function showSlide(index) {{
       if (!slides.length) return;
       currentSlide = Math.max(0, Math.min(index, slides.length - 1));
@@ -1797,6 +2056,8 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     function nextSlide() {{ showSlide(currentSlide + 1); }}
     function prevSlide() {{ showSlide(currentSlide - 1); }}
     function toggleFullscreen() {{ document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); }}
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    syncFullscreenState();
     document.addEventListener('keydown', (event) => {{
       if (['ArrowRight', 'PageDown', ' '].includes(event.key)) {{ event.preventDefault(); nextSlide(); }}
       if (['ArrowLeft', 'PageUp'].includes(event.key)) {{ event.preventDefault(); prevSlide(); }}
