@@ -83,7 +83,7 @@ class ChatService:
     """问答服务"""
 
     _WEB_SEARCH_MAX_CANDIDATES = 8
-    _WEB_SEARCH_BASE_RESULTS = 3
+    _WEB_SEARCH_BASE_RESULTS = 5
     _AUTO_CONTINUATION_MAX_ATTEMPTS = 4
     _AUTO_CONTINUATION_TAIL_CHARS = 240
     _AUTO_CONTINUATION_MAX_TOKENS = 8192
@@ -220,6 +220,20 @@ class ChatService:
         return max(1, min(available, min(limit, ChatService._WEB_SEARCH_MAX_CANDIDATES)))
 
     @staticmethod
+    def _simplify_web_search_question(question: str) -> str:
+        """把检索词做轻量清洗，尽量保留原意。"""
+        text = re.sub(r"\s+", " ", question).strip()
+        if not text:
+            return text
+
+        if "：" in text or ":" in text:
+            text = re.split(r"[:：]", text)[-1].strip() or text
+
+        text = re.sub(r"[，,。！？!?；;、/]+", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    @staticmethod
     def _select_web_results(question: str, results: List[Dict[str, str]]) -> List[Dict[str, str]]:
         if not results:
             return []
@@ -241,39 +255,51 @@ class ChatService:
     @staticmethod
     async def _web_search(question: str, max_results: int = _WEB_SEARCH_MAX_CANDIDATES) -> List[Dict[str, str]]:
         """使用 DuckDuckGo HTML 结果页做轻量联网搜索。"""
-        try:
-            async with httpx.AsyncClient(
-                timeout=10,
-                follow_redirects=True,
-                headers={"User-Agent": "Mozilla/5.0 (Codex Wiki Assistant)"},
-            ) as client:
-                resp = await client.get("https://html.duckduckgo.com/html/", params={"q": question})
-                resp.raise_for_status()
-        except Exception:
-            return []
-
         pattern = re.compile(
             r'(?is)<div class="result[^"]*".*?'
             r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>.*?'
             r'(?:<a[^>]*class="result__snippet"[^>]*>(.*?)</a>|<div[^>]*class="result__snippet"[^>]*>(.*?)</div>)'
         )
 
-        results: List[Dict[str, str]] = []
-        for match in pattern.finditer(resp.text):
-            url = ChatService._normalize_web_url(match.group(1).strip())
-            title = ChatService._strip_html(match.group(2))
-            snippet = ChatService._strip_html(match.group(3) or match.group(4) or "")
-            if not title or not snippet:
-                continue
-            results.append({
-                "title": title,
-                "url": url,
-                "snippet": snippet,
-            })
-            if len(results) >= max_results:
-                break
+        queries = [question.strip()]
+        simplified_question = ChatService._simplify_web_search_question(question)
+        if simplified_question and simplified_question not in queries:
+            queries.append(simplified_question)
 
-        return results
+        async with httpx.AsyncClient(
+            timeout=10,
+            follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (Codex Wiki Assistant)"},
+        ) as client:
+            for search_question in queries:
+                try:
+                    resp = await client.get("https://html.duckduckgo.com/html/", params={"q": search_question})
+                    resp.raise_for_status()
+                except Exception:
+                    continue
+
+                if resp.status_code != 200:
+                    continue
+
+                results: List[Dict[str, str]] = []
+                for match in pattern.finditer(resp.text):
+                    url = ChatService._normalize_web_url(match.group(1).strip())
+                    title = ChatService._strip_html(match.group(2))
+                    snippet = ChatService._strip_html(match.group(3) or match.group(4) or "")
+                    if not title or not snippet:
+                        continue
+                    results.append({
+                        "title": title,
+                        "url": url,
+                        "snippet": snippet,
+                    })
+                    if len(results) >= max_results:
+                        break
+
+                if results:
+                    return results
+
+        return []
 
     @staticmethod
     def _format_web_results(results: List[Dict[str, str]]) -> str:
@@ -288,9 +314,9 @@ class ChatService:
 
     @staticmethod
     async def _build_web_results(question: str, history_messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
-        search_question = ChatService._build_contextual_question(question, history_messages)
-        raw_results = await ChatService._web_search(search_question)
-        return ChatService._select_web_results(search_question, raw_results)
+        del history_messages
+        raw_results = await ChatService._web_search(question)
+        return ChatService._select_web_results(question, raw_results)
 
     @staticmethod
     def _build_web_prompt(question: str, web_results: List[Dict[str, str]]) -> str:
