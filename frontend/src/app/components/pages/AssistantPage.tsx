@@ -23,7 +23,7 @@ import {
   DEFAULT_ASSISTANT_ICON,
 } from '../../data/assistant-icons';
 import { useApp } from '../../../lib/context';
-import { assistantApi, chatApi, docApi } from '../../../lib/api';
+import { assistantApi, chatApi, trainingApi } from '../../../lib/api';
 import { buildChatMemory } from '../../lib/chat-memory';
 import {
   normalizeAssistantText,
@@ -33,6 +33,7 @@ import {
 import { MessageActionBar } from '../MessageActionBar';
 import AssistantIcon from '../AssistantIcon';
 import LogoMark from '../LogoMark';
+import type { TemporaryTrainingUploadResponse } from '../../../lib/types';
 
 const ASSISTANT_CUSTOM_KEY = 'anniu-assistant-custom-v2';
 const ASSISTANT_OVERRIDES_KEY = 'anniu-assistant-overrides-v2';
@@ -152,6 +153,7 @@ type AssistantTopic = {
   assistantId: string;
   title: string;
   messages: AssistantMessage[];
+  temporaryUploads: TemporaryTrainingUploadResponse[];
   contextCleared: boolean;
   useWebSearch?: boolean;
   updatedAt: string;
@@ -224,6 +226,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   const currentTopic = topics.find(topic => topic.id === currentTopicId && topic.assistantId === selectedAssistant?.id) || assistantTopics[0];
   const messages = currentTopic?.messages || [];
   const currentTopicLoading = currentTopic ? !!loadingTopicIds[currentTopic.id] : false;
+  const activeTemporaryUploads = currentTopic?.temporaryUploads || [];
 
   useEffect(() => {
     localStorage.setItem(ASSISTANT_CUSTOM_KEY, JSON.stringify(customAssistants));
@@ -364,6 +367,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     assistantId: assistant.id,
     title: '新话题',
     messages: [],
+    temporaryUploads: [],
     contextCleared: false,
     useWebSearch: assistant.use_web_search,
     updatedAt: new Date().toISOString(),
@@ -430,14 +434,14 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   };
 
   const handleUploadDocument = async (file?: File | null) => {
-    const targetKbId = selectedAssistant?.default_knowledge_base_ids[0];
-    if (!targetKbId) {
-      window.alert('请先在助手设置里绑定一个知识库，再上传文档。');
-      return;
-    }
     if (!file) return;
     try {
-      await docApi.upload(targetKbId, file);
+      const uploaded = await trainingApi.uploadTemporary(file);
+      updateCurrentTopic(topic => ({
+        ...topic,
+        temporaryUploads: [...(topic.temporaryUploads || []).filter(item => item.upload_id !== uploaded.upload_id), uploaded],
+        updatedAt: new Date().toISOString(),
+      }));
     } catch (err) {
       window.alert(err instanceof Error ? err.message : '上传失败');
     } finally {
@@ -525,6 +529,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     const historyMessages = buildChatMemory(currentTopic.messages, {
       resetMarkers: ['已清除当前话题上下文。接下来的回答将从新的上下文开始。'],
     });
+    const sourceTemporaryUploads = currentTopic.temporaryUploads || [];
     updateTopicById(targetTopicId, topic => ({
       ...topic,
       title: topic.title === '新话题' ? question.slice(0, 30) : topic.title,
@@ -548,6 +553,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
           question,
           messages: historyMessages,
           knowledge_base_ids: selectedAssistant.default_knowledge_base_ids,
+          temporary_upload_ids: sourceTemporaryUploads.map(item => item.upload_id),
           model_id: selectedAssistant.default_model_id || currentModelId,
           use_web_search: currentTopic?.useWebSearch ?? selectedAssistant.use_web_search,
           assistant_id: selectedAssistant.id,
@@ -865,6 +871,33 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                     rows={2}
                     className="w-full px-4 pt-4 pb-2 resize-none outline-none text-sm text-slate-700 placeholder-slate-400 bg-transparent"
                   />
+                  {activeTemporaryUploads.length > 0 && (
+                    <div className="px-3 pb-2 flex flex-wrap gap-2">
+                      {activeTemporaryUploads.map(upload => (
+                        <span
+                          key={upload.upload_id}
+                          className="inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700"
+                        >
+                          <span className="max-w-48 truncate" title={upload.filename}>
+                            {upload.filename}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => updateCurrentTopic(topic => ({
+                              ...topic,
+                              temporaryUploads: (topic.temporaryUploads || []).filter(item => item.upload_id !== upload.upload_id),
+                              updatedAt: new Date().toISOString(),
+                            }))}
+                            className="text-emerald-500 hover:text-emerald-700"
+                            aria-label={`移除 ${upload.filename}`}
+                            title="移除"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="px-3 pb-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                       <button

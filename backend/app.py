@@ -372,7 +372,8 @@ async def chat(data: ChatRequest):
             data.messages,
             data.model_id,
             data.use_web_search,
-            data.assistant_prompt
+            data.assistant_prompt,
+            data.temporary_upload_ids,
         ):
             yield chunk
     
@@ -388,7 +389,8 @@ async def chat_sync(data: ChatRequest):
         data.messages,
         data.model_id,
         data.use_web_search,
-        data.assistant_prompt
+        data.assistant_prompt,
+        data.temporary_upload_ids,
     )
     return ApiResponse(data=ChatResponse(answer=answer))
 

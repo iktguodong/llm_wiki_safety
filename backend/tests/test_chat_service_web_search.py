@@ -6,6 +6,7 @@ import httpx
 from backend.models import ChatMessage
 from backend.services.chat import ChatService
 from backend.services.llm import llm_service
+from backend.services.presentation.project_store import get_upload_dir, save_upload_metadata
 
 
 def _make_result(title: str, snippet: str) -> dict[str, str]:
@@ -157,3 +158,42 @@ async def test_ask_sync_uses_web_results_in_prompt(monkeypatch):
     assert captured_messages
     assert "## 联网检索结果" in captured_messages[0][-1]["content"]
     assert "中华人民共和国安全生产法" in captured_messages[0][-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_ask_sync_includes_temporary_upload_context(monkeypatch):
+    upload_id = "upload-test-1"
+    upload_dir = get_upload_dir(upload_id)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    file_path = upload_dir / "external-note.txt"
+    file_path.write_text("这是临时上传文档的正文内容。", encoding="utf-8")
+    save_upload_metadata(upload_id, {
+        "upload_id": upload_id,
+        "filename": file_path.name,
+        "original_filename": "外部文件.txt",
+        "size": file_path.stat().st_size,
+        "detected_type": "txt",
+        "path": str(file_path),
+    })
+
+    captured_messages: list[list[dict[str, str]]] = []
+
+    async def fake_chat_events(messages, model_id=None, stream=False, temperature=0.7, max_tokens=None):
+        captured_messages.append(messages)
+        yield {"type": "chunk", "content": "已结合临时上传文档回答。"}
+        yield {"type": "done", "finish_reason": "stop"}
+
+    monkeypatch.setattr(llm_service, "chat_events", fake_chat_events)
+
+    result = await ChatService.ask_sync(
+        "请解读这份文件。",
+        [],
+        messages=[],
+        model_id="deepseek-v4-flash",
+        temporary_upload_ids=[upload_id],
+    )
+
+    assert result == "已结合临时上传文档回答。"
+    assert captured_messages
+    assert any("临时上传的文档内容" in message["content"] for message in captured_messages[0] if message["role"] == "system")
+    assert any("外部文件.txt" in message["content"] for message in captured_messages[0] if message["role"] == "system")

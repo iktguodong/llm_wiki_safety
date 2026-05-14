@@ -121,6 +121,7 @@ export interface ChatRequest {
   question: string;
   messages?: ChatMessage[];
   knowledge_base_ids: string[];
+  temporary_upload_ids?: string[];
   model_id?: string;
   use_web_search?: boolean;
   assistant_id?: string;

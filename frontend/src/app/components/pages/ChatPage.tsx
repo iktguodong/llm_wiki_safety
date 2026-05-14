@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { useApp } from '../../../lib/context';
-import { chatApi, docApi } from '../../../lib/api';
+import { chatApi, trainingApi } from '../../../lib/api';
 import { buildChatMemory } from '../../lib/chat-memory';
 import {
   normalizeAssistantText,
@@ -23,7 +23,7 @@ import {
 } from '../../lib/chat-render';
 import { MessageActionBar } from '../MessageActionBar';
 import LogoMark from '../LogoMark';
-import type { KnowledgeBase } from '../../../lib/types';
+import type { KnowledgeBase, TemporaryTrainingUploadResponse } from '../../../lib/types';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -49,6 +49,7 @@ type ChatSession = {
   messages: ChatMessage[];
   selectedKbs: string[];
   modelId: string;
+  temporaryUploads: TemporaryTrainingUploadResponse[];
   useWebSearch: boolean;
   contextCleared: boolean;
   title: string;
@@ -115,86 +116,38 @@ function buildMessageExportName(role: ChatMessage['role'], index: number, format
   return `${prefix}-${index + 1}.${format}`;
 }
 
+function createCurrentSessionFallback(modelId: string) {
+  return {
+    messages: initialMessages,
+    selectedKbs: [],
+    modelId,
+    useWebSearch: false,
+    contextCleared: false,
+    temporaryUploads: [] as TemporaryTrainingUploadResponse[],
+  };
+}
+
 export default function ChatPage() {
   const { knowledgeBases, providers, currentModelId } = useApp();
-  const [draftSelectedKbs, setDraftSelectedKbs] = useState<string[]>(() => readLocal(STORAGE_KEYS.current, {
-    messages: initialMessages,
-    selectedKbs: [],
-    modelId: currentModelId,
-  }).selectedKbs);
-  const [draftSelectedModelId, setDraftSelectedModelId] = useState(() => readLocal(STORAGE_KEYS.current, {
-    messages: initialMessages,
-    selectedKbs: [],
-    modelId: currentModelId,
-    useWebSearch: false,
-  }).modelId || currentModelId);
-  const [selectedKbs, setSelectedKbs] = useState<string[]>(() => readLocal(STORAGE_KEYS.current, {
-    messages: initialMessages,
-    selectedKbs: [],
-    modelId: currentModelId,
-  }).selectedKbs);
-  const [selectedModelId, setSelectedModelId] = useState(() => readLocal(STORAGE_KEYS.current, {
-    messages: initialMessages,
-    selectedKbs: [],
-    modelId: currentModelId,
-    useWebSearch: false,
-  }).modelId || currentModelId);
+  const currentSessionStorage = readLocal(STORAGE_KEYS.current, createCurrentSessionFallback(currentModelId));
+  const [draftSelectedKbs, setDraftSelectedKbs] = useState<string[]>(() => currentSessionStorage.selectedKbs);
+  const [draftSelectedModelId, setDraftSelectedModelId] = useState(() => currentSessionStorage.modelId || currentModelId);
+  const [draftTemporaryUploads, setDraftTemporaryUploads] = useState<TemporaryTrainingUploadResponse[]>(() => currentSessionStorage.temporaryUploads || []);
+  const [selectedKbs, setSelectedKbs] = useState<string[]>(() => currentSessionStorage.selectedKbs);
+  const [selectedModelId, setSelectedModelId] = useState(() => currentSessionStorage.modelId || currentModelId);
   const [modelOpen, setModelOpen] = useState(false);
   const [input, setInput] = useState('');
-  const [draftMessages, setDraftMessages] = useState(() => readLocal(STORAGE_KEYS.current, {
-    messages: initialMessages,
-    selectedKbs: [],
-    modelId: currentModelId,
-    useWebSearch: false,
-  }).messages || initialMessages);
-  const [messages, setMessages] = useState(() => readLocal(STORAGE_KEYS.current, {
-    messages: initialMessages,
-    selectedKbs: [],
-    modelId: currentModelId,
-    useWebSearch: false,
-  }).messages || initialMessages);
+  const [draftMessages, setDraftMessages] = useState(() => currentSessionStorage.messages || initialMessages);
+  const [messages, setMessages] = useState(() => currentSessionStorage.messages || initialMessages);
+  const [temporaryUploads, setTemporaryUploads] = useState<TemporaryTrainingUploadResponse[]>(() => currentSessionStorage.temporaryUploads || []);
   const [chatHistory, setChatHistory] = useState<ChatSession[]>(() => readLocal(STORAGE_KEYS.history, []));
-  const [draftSessionTitle, setDraftSessionTitle] = useState(() => getConversationTitle(readLocal(STORAGE_KEYS.current, {
-    messages: initialMessages,
-    selectedKbs: [],
-    modelId: currentModelId,
-    useWebSearch: false,
-    contextCleared: false,
-  }).messages || initialMessages));
-  const [currentSessionTitle, setCurrentSessionTitle] = useState(() => getConversationTitle(readLocal(STORAGE_KEYS.current, {
-    messages: initialMessages,
-    selectedKbs: [],
-    modelId: currentModelId,
-    useWebSearch: false,
-    contextCleared: false,
-  }).messages || initialMessages));
+  const [draftSessionTitle, setDraftSessionTitle] = useState(() => getConversationTitle(currentSessionStorage.messages || initialMessages));
+  const [currentSessionTitle, setCurrentSessionTitle] = useState(() => getConversationTitle(currentSessionStorage.messages || initialMessages));
   const [activeSessionId, setActiveSessionId] = useState<string>(CURRENT_SESSION_ID);
-  const [draftUseWebSearch, setDraftUseWebSearch] = useState(() => readLocal(STORAGE_KEYS.current, {
-    messages: initialMessages,
-    selectedKbs: [],
-    modelId: currentModelId,
-    useWebSearch: false,
-  }).useWebSearch ?? false);
-  const [useWebSearch, setUseWebSearch] = useState(() => readLocal(STORAGE_KEYS.current, {
-    messages: initialMessages,
-    selectedKbs: [],
-    modelId: currentModelId,
-    useWebSearch: false,
-  }).useWebSearch ?? false);
-  const [draftContextCleared, setDraftContextCleared] = useState(() => readLocal(STORAGE_KEYS.current, {
-    messages: initialMessages,
-    selectedKbs: [],
-    modelId: currentModelId,
-    useWebSearch: false,
-    contextCleared: false,
-  }).contextCleared ?? false);
-  const [contextCleared, setContextCleared] = useState(() => readLocal(STORAGE_KEYS.current, {
-    messages: initialMessages,
-    selectedKbs: [],
-    modelId: currentModelId,
-    useWebSearch: false,
-    contextCleared: false,
-  }).contextCleared ?? false);
+  const [draftUseWebSearch, setDraftUseWebSearch] = useState(() => currentSessionStorage.useWebSearch ?? false);
+  const [useWebSearch, setUseWebSearch] = useState(() => currentSessionStorage.useWebSearch ?? false);
+  const [draftContextCleared, setDraftContextCleared] = useState(() => currentSessionStorage.contextCleared ?? false);
+  const [contextCleared, setContextCleared] = useState(() => currentSessionStorage.contextCleared ?? false);
   const [loadingSessionIds, setLoadingSessionIds] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
@@ -237,8 +190,9 @@ export default function ChatPage() {
       modelId: draftSelectedModelId,
       useWebSearch: draftUseWebSearch,
       contextCleared: draftContextCleared,
+      temporaryUploads: draftTemporaryUploads,
     });
-  }, [draftMessages, draftSelectedKbs, draftSelectedModelId, draftUseWebSearch, draftContextCleared]);
+  }, [draftMessages, draftSelectedKbs, draftSelectedModelId, draftUseWebSearch, draftContextCleared, draftTemporaryUploads]);
 
   useEffect(() => {
     writeLocal(STORAGE_KEYS.history, chatHistory);
@@ -274,15 +228,26 @@ export default function ChatPage() {
     });
   };
 
-  const handleUploadDocument = async (file?: File | null) => {
-    const targetKbId = selectedKbs[0];
-    if (!targetKbId) {
-      window.alert('请先在顶部选择一个知识库，再上传文档。');
+  const syncSessionTemporaryUploads = (sessionId: string, nextUploads: TemporaryTrainingUploadResponse[]) => {
+    if (sessionId === CURRENT_SESSION_ID) {
+      setTemporaryUploads(nextUploads);
+      setDraftTemporaryUploads(nextUploads);
       return;
     }
+
+    setTemporaryUploads(nextUploads);
+    setChatHistory(prev => prev.map(session => session.id === sessionId ? {
+      ...session,
+      temporaryUploads: [...nextUploads],
+    } : session));
+  };
+
+  const handleUploadDocument = async (file?: File | null) => {
     if (!file) return;
     try {
-      await docApi.upload(targetKbId, file);
+      const uploaded = await trainingApi.uploadTemporary(file);
+      const nextUploads = [...temporaryUploads.filter(item => item.upload_id !== uploaded.upload_id), uploaded];
+      syncSessionTemporaryUploads(activeSessionId, nextUploads);
     } catch (err) {
       window.alert(err instanceof Error ? err.message : '上传失败');
     } finally {
@@ -296,6 +261,7 @@ export default function ChatPage() {
     setMessages(draftMessages);
     setSelectedKbs(draftSelectedKbs);
     setSelectedModelId(draftSelectedModelId);
+    setTemporaryUploads(draftTemporaryUploads);
     setUseWebSearch(draftUseWebSearch);
     setContextCleared(draftContextCleared);
     setCurrentSessionTitle(draftSessionTitle);
@@ -307,12 +273,14 @@ export default function ChatPage() {
     setDraftMessages(initialMessages);
     setDraftSelectedKbs([]);
     setDraftSelectedModelId(currentModelId);
+    setDraftTemporaryUploads([]);
     setDraftUseWebSearch(false);
     setDraftContextCleared(false);
     setDraftSessionTitle('当前对话');
     setMessages(initialMessages);
     setSelectedKbs([]);
     setSelectedModelId(currentModelId);
+    setTemporaryUploads([]);
     setUseWebSearch(false);
     setContextCleared(false);
     setCurrentSessionTitle('当前对话');
@@ -333,6 +301,7 @@ export default function ChatPage() {
         messages: [...draftMessages],
         selectedKbs: [...draftSelectedKbs],
         modelId: draftSelectedModelId,
+        temporaryUploads: [...draftTemporaryUploads],
         useWebSearch: draftUseWebSearch,
         contextCleared: draftContextCleared,
         title: sessionTitle,
@@ -395,6 +364,7 @@ export default function ChatPage() {
     setMessages(session.messages);
     setSelectedKbs(session.selectedKbs);
     setSelectedModelId(session.modelId || currentModelId);
+    setTemporaryUploads(session.temporaryUploads || []);
     setUseWebSearch(session.useWebSearch ?? false);
     setContextCleared(session.contextCleared ?? false);
     setCurrentSessionTitle(session.title === '当前对话' ? getConversationTitle(session.messages) : session.title);
@@ -425,6 +395,7 @@ export default function ChatPage() {
       title: nextTitle,
       time: nextTime,
       contextCleared: nextContextCleared,
+      temporaryUploads: [...(session.temporaryUploads || [])],
     } : session));
   };
 
@@ -449,6 +420,7 @@ export default function ChatPage() {
     const sourceMessages = isCurrentSession ? draftMessages : messages;
     const sourceSelectedKbs = isCurrentSession ? draftSelectedKbs : selectedKbs;
     const sourceModelId = isCurrentSession ? draftSelectedModelId : selectedModelId;
+    const sourceTemporaryUploads = isCurrentSession ? draftTemporaryUploads : temporaryUploads;
     const sourceUseWebSearch = isCurrentSession ? draftUseWebSearch : useWebSearch;
     const sourceTitle = isCurrentSession ? draftSessionTitle : currentSessionTitle;
     const now = new Date();
@@ -475,6 +447,7 @@ export default function ChatPage() {
         setDraftMessages([...nextMessages]);
         setDraftSelectedKbs([...sourceSelectedKbs]);
         setDraftSelectedModelId(sourceModelId);
+        setDraftTemporaryUploads([...sourceTemporaryUploads]);
         setDraftUseWebSearch(sourceUseWebSearch);
         setDraftContextCleared(nextContextCleared);
         setDraftSessionTitle(nextTitle);
@@ -482,6 +455,7 @@ export default function ChatPage() {
           setMessages([...nextMessages]);
           setSelectedKbs([...sourceSelectedKbs]);
           setSelectedModelId(sourceModelId);
+          setTemporaryUploads([...sourceTemporaryUploads]);
           setUseWebSearch(sourceUseWebSearch);
           setContextCleared(nextContextCleared);
           setCurrentSessionTitle(nextTitle);
@@ -494,6 +468,7 @@ export default function ChatPage() {
         messages: [...nextMessages],
         selectedKbs: [...sourceSelectedKbs],
         modelId: sourceModelId,
+        temporaryUploads: [...sourceTemporaryUploads],
         useWebSearch: sourceUseWebSearch,
         contextCleared: nextContextCleared,
         title: nextTitle,
@@ -504,6 +479,7 @@ export default function ChatPage() {
         setMessages([...nextMessages]);
         setSelectedKbs([...sourceSelectedKbs]);
         setSelectedModelId(sourceModelId);
+        setTemporaryUploads([...sourceTemporaryUploads]);
         setUseWebSearch(sourceUseWebSearch);
         setContextCleared(nextContextCleared);
         setCurrentSessionTitle(nextTitle);
@@ -525,6 +501,7 @@ export default function ChatPage() {
         question,
         messages: historyMessages,
         knowledge_base_ids: sourceSelectedKbs,
+        temporary_upload_ids: sourceTemporaryUploads.map(item => item.upload_id),
         model_id: sourceModelId,
         use_web_search: sourceUseWebSearch,
       },
@@ -585,7 +562,10 @@ export default function ChatPage() {
     const lastMessage = [...draftMessages].reverse().find(message => message.role === 'assistant' || message.role === 'user');
     return lastMessage?.time || `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
   })();
-  const currentSessionSummary = draftSelectedKbs.length > 0 ? '知识库问答' : '纯模型问答';
+  const activeTemporaryUploads = activeSessionId === CURRENT_SESSION_ID ? draftTemporaryUploads : temporaryUploads;
+  const currentSessionSummary = draftTemporaryUploads.length > 0
+    ? (draftSelectedKbs.length > 0 ? '知识库 + 临时附件' : '临时附件问答')
+    : (draftSelectedKbs.length > 0 ? '知识库问答' : '纯模型问答');
   const sessionList: Array<ChatSession | CurrentSessionSummary> = [
     {
       id: CURRENT_SESSION_ID,
@@ -744,7 +724,13 @@ export default function ChatPage() {
                     }`}>
                       <span className="truncate">
                         {'selectedKbs' in session
-                          ? session.selectedKbs.map(id => knowledgeBases.find(k => k.id === id)?.name || id).join('、') || '纯模型问答'
+                          ? (() => {
+                            const kbSummary = session.selectedKbs.map(id => knowledgeBases.find(k => k.id === id)?.name || id).join('、');
+                            if (session.temporaryUploads?.length) {
+                              return kbSummary ? `${kbSummary} + 临时附件` : '临时附件问答';
+                            }
+                            return kbSummary || '纯模型问答';
+                          })()
                           : session.summary}
                       </span>
                       <span className="flex-shrink-0">{session.time}</span>
@@ -860,6 +846,32 @@ export default function ChatPage() {
                 className="w-full px-4 pt-4 pb-2 resize-none outline-none text-sm text-slate-700 placeholder-slate-400 bg-transparent"
                 rows={2}
               />
+              {activeTemporaryUploads.length > 0 && (
+                <div className="px-3 pb-2 flex flex-wrap gap-2">
+                  {activeTemporaryUploads.map(upload => (
+                    <span
+                      key={upload.upload_id}
+                      className="inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700"
+                    >
+                      <span className="max-w-48 truncate" title={upload.filename}>
+                        {upload.filename}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextUploads = activeTemporaryUploads.filter(item => item.upload_id !== upload.upload_id);
+                          syncSessionTemporaryUploads(activeSessionId, nextUploads);
+                        }}
+                        className="text-emerald-500 hover:text-emerald-700"
+                        aria-label={`移除 ${upload.filename}`}
+                        title="移除"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="px-3 pb-3 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
                   <button

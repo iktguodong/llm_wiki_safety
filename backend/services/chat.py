@@ -14,6 +14,8 @@ import httpx
 from backend.config import get_kb_wiki_path, get_kb_index_path
 from backend.models import ChatMessage
 from backend.services.llm import llm_service
+from backend.services.presentation.project_store import load_upload_metadata
+from backend.services.text_extraction import extract_document_text
 
 
 _QUESTION_STOPWORDS = {
@@ -251,6 +253,50 @@ class ChatService:
         limit = ChatService._estimate_web_result_limit(question, len(scored_results))
         selected = scored_results[:limit]
         return [{k: v for k, v in item.items() if not k.startswith("_")} for item in selected]
+
+    @staticmethod
+    def _build_temporary_upload_context(temporary_upload_ids: Optional[List[str]]) -> str:
+        if not temporary_upload_ids:
+            return ""
+
+        sections: List[str] = []
+        total_chars = 0
+        seen_ids = set()
+
+        for upload_id in temporary_upload_ids:
+            if not upload_id or upload_id in seen_ids:
+                continue
+            seen_ids.add(upload_id)
+
+            meta = load_upload_metadata(upload_id)
+            if not meta:
+                continue
+
+            path_value = meta.get("path")
+            if not path_value:
+                continue
+
+            file_path = Path(str(path_value))
+            if not file_path.exists():
+                continue
+
+            try:
+                text = extract_document_text(file_path).strip()
+            except Exception:
+                continue
+
+            if not text:
+                continue
+
+            filename = str(meta.get("original_filename") or meta.get("filename") or file_path.name)
+            excerpt = text[:6000]
+            section = f"### 临时上传文档：{filename}\n\n{excerpt}"
+            sections.append(section)
+            total_chars += len(section)
+            if len(sections) >= 3 or total_chars >= 12000:
+                break
+
+        return "\n\n".join(sections)
 
     @staticmethod
     async def _web_search(question: str, max_results: int = _WEB_SEARCH_MAX_CANDIDATES) -> List[Dict[str, str]]:
@@ -502,7 +548,8 @@ class ChatService:
         messages: Optional[List[ChatMessage]] = None,
         model_id: Optional[str] = None,
         use_web_search: bool = False,
-        assistant_prompt: Optional[str] = None
+        assistant_prompt: Optional[str] = None,
+        temporary_upload_ids: Optional[List[str]] = None,
     ) -> AsyncGenerator[str, None]:
         """
         回答问题
@@ -516,6 +563,15 @@ class ChatService:
             流式输出答案文本
         """
         history_messages = ChatService._normalize_history_messages(messages)
+        temporary_upload_context = ChatService._build_temporary_upload_context(temporary_upload_ids)
+        upload_context_message = (
+            {
+                "role": "system",
+                "content": "以下是用户临时上传的文档内容，仅供本次问答参考：\n\n" + temporary_upload_context,
+            }
+            if temporary_upload_context
+            else None
+        )
 
         if not knowledge_base_ids:
             if use_web_search:
@@ -529,10 +585,12 @@ class ChatService:
                                 "你是一个专业的企业生产安全知识助手。请基于联网检索结果回答，不要编造。只聚焦企业生产安全、职业健康、应急处置、事故预防、隐患排查治理和现场安全管理；不要扩展到信息安全、网络安全、数据保护、个人隐私、合规、法务、财务或其他企业管理领域。你的回答要始终简洁高效，直奔主题，一针见血。",
                                 assistant_prompt
                             )
-                        },
-                        *history_messages,
-                        {"role": "user", "content": prompt}
+                        }
                     ]
+                    if upload_context_message:
+                        prompt_messages.append(upload_context_message)
+                    prompt_messages.extend(history_messages)
+                    prompt_messages.append({"role": "user", "content": prompt})
                     async for chunk in ChatService._stream_with_auto_continuation(
                         prompt_messages,
                         model_id=model_id,
@@ -544,7 +602,9 @@ class ChatService:
 
             prompt_messages = ChatService._build_general_messages(question)
             prompt_messages[0]["content"] = ChatService._merge_system_prompt(prompt_messages[0]["content"], assistant_prompt)
-            prompt_messages[1:1] = history_messages
+            if upload_context_message:
+                prompt_messages.append(upload_context_message)
+            prompt_messages.extend(history_messages)
             async for chunk in ChatService._stream_with_auto_continuation(
                 prompt_messages,
                 model_id=model_id,
@@ -585,10 +645,12 @@ class ChatService:
                                 "你是一个专业的企业生产安全知识助手。请基于联网检索结果回答，不要编造。只聚焦企业生产安全、职业健康、应急处置、事故预防、隐患排查治理和现场安全管理；不要扩展到信息安全、网络安全、数据保护、个人隐私、合规、法务、财务或其他企业管理领域。你的回答要始终简洁高效，直奔主题，一针见血。",
                                 assistant_prompt
                             )
-                        },
-                        *history_messages,
-                        {"role": "user", "content": prompt}
+                        }
                     ]
+                    if upload_context_message:
+                        prompt_messages.append(upload_context_message)
+                    prompt_messages.extend(history_messages)
+                    prompt_messages.append({"role": "user", "content": prompt})
                     async for chunk in ChatService._stream_with_auto_continuation(
                         prompt_messages,
                         model_id=model_id,
@@ -626,9 +688,11 @@ class ChatService:
                     assistant_prompt
                 )
             },
-            *history_messages,
-            {"role": "user", "content": prompt}
         ]
+        if upload_context_message:
+            messages.append(upload_context_message)
+        messages.extend(history_messages)
+        messages.append({"role": "user", "content": prompt})
         
         # 调用LLM生成答案
         async for chunk in ChatService._stream_with_auto_continuation(
@@ -646,11 +710,20 @@ class ChatService:
         messages: Optional[List[ChatMessage]] = None,
         model_id: Optional[str] = None,
         use_web_search: bool = False,
-        assistant_prompt: Optional[str] = None
+        assistant_prompt: Optional[str] = None,
+        temporary_upload_ids: Optional[List[str]] = None,
     ) -> str:
         """同步回答问题，返回完整文本"""
         result = []
-        async for chunk in ChatService.ask(question, knowledge_base_ids, messages, model_id, use_web_search, assistant_prompt):
+        async for chunk in ChatService.ask(
+            question,
+            knowledge_base_ids,
+            messages,
+            model_id,
+            use_web_search,
+            assistant_prompt,
+            temporary_upload_ids,
+        ):
             if chunk is None:
                 continue
             result.append(chunk)

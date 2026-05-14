@@ -168,6 +168,7 @@ class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, description="用户问题")
     messages: List[ChatMessage] = Field(default_factory=list, description="当前会话历史消息")
     knowledge_base_ids: List[str] = Field(default_factory=list, description="引用的知识库ID列表")
+    temporary_upload_ids: List[str] = Field(default_factory=list, description="当前会话附带的临时上传文档ID列表")
     model_id: Optional[str] = None
     use_web_search: bool = False
     assistant_id: Optional[str] = None
