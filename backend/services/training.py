@@ -123,8 +123,10 @@ TRAINING_HTML_PROMPT_TEMPLATE = """你是“企业安全生产培训与汇报展
 24. 页面应可在普通现代浏览器中直接打开运行。
 25. 必须为本页中使用到的自定义 class 提供完整 CSS，尤其是 cover/page-title/page-core/content-grid/card/table-wrap/flow-steps/compare-wrap/qa-card 等布局类；只写 class 名称但不给样式定义，视为不合格。
 26. 不要只依赖浏览器默认排版。每页必须通过 CSS 形成明确版式，例如封面、双栏卡片、表格、流程图、对照表、问答卡等。
-27. 必须严格依据用户上传文档和用户明确要求编制内容，不能自行新增“近期行动要求”“会后行动”“下一步计划”“行动清单”“总结金句”之类未在资料中出现的收束段落。
-28. 如果资料里没有某项内容，就用“资料未提供”“可根据企业实际补充”等中性表述，不要擅自补编。
+27. 短句型内容尽量保持单行展示，尤其是封面徽标、封面说明、页首核心提示、卡片标题、流程步骤标题；只有在明显超宽时才换行。
+28. 不要人为制造大块留白或把正文压到卡片底部，卡片应自然收缩到内容高度；若内容较少，也要通过更紧凑的排版补足视觉连续性，而不是留空。
+29. 必须严格依据用户上传文档和用户明确要求编制内容，不能自行新增“近期行动要求”“会后行动”“下一步计划”“行动清单”“总结金句”之类未在资料中出现的收束段落。
+30. 如果资料里没有某项内容，就用“资料未提供”“可根据企业实际补充”等中性表述，不要擅自补编。
 
 ====================
 五、首页封面要求
@@ -680,6 +682,12 @@ def inject_training_html_safety_styles(html: str) -> str:
       font-size: clamp(16px, 1.05vw, 20px) !important;
       line-height: 1.44 !important;
     }
+    .slide .cover-badge,
+    .slide .cover-audience,
+    .slide .page-core,
+    .slide .slide-core {
+      white-space: nowrap !important;
+    }
     .slide .tag,
     .slide .list-compact li,
     .slide .step-desc,
@@ -723,16 +731,29 @@ def inject_training_html_safety_styles(html: str) -> str:
     }
     .content-grid.cols-2,
     .content-grid.cols-3 {
-      align-items: stretch;
+      align-items: start;
     }
     .content-grid.cols-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .content-grid.two-col {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .content-grid.cols-3 {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
+    .content-grid.three-col {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .content-grid.four-col {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
     @media (max-aspect-ratio: 4 / 3) {
       .content-grid.cols-3 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .content-grid.three-col,
+      .content-grid.four-col {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
@@ -848,6 +869,15 @@ def inject_training_html_safety_styles(html: str) -> str:
     .compare-col,
     .compare-item {
       padding: clamp(14px, 1.6vw, 22px);
+    }
+    .card-body {
+      display: flex;
+      flex-direction: column;
+      gap: clamp(8px, 0.8vw, 12px);
+    }
+    .card-body > * {
+      flex: 0 0 auto;
+      margin-top: 0 !important;
     }
     .card-title,
     .qa-q,
@@ -984,7 +1014,7 @@ def inject_training_html_safety_styles(html: str) -> str:
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
       gap: clamp(10px, 1vw, 16px);
-      align-items: stretch;
+      align-items: start;
       flex: 1 1 auto;
       min-height: 0;
     }
@@ -1020,6 +1050,9 @@ def inject_training_html_safety_styles(html: str) -> str:
       font-size: clamp(20px, 1.8vw, 30px);
       font-weight: 800;
       text-align: center;
+      grid-column: 1 / -1;
+      justify-self: center;
+      margin: 0.1em 0;
     }
     .compare-wrap {
       display: grid;
@@ -1027,6 +1060,7 @@ def inject_training_html_safety_styles(html: str) -> str:
       gap: clamp(12px, 1.4vw, 20px);
       flex: 1 1 auto;
       min-height: 0;
+      align-items: start;
     }
     .compare-col.do {
       border-color: rgba(22, 163, 74, 0.16);
@@ -1112,6 +1146,12 @@ def inject_training_html_safety_styles(html: str) -> str:
     .slide .cover-meta {
       line-height: 1.3 !important;
     }
+    .slide .cover-badge,
+    .slide .cover-audience,
+    .slide .page-core,
+    .slide .slide-core {
+      white-space: nowrap !important;
+    }
     .slide .alert-box .icon {
       width: 2em !important;
       min-width: 2em !important;
@@ -1175,6 +1215,82 @@ def inject_training_html_safety_styles(html: str) -> str:
     if 'id="training-html-safety"' in html:
         return html
     return html.replace(needle, f"{style_block}\n{needle}", 1)
+
+
+def inject_training_html_controls(html: str) -> str:
+    """确保最终 HTML 底部始终带有翻页/全屏/打印控制条。"""
+    if '<div class="controls">' in html or "trainingPrevSlide" in html:
+        return html
+    needle = "</body>"
+    if needle not in html:
+        return html
+    controls_block = """
+  <div class="controls">
+    <button onclick="trainingPrevSlide()">上一页</button>
+    <span id="pageIndicator" class="page-indicator">1 / 1</span>
+    <button onclick="trainingNextSlide()">下一页</button>
+    <button onclick="trainingToggleFullscreen()">全屏</button>
+    <button onclick="window.print()">打印</button>
+  </div>
+  <div class="progress"><div id="progressBar" class="progress-bar"></div></div>
+  <script>
+    (function () {
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      const pageIndicator = document.getElementById('pageIndicator');
+      const progressBar = document.getElementById('progressBar');
+      let currentSlide = 0;
+
+      function showSlide(index) {
+        if (!slides.length) return;
+        currentSlide = (index + slides.length) % slides.length;
+        slides.forEach((slide, i) => slide.classList.toggle('active', i === currentSlide));
+        if (pageIndicator) pageIndicator.textContent = `${currentSlide + 1} / ${slides.length}`;
+        if (progressBar) progressBar.style.width = `${((currentSlide + 1) / slides.length) * 100}%`;
+      }
+
+      window.trainingNextSlide = function () { showSlide(currentSlide + 1); };
+      window.trainingPrevSlide = function () { showSlide(currentSlide - 1); };
+      window.trainingToggleFullscreen = function () {
+        if (document.fullscreenElement) {
+          document.exitFullscreen?.();
+        } else {
+          document.documentElement.requestFullscreen?.();
+        }
+      };
+
+      window.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
+          event.preventDefault();
+          showSlide(currentSlide + 1);
+        }
+        if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
+          event.preventDefault();
+          showSlide(currentSlide - 1);
+        }
+        if (event.key === 'Home') showSlide(0);
+        if (event.key === 'End') showSlide(slides.length - 1);
+      });
+
+      let startX = null;
+      window.addEventListener('touchstart', (event) => {
+        startX = event.touches?.[0]?.clientX ?? null;
+      }, { passive: true });
+      window.addEventListener('touchend', (event) => {
+        if (startX == null) return;
+        const endX = event.changedTouches?.[0]?.clientX ?? startX;
+        const delta = endX - startX;
+        if (Math.abs(delta) > 40) {
+          if (delta < 0) showSlide(currentSlide + 1);
+          else showSlide(currentSlide - 1);
+        }
+        startX = null;
+      }, { passive: true });
+
+      showSlide(0);
+    })();
+  </script>
+"""
+    return html.replace(needle, f"{controls_block}\n{needle}", 1)
 
 
 def _slide_sections_from_text(text: str) -> list[str]:
@@ -1300,12 +1416,19 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     }}
     .content-grid.cols-2,
     .content-grid.cols-3 {{
-      align-items: stretch;
+      align-items: start;
     }}
     .content-grid.cols-2 {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+    .content-grid.two-col {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
     .content-grid.cols-3 {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+    .content-grid.three-col {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+    .content-grid.four-col {{ grid-template-columns: repeat(4, minmax(0, 1fr)); }}
     @media (max-aspect-ratio: 4 / 3) {{
       .content-grid.cols-3 {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }}
+      .content-grid.three-col,
+      .content-grid.four-col {{
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }}
     }}
@@ -1334,6 +1457,15 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     .compare-col,
     .compare-item {{
       padding: clamp(14px, 1.6vw, 22px);
+    }}
+    .card-body {{
+      display: flex;
+      flex-direction: column;
+      gap: clamp(8px, 0.8vw, 12px);
+    }}
+    .card-body > * {{
+      flex: 0 0 auto;
+      margin-top: 0 !important;
     }}
     .card-body,
     .qa-hint,
@@ -1423,9 +1555,10 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     }}
     .flow-steps {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+      grid-auto-flow: row;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: clamp(10px, 1vw, 16px);
-      align-items: stretch;
+      align-items: start;
       flex: 1 1 auto;
       min-height: 0;
     }}
@@ -1439,12 +1572,22 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
       gap: 10px;
       text-align: center;
     }}
+    .flow-arrow {{
+      color: #3730a3;
+      font-size: clamp(20px, 1.8vw, 30px);
+      font-weight: 800;
+      text-align: center;
+      grid-column: 1 / -1;
+      justify-self: center;
+      margin: 0.1em 0;
+    }}
     .compare-wrap {{
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: clamp(12px, 1.4vw, 20px);
       flex: 1 1 auto;
       min-height: 0;
+      align-items: start;
     }}
     .controls {{ position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; border: 1px solid rgba(148, 163, 184, .45); border-radius: 999px; background: rgba(255,255,255,.88); padding: 8px 12px; box-shadow: 0 12px 32px rgba(15,23,42,.16); }}
     .controls button {{ border: 0; border-radius: 999px; background: #4f46e5; color: white; padding: 8px 14px; cursor: pointer; }}
@@ -1562,6 +1705,7 @@ async def _repair_html_output(raw: str, *, title: str, page_count: int, model_id
 - 保留已有内容，不要重新发散
 - 尽量保持 {page_count} 个 class="slide" 页面
 - 修复时顺便收紧版式：避免大面积留白、避免单页内容挤在角落、避免左右栏严重失衡、避免底部内容超出 16:9 边界
+- 短句型内容优先单行展示，流程图中的箭头与步骤不要拆成互相分离的孤立列，卡片内不要把正文压到卡片底部留出大块空白
 - 同一份材料内的标题字号、正文字号、卡片边距和行距应保持相对统一，不要某些页特别大、某些页特别小
 - 不要输出 markdown，不要解释
 
@@ -1594,6 +1738,7 @@ async def _repair_html_slide_count(html: str, *, title: str, page_count: int, mo
 - 如果页面过多，请合并或删减到目标页数
 - 封面必须保留在第 1 页
 - 修复时同步检查版式：不要留下大块空白，不要让卡片超出 16:9 页面边界，不要让某些页明显比其他页更松散
+- 短句型内容优先单行展示，流程图中的箭头与步骤应连贯排布，不要拆成互相分离的孤立列；卡片内不要把正文压到底部留出大块空白
 - 不要输出 markdown，不要输出解释
 
 材料标题：{title}
@@ -1907,6 +2052,7 @@ class TrainingService:
                         break
                 except ValueError:
                     continue
+        html = inject_training_html_controls(html)
         if slide_count != request.page_count:
             logger.warning(
                 "HTML material slide count mismatch: expected %s, got %s",
