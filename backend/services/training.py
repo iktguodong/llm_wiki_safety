@@ -582,6 +582,7 @@ def inject_training_html_safety_styles(html: str) -> str:
       text-rendering: optimizeLegibility;
     }
     body {
+      display: block !important;
       min-height: 100vh;
       overflow: hidden;
       color: var(--training-text);
@@ -639,6 +640,11 @@ def inject_training_html_safety_styles(html: str) -> str:
     .slide.very-dense {
       padding: clamp(16px, 1.6vw, 28px) clamp(20px, 1.9vw, 40px) clamp(50px, 4.8vh, 66px);
       gap: clamp(6px, 0.7vw, 12px);
+    }
+    .slide.ultra-dense,
+    .slide.fit-tight {
+      padding: clamp(12px, 1.25vw, 22px) clamp(16px, 1.55vw, 32px) clamp(42px, 4vh, 56px);
+      gap: clamp(4px, 0.5vw, 9px);
     }
     .slide :is(p, li, td, th, div, span) {
       overflow-wrap: break-word;
@@ -774,6 +780,15 @@ def inject_training_html_safety_styles(html: str) -> str:
     .content-grid.four-col {
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
+    .content-grid.col2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .content-grid.col3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .content-grid.col4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
     @media (max-aspect-ratio: 4 / 3) {
       .content-grid.cols-3 {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -874,7 +889,9 @@ def inject_training_html_safety_styles(html: str) -> str:
     .card,
     .qa-card,
     .compare-col,
-    .compare-item,
+    .compare-item {
+      overflow: visible;
+    }
     .flow-step,
     .alert-box {
       overflow: hidden;
@@ -1296,6 +1313,66 @@ def inject_training_html_safety_styles(html: str) -> str:
     .slide.very-dense .flow-step {
       padding: 10px 8px;
     }
+    .slide.ultra-dense h1,
+    .slide.ultra-dense .slide-title,
+    .slide.fit-tight h1,
+    .slide.fit-tight .slide-title {
+      margin-bottom: 10px;
+      font-size: clamp(22px, 1.75vw, 30px) !important;
+    }
+    .slide.ultra-dense h2,
+    .slide.fit-tight h2 {
+      margin-bottom: 10px;
+      font-size: clamp(18px, 1.45vw, 24px) !important;
+    }
+    .slide.ultra-dense h3,
+    .slide.ultra-dense .card-title,
+    .slide.fit-tight h3,
+    .slide.fit-tight .card-title {
+      margin-bottom: 6px;
+      font-size: clamp(14px, 0.95vw, 17px) !important;
+    }
+    .slide.ultra-dense p,
+    .slide.ultra-dense li,
+    .slide.fit-tight p,
+    .slide.fit-tight li {
+      font-size: clamp(12px, 0.78vw, 14px) !important;
+      line-height: 1.28 !important;
+    }
+    .slide.ultra-dense .page-title,
+    .slide.fit-tight .page-title {
+      font-size: clamp(20px, 1.5vw, 27px) !important;
+    }
+    .slide.ultra-dense .page-core,
+    .slide.ultra-dense .slide-subtitle,
+    .slide.ultra-dense .cover-meta,
+    .slide.fit-tight .page-core,
+    .slide.fit-tight .slide-subtitle,
+    .slide.fit-tight .cover-meta {
+      font-size: clamp(12px, 0.82vw, 15px) !important;
+      line-height: 1.24 !important;
+    }
+    .slide.ultra-dense .card,
+    .slide.ultra-dense .qa-card,
+    .slide.ultra-dense .compare-col,
+    .slide.ultra-dense .compare-item,
+    .slide.fit-tight .card,
+    .slide.fit-tight .qa-card,
+    .slide.fit-tight .compare-col,
+    .slide.fit-tight .compare-item {
+      padding: clamp(8px, 0.85vw, 12px);
+    }
+    .slide.ultra-dense .content-grid,
+    .slide.fit-tight .content-grid {
+      gap: clamp(6px, 0.65vw, 10px);
+    }
+    .slide.ultra-dense .table-wrap th,
+    .slide.ultra-dense .table-wrap td,
+    .slide.fit-tight .table-wrap th,
+    .slide.fit-tight .table-wrap td {
+      padding: 8px 10px;
+      font-size: clamp(11px, 0.72vw, 13px) !important;
+    }
     /* 防止白底白字：如果卡片同时设了浅色/白色背景及白色文字，则强制转为深色文字 */
     .slide .card[style*="color:#fff"][style*="background:#fff"],
     .slide .card[style*="color: #fff"][style*="background: #fff"],
@@ -1355,6 +1432,12 @@ def inject_training_html_safety_styles(html: str) -> str:
       background: #f97316;
       transition: width 0.25s ease;
     }
+    body.training-html-fullscreen > .controls,
+    body.training-html-fullscreen > .progress,
+    :fullscreen .controls,
+    :fullscreen .progress {
+      display: none !important;
+    }
     @page {
       size: 16in 9in;
       margin: 0;
@@ -1396,6 +1479,114 @@ def inject_training_html_safety_styles(html: str) -> str:
     if 'id="training-html-safety"' in html:
         return html
     return html.replace(needle, f"{style_block}\n{needle}", 1)
+
+
+def _add_unique_classes(tag: Any, additions: list[str]) -> None:
+    classes = list(tag.get("class") or [])
+    for cls in additions:
+        if cls not in classes:
+            classes.append(cls)
+    tag["class"] = classes
+
+
+def _normalize_training_layout_classes(soup: BeautifulSoup) -> None:
+    alias_map = {
+        "col2": ["cols-2", "two-col"],
+        "two-column": ["cols-2", "two-col"],
+        "two-col": ["cols-2"],
+        "col3": ["cols-3", "three-col"],
+        "three-column": ["cols-3", "three-col"],
+        "three-col": ["cols-3"],
+        "col4": ["four-col"],
+        "four-column": ["four-col"],
+    }
+    for tag in soup.find_all(True):
+        classes = tag.get("class") or []
+        additions: list[str] = []
+        for cls in classes:
+            additions.extend(alias_map.get(cls, []))
+        if additions:
+            _add_unique_classes(tag, additions)
+
+
+def normalize_training_html_structure(html: str) -> str:
+    """统一模型 HTML 和后端包装 HTML 的最终页面外壳。"""
+    if "</body>" not in html:
+        return html
+
+    soup = BeautifulSoup(html, "html.parser")
+    if not soup.body:
+        return html
+
+    _normalize_training_layout_classes(soup)
+
+    def is_slide_tag(tag: Any) -> bool:
+        classes = tag.get("class") or []
+        return tag.name in {"section", "div", "main"} and "slide" in classes
+
+    slides = [tag for tag in soup.find_all(is_slide_tag) if tag.find_parent(is_slide_tag) is None]
+    if not slides:
+        return str(soup)
+
+    deck = next(
+        (
+            child
+            for child in soup.body.find_all(recursive=False)
+            if "deck" in (child.get("class") or [])
+        ),
+        None,
+    )
+    if deck is None:
+        deck = soup.new_tag("main")
+        deck["class"] = ["deck"]
+        soup.body.insert(0, deck)
+
+    for slide in slides:
+        if slide.find_parent(class_="deck") is deck:
+            continue
+        deck.append(slide.extract())
+
+    shell_classes = {
+        "slides-wrapper",
+        "slide-wrapper",
+        "slides-container",
+        "slide-container",
+        "presentation",
+        "presentation-wrapper",
+        "presentation-container",
+        "deck-wrapper",
+    }
+    preserved_classes = {"deck", "controls", "progress", "progress-bar"}
+    for child in list(soup.body.find_all(recursive=False)):
+        if child is deck or child.name in {"script", "style"}:
+            continue
+        classes = set(child.get("class") or [])
+        if classes & preserved_classes:
+            continue
+        if child.select_one(".slide"):
+            continue
+        if classes & shell_classes:
+            child.decompose()
+            continue
+        if child.name in {"div", "section", "main", "article"} and not child.get_text(strip=True):
+            child.decompose()
+
+    display_pattern = re.compile(r"display\s*:[^;]+;?", re.IGNORECASE)
+    for idx, slide in enumerate(deck.select(".slide")):
+        style_attr = slide.get("style")
+        if style_attr:
+            new_style = display_pattern.sub("", style_attr).strip().rstrip(";").strip()
+            if new_style:
+                slide["style"] = new_style
+            else:
+                del slide["style"]
+
+        classes = [cls for cls in (slide.get("class") or []) if cls not in {"active"}]
+        if idx == 0:
+            classes.append("active")
+        slide["class"] = classes
+
+    return str(soup)
 
 
 def inject_training_html_controls(html: str) -> str:
@@ -1454,7 +1645,8 @@ def inject_training_html_controls(html: str) -> str:
             if "active" in classes:
                 slide["class"] = [c for c in classes if c != "active"]
 
-    cleaned_html = _apply_density_classes(str(soup))
+    normalized_html = normalize_training_html_structure(str(soup))
+    cleaned_html = _apply_density_classes(normalized_html)
     if "</body>" not in cleaned_html:
         return cleaned_html
 
@@ -1478,12 +1670,41 @@ def inject_training_html_controls(html: str) -> str:
         document.body.classList.toggle('training-html-fullscreen', !!document.fullscreenElement);
       }
 
+      function rememberInitialDensity(slide) {
+        if (slide.dataset.initialDensity != null) return;
+        slide.dataset.initialDensity = ['dense', 'very-dense']
+          .filter((cls) => slide.classList.contains(cls))
+          .join(' ');
+      }
+
+      function restoreInitialDensity(slide) {
+        rememberInitialDensity(slide);
+        slide.classList.remove('dense', 'very-dense', 'ultra-dense', 'fit-tight');
+        slide.dataset.initialDensity
+          .split(' ')
+          .filter(Boolean)
+          .forEach((cls) => slide.classList.add(cls));
+      }
+
+      function isOverflowing(slide) {
+        return slide.scrollHeight > slide.clientHeight + 2 || slide.scrollWidth > slide.clientWidth + 2;
+      }
+
+      function fitActiveSlide(slide) {
+        if (!slide) return;
+        restoreInitialDensity(slide);
+        ['dense', 'very-dense', 'ultra-dense', 'fit-tight'].forEach((cls) => {
+          if (isOverflowing(slide)) slide.classList.add(cls);
+        });
+      }
+
       function showSlide(index) {
         if (!slides.length) return;
         currentSlide = (index + slides.length) % slides.length;
         slides.forEach((slide, i) => slide.classList.toggle('active', i === currentSlide));
         if (pageIndicator) pageIndicator.textContent = `${currentSlide + 1} / ${slides.length}`;
         if (progressBar) progressBar.style.width = `${((currentSlide + 1) / slides.length) * 100}%`;
+        requestAnimationFrame(() => fitActiveSlide(slides[currentSlide]));
       }
 
       window.trainingNextSlide = function () { showSlide(currentSlide + 1); };
@@ -1492,12 +1713,15 @@ def inject_training_html_controls(html: str) -> str:
         if (document.fullscreenElement) {
           document.exitFullscreen?.();
         } else {
-          document.documentElement.requestFullscreen?.();
+          const target = document.querySelector('.deck') || document.documentElement;
+          target.requestFullscreen?.();
         }
+        requestAnimationFrame(syncFullscreenState);
       };
 
       document.addEventListener('fullscreenchange', syncFullscreenState);
       syncFullscreenState();
+      window.addEventListener('resize', () => requestAnimationFrame(() => fitActiveSlide(slides[currentSlide])));
 
       window.addEventListener('keydown', (event) => {
         if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {

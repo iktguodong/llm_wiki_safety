@@ -156,10 +156,13 @@ def test_training_html_safety_styles_add_layout_defaults():
     injected = training_module.inject_training_html_safety_styles(html)
 
     assert 'id="training-html-safety"' in injected
+    assert "display: block !important;" in injected
     assert ".content-grid.cols-2" in injected
+    assert ".content-grid.col4" in injected
     assert ".card-title" in injected
     assert ".slide:not(.active)" in injected
     assert ".compare-wrap" in injected
+    assert "body.training-html-fullscreen > .controls" in injected
 
 
 @pytest.mark.asyncio
@@ -362,6 +365,52 @@ def test_inject_training_html_controls_replaces_llm_provided_controls():
     assert len(slides) == 2
     assert "active" in (slides[0].get("class") or [])
     assert "active" not in (slides[1].get("class") or [])
+    assert len(soup.select("body > .deck > .slide")) == 2
+
+
+def test_normalize_training_html_structure_wraps_slides_and_aliases_columns():
+    html = """<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><style>.slide{}</style></head>
+<body>
+  <section class="slide active">1</section>
+  <section class="slide">2<div class="content-grid col4"><div class="card">A</div></div></section>
+  <div class="controls">old</div>
+</body></html>"""
+
+    result = training_module.normalize_training_html_structure(html)
+    soup = BeautifulSoup(result, "html.parser")
+
+    assert len(soup.select("body > .deck > .slide")) == 2
+    assert len(soup.select("body > .controls")) == 1
+    grid_classes = soup.select_one(".content-grid").get("class")
+    assert "col4" in grid_classes
+    assert "four-col" in grid_classes
+
+
+def test_normalize_training_html_structure_removes_empty_original_shell():
+    html = """<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><style>.slide{}</style></head>
+<body>
+  <div class="slides-wrapper">
+    <section class="slide active">1</section>
+    <section class="slide">2</section>
+  </div>
+</body></html>"""
+
+    result = training_module.normalize_training_html_structure(html)
+    soup = BeautifulSoup(result, "html.parser")
+
+    assert len(soup.select("body > .deck > .slide")) == 2
+    assert not soup.select("body > .slides-wrapper")
+
+
+def test_training_html_safety_styles_avoid_default_card_clipping():
+    injected = training_module.inject_training_html_safety_styles(
+        """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"></head><body></body></html>"""
+    )
+
+    assert ".card,\n    .qa-card,\n    .compare-col,\n    .compare-item {\n      overflow: visible;" in injected
+    assert ".flow-step,\n    .alert-box {\n      overflow: hidden;" in injected
 
 
 def test_training_html_safety_styles_guard_cover_and_empty_div():
