@@ -245,17 +245,48 @@ function InlineField({
   max?: number;
   className?: string;
 }) {
+  const [draftValue, setDraftValue] = useState(String(value));
+
+  useEffect(() => {
+    setDraftValue(String(value));
+  }, [value]);
+
+  const commitNumberValue = () => {
+    if (type !== 'number') {
+      return;
+    }
+    const next = draftValue.trim();
+    if (!next) {
+      onChange('');
+      return;
+    }
+    onChange(next);
+  };
+
   return (
     <div className="min-w-0 space-y-1.5">
       <div className="flex items-center gap-3">
         <Label className="shrink-0 whitespace-nowrap text-sm font-medium text-slate-800">{label}</Label>
         <Input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
+          value={type === 'number' ? draftValue : value}
+          onChange={(e) => {
+            if (type === 'number') {
+              setDraftValue(e.target.value);
+              return;
+            }
+            onChange(e.target.value);
+          }}
+          onBlur={commitNumberValue}
+          onKeyDown={(e) => {
+            if (type === 'number' && e.key === 'Enter') {
+              commitNumberValue();
+            }
+          }}
           placeholder={placeholder}
           type={type}
           min={min}
           max={max}
+          inputMode={type === 'number' ? 'numeric' : undefined}
           className={`h-11 flex-1 min-w-0 ${className}`}
         />
       </div>
@@ -266,7 +297,7 @@ function InlineField({
 
 function buildSlideCount(choice: SlideCountChoice, customSlideCount: number) {
   if (choice === 'custom') {
-    return Math.min(30, Math.max(1, customSlideCount || 1));
+    return Math.min(30, Math.max(5, customSlideCount || 5));
   }
   return Number(choice);
 }
@@ -1268,14 +1299,14 @@ export default function TrainingPage() {
                       setSetupDraft((prev) => ({
                         ...prev,
                         slideCountChoice: 'custom',
-                        customSlideCount: Number.isFinite(next) ? Math.max(1, Math.min(30, next)) : 1,
+                        customSlideCount: Number.isFinite(next) ? Math.max(5, Math.min(30, next)) : 5,
                       }));
                     }}
                     type="number"
-                    min={1}
+                    min={5}
                     max={30}
-                    placeholder="1 到 30"
-                    helper="请输入 1 到 30。"
+                    placeholder="5 到 30"
+                    helper="请输入 5 到 30。"
                     className={strongSelectTriggerClassName}
                   />
                 </div>
@@ -1638,14 +1669,14 @@ export default function TrainingPage() {
                         setSetupDraft((prev) => ({
                           ...prev,
                           slideCountChoice: 'custom',
-                          customSlideCount: Number.isFinite(next) ? Math.max(1, Math.min(30, next)) : 1,
+                          customSlideCount: Number.isFinite(next) ? Math.max(5, Math.min(30, next)) : 5,
                         }));
                       }}
                       type="number"
-                      min={1}
+                      min={5}
                       max={30}
-                      placeholder="1 到 30"
-                      helper="请输入 1 到 30。"
+                      placeholder="5 到 30"
+                      helper="请输入 5 到 30。"
                       className={strongFieldClassName}
                     />
 

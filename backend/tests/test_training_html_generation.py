@@ -315,3 +315,72 @@ async def test_training_html_saves_failed_raw_when_repair_fails(monkeypatch):
         )
 
     assert saved == {"raw": "我无法生成完整 HTML。", "title": "测试"}
+
+
+def test_inject_training_html_controls_replaces_llm_provided_controls():
+    """LLM 自带一套控制条和翻页 JS 时，注入后应覆盖为标准实现，且只有一组 controls。"""
+    html = """<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><style>.slide{}</style></head>
+<body>
+  <section class="slide" style="display: block">1</section>
+  <section class="slide" style="display: none">2</section>
+  <div class="controls">
+    <button onclick="prevSlide()">上一页</button>
+    <span id="pageIndicator">1/2</span>
+    <button onclick="nextSlide()">下一页</button>
+  </div>
+  <div class="progress"><div id="progressBar" class="progress-bar"></div></div>
+  <script>
+    const slides = document.querySelectorAll('.slide');
+    function nextSlide() { /* LLM 的翻页逻辑 */ }
+    function prevSlide() {}
+  </script>
+</body></html>"""
+
+    result = training_module.inject_training_html_controls(html)
+
+    # 最终 HTML 包含标准注入的函数名
+    assert "trainingPrevSlide" in result
+    assert "trainingNextSlide" in result
+    assert "trainingToggleFullscreen" in result
+
+    # 只有一组 controls / progress
+    assert result.count('class="controls"') == 1
+    assert result.count('class="progress"') == 1
+
+    # LLM 自带的 nextSlide / prevSlide 函数定义已被剥离
+    assert "function nextSlide" not in result
+    assert "function prevSlide" not in result
+
+    # .slide 上的 inline display 已被清理
+    assert 'style="display: block"' not in result
+    assert 'style="display: none"' not in result
+
+    # 第 1 页带上 active
+    soup = BeautifulSoup(result, "html.parser")
+    slides = soup.select(".slide")
+    assert len(slides) == 2
+    assert "active" in (slides[0].get("class") or [])
+    assert "active" not in (slides[1].get("class") or [])
+
+
+def test_training_html_safety_styles_guard_cover_and_empty_div():
+    """safety CSS 必须包含封面空容器保护、空 div 隐藏、以及标准 .controls 定义。"""
+    html = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"></head><body></body></html>"""
+
+    injected = training_module.inject_training_html_safety_styles(html)
+
+    # 封面页非白名单 div 的装饰被取消
+    assert ".slide-cover > div" in injected
+    assert ".slide-cover :is(input, textarea, [contenteditable])" in injected
+
+    # 空 div / section 被隐藏
+    assert ".slide :is(div, section, article):empty" in injected
+
+    # 底部标准控制条样式
+    assert "body > .controls" in injected
+    assert "body > .progress" in injected
+    assert "z-index: 9999" in injected
+
+    # 原有卡片兑底规则加上了 :not(:empty)
+    assert ":not(.alert-box):not(:empty)" in injected

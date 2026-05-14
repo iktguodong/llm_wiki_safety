@@ -26,8 +26,8 @@ from backend.services.presentation.safety_templates import get_template
 logger = logging.getLogger(__name__)
 
 MAX_HTML_SOURCE_CONTEXT_CHARS = 18000
-HTML_GENERATION_MAX_TOKENS = 8192
-HTML_GENERATION_MAX_CONTINUATIONS = 4
+HTML_GENERATION_MAX_TOKENS = 16384
+HTML_GENERATION_MAX_CONTINUATIONS = 2
 
 TRAINING_HTML_PROMPT_TEMPLATE = """你是“企业安全生产培训与汇报展示 HTML 材料生成专家”。
 
@@ -145,6 +145,21 @@ TRAINING_HTML_PROMPT_TEMPLATE = """你是“企业安全生产培训与汇报展
 封面页可展示副标题，但不得编造与用户输入矛盾的信息。
 
 汇报对象 {audience} 主要用于调整内容深度和语气，默认不强制展示在封面；如果展示，应放在较次要位置。
+
+封面页元素受限：第 1 页 .slide-cover 内只允许使用以下类的元素来承载文字：
+- .cover-badge（顶部小徽标，如“安全培训 · 专题汇报”）
+- .cover-title（材料标题）
+- .cover-sub（副标题）
+- .cover-meta（汇报时间 / 汇报人，使用 <span> 子元素）
+- .cover-audience（汇报对象，可选）
+
+禁止在封面页放置以下任何内容：
+- 空 <div>、空 <section>
+- 装饰横线、分隔条、占位输入框、占位卡片
+- 没有任何文字的圆角矩形、白色长条
+- 不带文字的背景色块或方框
+
+封面页不要尝试模拟“输入框 / 搜索框 / 占位栏”等表单元素。
 
 ====================
 六、内容充盈度要求
@@ -349,38 +364,23 @@ TRAINING_HTML_PROMPT_TEMPLATE = """你是“企业安全生产培训与汇报展
 十一、交互功能要求
 ====================
 
-HTML 内置 JS 必须实现：
+底部翻页控制条（上一页 / 页码 / 下一页 / 全屏 / 打印 + 进度条）由系统在生成完成后统一注入，你不需要、也不应当自行输出这部分 HTML / CSS / JS。
 
-1. 当前页索引 currentSlide。
-2. showSlide(index) 方法。
-3. nextSlide() 方法。
-4. prevSlide() 方法。
-5. 键盘事件：
-   - ArrowRight 下一页
-   - PageDown 下一页
-   - Space 下一页
-   - ArrowLeft 上一页
-   - PageUp 上一页
-   - Home 第一页
-   - End 最后一页
-6. 触屏滑动：
-   - 左滑下一页
-   - 右滑上一页
-7. 页码更新。
-8. 进度条更新。
-9. 全屏按钮。
-10. 打印按钮或打印样式支持。
+请只关注每一页的 .slide 结构、内容和版式：
 
-页面底部应有：
+- 不要输出 <div class="controls"> 或 <div class="progress"> 或 id="pageIndicator" 的元素
+- 不要定义 nextSlide / prevSlide / showSlide / toggleFullscreen 等翻页相关的全局函数
+- 不要在 <script> 里给 .slide 元素绑定键盘 / 触屏 / 翻页事件
+- 不要在 .slide 上写 inline style="display: ..." 或在 JS 里改 .slide 的 style.display
+- 默认让第 1 页带上 class="slide active"，其余页只有 class="slide"，由系统注入的 JS 通过切换 .active 类来翻页
 
-- 上一页按钮
-- 下一页按钮
-- 页码
-- 进度条
-- 全屏按钮
-- 打印按钮
+你只需要：
 
-按钮不要喧宾夺主。
+1. 给所有 .slide 写好结构和样式。
+2. 让第 1 页 class 同时含 active；其他页不要带 active。
+3. CSS 中保留 @media print 的分页支持（每个 .slide 独立分页、打印时隐藏控制条）。
+
+如果你担心兼容性，可以在 <script> 里仅做与翻页无关的辅助逻辑（如内容动态填充），但禁止重写或干扰系统注入的翻页机制。
 
 ====================
 十二、打印样式要求
@@ -710,13 +710,30 @@ def inject_training_html_safety_styles(html: str) -> str:
     .slide > :not(.page-title):not(.cover-title):not(.cover-badge):not(.cover-sub):not(.cover-meta):not(.cover-audience):not(.page-core) {
       min-width: 0;
     }
-    .slide > div:not(.page-title):not(.cover-title):not(.cover-badge):not(.cover-sub):not(.cover-meta):not(.cover-audience):not(.page-core):not(.content-grid):not(.card):not(.qa-card):not(.table-wrap):not(.compare-wrap):not(.flow-steps):not(.alert-box) {
+    .slide > div:not(.page-title):not(.cover-title):not(.cover-badge):not(.cover-sub):not(.cover-meta):not(.cover-audience):not(.page-core):not(.content-grid):not(.card):not(.qa-card):not(.table-wrap):not(.compare-wrap):not(.flow-steps):not(.alert-box):not(:empty) {
       max-width: 100%;
       padding: clamp(12px, 1.3vw, 18px);
       border: 1px solid rgba(148, 163, 184, 0.18);
       border-radius: 18px;
       background: rgba(255, 255, 255, 0.96);
       box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+    }
+    /* 清除 LLM 在封面输出的装饰性空容器、占位输入框等，避免出现“白色长条” */
+    .slide-cover > div:not(.cover-title):not(.cover-badge):not(.cover-sub):not(.cover-meta):not(.cover-audience):not(.page-core):not(.content-grid):not(.card):not(.qa-card):not(.table-wrap):not(.compare-wrap):not(.flow-steps):not(.alert-box),
+    .slide-cover > section:not(.cover-title):not(.cover-badge):not(.cover-sub):not(.cover-meta):not(.cover-audience),
+    .slide-cover :is(input, textarea, [contenteditable]) {
+      background: transparent !important;
+      border: 0 !important;
+      box-shadow: none !important;
+      padding: 0 !important;
+      outline: 0 !important;
+    }
+    .slide :is(div, section, article):empty {
+      display: none !important;
+      padding: 0 !important;
+      border: 0 !important;
+      background: transparent !important;
+      box-shadow: none !important;
     }
     .slide .content-grid {
       min-height: 0;
@@ -1174,6 +1191,65 @@ def inject_training_html_safety_styles(html: str) -> str:
     .slide .card[style*="color: #ffffff"] :is(p, li, span, div, strong, b, em, .card-title, .card-body) {
       color: #ffffff !important;
     }
+    /* 防止白底白字：如果卡片同时设了浅色/白色背景及白色文字，则强制转为深色文字 */
+    .slide .card[style*="color:#fff"][style*="background:#fff"],
+    .slide .card[style*="color: #fff"][style*="background: #fff"],
+    .slide .card[style*="color:#ffffff"][style*="background:#ffffff"],
+    .slide .card[style*="color: #ffffff"][style*="background: #ffffff"],
+    .slide .card[style*="color:#fff"][style*="background:white"],
+    .slide .card[style*="color:#ffffff"][style*="background:white"] {
+      color: #0f172a !important;
+    }
+    /* 系统注入的底部控制条/进度条/页码指示器的默认样式，
+       避免 LLM 未定义样式时被 safety CSS 渲染为白色卡片或被遮挡 */
+    body > .controls {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+      z-index: 9999;
+    }
+    body > .controls button {
+      border: 0;
+      border-radius: 999px;
+      background: #4f46e5;
+      color: #ffffff;
+      padding: 8px 14px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    body > .controls button:hover {
+      background: #4338ca;
+    }
+    body > .controls .page-indicator {
+      min-width: 78px;
+      text-align: center;
+      font-size: 14px;
+      color: #334155;
+    }
+    body > .progress {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 4px;
+      background: rgba(148, 163, 184, 0.28);
+      z-index: 9998;
+    }
+    body > .progress > .progress-bar {
+      height: 100%;
+      width: 0;
+      background: #f97316;
+      transition: width 0.25s ease;
+    }
     @page {
       size: 16in 9in;
       margin: 0;
@@ -1218,12 +1294,65 @@ def inject_training_html_safety_styles(html: str) -> str:
 
 
 def inject_training_html_controls(html: str) -> str:
-    """确保最终 HTML 底部始终带有翻页/全屏/打印控制条。"""
-    if '<div class="controls">' in html or "trainingPrevSlide" in html:
+    """剥离 LLM 自带的底部控件和翻页 JS 后，统一注入标准控制条。
+
+    LLM 经常自己输出 <div class="controls"> 和一套 nextSlide/prevSlide 翻页 JS，
+    但翻页 JS 常使用 slide.style.display = 'block'，会被 safety CSS 的
+    `.slide:not(.active) { display: none !important }` 覆盖，导致下载后只能看到
+    第 1 页且底部按钮位置错乱。这里统一以后端标准实现为准（采用 classList 切换
+    active 类，与 safety CSS 兼容）。
+    """
+    if "</body>" not in html:
         return html
-    needle = "</body>"
-    if needle not in html:
-        return html
+
+    # 用 BeautifulSoup 剥离 LLM 自带的控件和翻页 JS
+    soup = BeautifulSoup(html, "html.parser")
+
+    # 1. 删除底部控制条 / 进度条 / 页码指示器
+    for node in soup.select(".controls, .progress, .progress-bar, #pageIndicator, #progressBar"):
+        node.decompose()
+
+    # 2. 删除任何包含翻页 / 全屏 / slide 事件绑定的 <script>，避免与注入 JS 冲突
+    conflict_pattern = re.compile(
+        r"\b(?:nextSlide|prevSlide|showSlide|toggleFullscreen|currentSlide)\b|"
+        r"querySelectorAll\s*\(\s*[\'\"]\.slide[\'\"]\)|"
+        r"requestFullscreen\s*\(",
+        re.IGNORECASE,
+    )
+    for script in soup.find_all("script"):
+        if script.get("src"):
+            continue
+        text = script.string or script.get_text() or ""
+        if conflict_pattern.search(text):
+            script.decompose()
+
+    # 3. 清理 .slide 上 LLM 可能写的 inline style="display: ..."，避免被 `!important` 覆盖后锁死
+    display_pattern = re.compile(r"display\s*:[^;]+;?", re.IGNORECASE)
+    for slide in soup.select(".slide"):
+        style_attr = slide.get("style")
+        if not style_attr:
+            continue
+        new_style = display_pattern.sub("", style_attr).strip().rstrip(";").strip()
+        if new_style:
+            slide["style"] = new_style
+        else:
+            del slide["style"]
+
+    # 4. 确保第 1 页带 active，其余页去掉 active（避免多页同时显示）
+    slides = soup.select(".slide")
+    for idx, slide in enumerate(slides):
+        classes = slide.get("class") or []
+        if idx == 0:
+            if "active" not in classes:
+                slide["class"] = classes + ["active"]
+        else:
+            if "active" in classes:
+                slide["class"] = [c for c in classes if c != "active"]
+
+    cleaned_html = str(soup)
+    if "</body>" not in cleaned_html:
+        return cleaned_html
+
     controls_block = """
   <div class="controls">
     <button onclick="trainingPrevSlide()">上一页</button>
@@ -1290,7 +1419,7 @@ def inject_training_html_controls(html: str) -> str:
     })();
   </script>
 """
-    return html.replace(needle, f"{controls_block}\n{needle}", 1)
+    return cleaned_html.replace("</body>", f"{controls_block}\n</body>", 1)
 
 
 def _slide_sections_from_text(text: str) -> list[str]:
@@ -1832,7 +1961,13 @@ async def _generate_html_with_continuation(
             raise ValueError("模型输出达到长度上限，自动续写后仍未完成 HTML。请减少页数或精简文档内容后重试。")
 
         current_output = "".join(output_parts)
-        tail = current_output[-800:]
+        # 只回传最后一个已闭合 </section> 之后的尾部，减少接下来的输入 token 占用
+        last_closed = current_output.rfind("</section>")
+        if last_closed >= 0:
+            tail = current_output[last_closed + len("</section>"):]
+        else:
+            tail = current_output
+        tail = tail[-800:]
         current_messages = [
             *messages,
             {"role": "assistant", "content": current_output},
@@ -2038,20 +2173,17 @@ class TrainingService:
         html = inject_training_html_safety_styles(html)
         slide_count = count_html_slides(html)
         if slide_count != request.page_count:
-            for _ in range(2):
-                try:
-                    repaired_html = await _repair_html_slide_count(
-                        html,
-                        title=title,
-                        page_count=request.page_count,
-                        model_id=model_id,
-                    )
-                    html = inject_training_html_safety_styles(repaired_html)
-                    slide_count = count_html_slides(html)
-                    if slide_count == request.page_count:
-                        break
-                except ValueError:
-                    continue
+            try:
+                repaired_html = await _repair_html_slide_count(
+                    html,
+                    title=title,
+                    page_count=request.page_count,
+                    model_id=model_id,
+                )
+                html = inject_training_html_safety_styles(repaired_html)
+                slide_count = count_html_slides(html)
+            except ValueError:
+                pass
         html = inject_training_html_controls(html)
         if slide_count != request.page_count:
             logger.warning(
