@@ -132,6 +132,11 @@ export interface ChatResponse {
   answer: string;
 }
 
+export interface MessageDocxExportRequest {
+  title: string;
+  content: string;
+}
+
 export interface AssistantPromptOptimizeRequest {
   name: string;
   description?: string;

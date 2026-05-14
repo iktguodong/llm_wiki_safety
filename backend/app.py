@@ -26,6 +26,7 @@ from backend.models import (
     DocumentInfo, DocumentListResponse, DocumentDeleteRequest, DocumentDeletePreview,
     WikiPage, WikiPageContent, WikiPageListResponse, WikiLintResult,
     ChatRequest, ChatResponse,
+    MessageDocxExportRequest,
     AssistantPromptOptimizeRequest, AssistantPromptOptimizeResponse,
     SearchRequest, SearchResult,
     TrainingOutline, TrainingConfig,
@@ -72,6 +73,7 @@ from backend.services.presentation.project_store import (
     unregister_running_job,
 )
 from backend.services.presentation.safety_templates import get_template
+from backend.services.message_export import build_message_docx_bytes
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -393,6 +395,17 @@ async def chat_sync(data: ChatRequest):
         data.temporary_upload_ids,
     )
     return ApiResponse(data=ChatResponse(answer=answer))
+
+
+@app.post("/api/chat/export-docx")
+async def export_chat_message_docx(data: MessageDocxExportRequest):
+    """将助手消息导出为 Word DOCX。"""
+    docx_bytes = build_message_docx_bytes(data.title, data.content)
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": 'attachment; filename="message.docx"'},
+    )
 
 
 # ==================== 检索API ====================

@@ -182,6 +182,12 @@ class ChatResponse(BaseModel):
     confidence: str = "high"  # high, medium, low
 
 
+class MessageDocxExportRequest(BaseModel):
+    """消息导出为 DOCX 的请求"""
+    title: str = Field(..., min_length=1, description="导出文件标题")
+    content: str = Field(..., min_length=1, description="导出的消息内容")
+
+
 class AssistantPromptOptimizeRequest(BaseModel):
     """助手提示词优化请求"""
     model_config = ConfigDict(protected_namespaces=())

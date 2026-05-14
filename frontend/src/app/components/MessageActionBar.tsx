@@ -15,7 +15,7 @@ type MessageActionBarProps = {
   disableDelete?: boolean;
   disableExport?: boolean;
   onCopy: () => void | Promise<void>;
-  onExport: (format: 'md' | 'txt') => void;
+  onExport: (format: 'md' | 'txt' | 'docx') => void | Promise<void>;
   onDelete: () => void;
   onRegenerate?: () => void;
 };
@@ -95,7 +95,7 @@ export function MessageActionBar({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" sideOffset={6} className="w-44 p-1">
           <DropdownMenuItem
-            onSelect={() => onExport('md')}
+            onSelect={() => { void onExport('md'); }}
             disabled={disableExport}
             className="gap-2"
           >
@@ -103,12 +103,20 @@ export function MessageActionBar({
             Markdown (.md)
           </DropdownMenuItem>
           <DropdownMenuItem
-            onSelect={() => onExport('txt')}
+            onSelect={() => { void onExport('txt'); }}
             disabled={disableExport}
             className="gap-2"
           >
             <Download className="w-3.5 h-3.5" />
             纯文本 (.txt)
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => { void onExport('docx'); }}
+            disabled={disableExport}
+            className="gap-2"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Word (.docx)
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

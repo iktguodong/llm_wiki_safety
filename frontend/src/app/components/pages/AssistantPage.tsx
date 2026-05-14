@@ -16,6 +16,7 @@ import {
   Upload,
   X,
   User,
+  Square,
 } from 'lucide-react';
 import { assistants as defaultAssistants, type AssistantDefinition } from '../../data/assistants';
 import {
@@ -175,9 +176,32 @@ function hasContextResetMessage(messages: AssistantMessage[]) {
   return messages.some(message => message.role === 'assistant' && message.content.includes(CONTEXT_RESET_MESSAGE));
 }
 
-function buildMessageExportName(role: AssistantMessage['role'], index: number, format: 'md' | 'txt') {
+function buildMessageExportName(role: AssistantMessage['role'], index: number, format: 'md' | 'txt' | 'docx') {
   const prefix = role === 'assistant' ? '安牛助手回答' : '我的提问';
   return `${prefix}-${index + 1}.${format}`;
+}
+
+function buildDocxExportName(role: AssistantMessage['role'], text: string) {
+  const fallback = role === 'assistant' ? '安牛助手回答' : '我的提问';
+  const normalized = normalizeAssistantText(text).replace(/\s+/g, ' ').trim();
+  const lead = normalized.split(/[。！？!?；;\n]/)[0]?.trim() || normalized;
+  const cleaned = lead.replace(/[\\/:*?"<>|\r\n\t]+/g, '_').replace(/\s+/g, ' ').trim();
+  return `${(cleaned || fallback).slice(0, 40)}.docx`;
+}
+
+function dropTrailingAssistantMessage(messages: AssistantMessage[]) {
+  const last = messages[messages.length - 1];
+  if (last?.role !== 'assistant') return messages;
+  return messages.slice(0, -1);
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function AssistantPage({ activeAssistantId, onStartChat }: AssistantPageProps) {
@@ -217,6 +241,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   const searchInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const loadingTopicIdsRef = useRef<Record<string, boolean>>({});
+  const generationRef = useRef<{ id: string; controller: AbortController; topicId: string } | null>(null);
   const autoScrollEnabledRef = useRef(true);
   const allModels = providers.flatMap(p => p.models);
   const items = useMemo(
@@ -515,19 +540,42 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     syncTopicMessages(currentTopic.id, nextMessages);
   };
 
+  const stopCurrentGeneration = () => {
+    const current = generationRef.current;
+    if (!current) return;
+    generationRef.current = null;
+    current.controller.abort();
+    if (!currentTopic) return;
+    const nextMessages = dropTrailingAssistantMessage(currentTopic.messages);
+    syncTopicMessages(current.topicId, nextMessages);
+    setTopicLoading(current.topicId, false);
+  };
+
   const copyMessage = async (role: AssistantMessage['role'], text: string) => {
     await navigator.clipboard.writeText(role === 'assistant' ? normalizeAssistantText(text) : text);
   };
 
-  const exportMessage = (role: AssistantMessage['role'], text: string, idx: number, format: 'md' | 'txt') => {
-    const content = format === 'txt' ? normalizeAssistantText(text) : text;
-    const blob = new Blob([content], { type: format === 'txt' ? 'text/plain;charset=utf-8' : 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = buildMessageExportName(role, idx, format);
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportMessage = async (role: AssistantMessage['role'], text: string, idx: number, format: 'md' | 'txt' | 'docx') => {
+    try {
+      const filename = buildMessageExportName(role, idx, format);
+      if (format === 'docx') {
+        const docxFilename = buildDocxExportName(role, text);
+        const blob = await chatApi.exportMessageDocx({
+          title: docxFilename.replace(/\.docx$/i, ''),
+          content: text,
+        });
+        downloadBlob(blob, docxFilename);
+        return;
+      }
+
+      const content = format === 'txt' ? normalizeAssistantText(text) : text;
+      const blob = new Blob([content], {
+        type: format === 'txt' ? 'text/plain;charset=utf-8' : 'text/markdown;charset=utf-8',
+      });
+      downloadBlob(blob, filename);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : '导出失败');
+    }
   };
 
   const regenerateMessage = (idx: number) => {
@@ -562,9 +610,15 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
     }
     setTopicLoading(targetTopicId, true);
     let settled = false;
+    const generationId = `${targetTopicId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const controller = new AbortController();
+    generationRef.current = { id: generationId, controller, topicId: targetTopicId };
     const finish = () => {
       if (settled) return;
       settled = true;
+      if (generationRef.current?.id === generationId) {
+        generationRef.current = null;
+      }
       setTopicLoading(targetTopicId, false);
     };
 
@@ -581,6 +635,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
           assistant_prompt: selectedAssistant.system_prompt,
         },
         (chunk) => {
+          if (generationRef.current?.id !== generationId || controller.signal.aborted) return;
           updateTopicById(targetTopicId, topic => {
             const last = topic.messages[topic.messages.length - 1];
             if (last?.role !== 'assistant') return topic;
@@ -592,6 +647,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
           });
         },
         (err) => {
+          if (generationRef.current?.id !== generationId || controller.signal.aborted) return;
           updateTopicById(targetTopicId, topic => {
             const last = topic.messages[topic.messages.length - 1];
             if (last?.role !== 'assistant') return topic;
@@ -603,7 +659,11 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
           });
           finish();
         },
-        () => finish()
+        () => {
+          if (generationRef.current?.id !== generationId || controller.signal.aborted) return;
+          finish();
+        },
+        controller.signal
       );
     } catch (err) {
       updateTopicById(targetTopicId, topic => {
@@ -866,8 +926,12 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                         onCopy={() => copyMessage(msg.role, msg.content)}
                         onExport={(format) => exportMessage(msg.role, msg.content, idx, format)}
                         onDelete={() => deleteMessage(idx)}
-                        onRegenerate={msg.role === 'assistant' && idx > 0 ? () => regenerateMessage(idx) : undefined}
-                        showRegenerate={msg.role === 'assistant' && idx > 0}
+                        onRegenerate={
+                          msg.role === 'user'
+                            ? () => sendMessage(msg.content)
+                            : (msg.role === 'assistant' && idx > 0 ? () => regenerateMessage(idx) : undefined)
+                        }
+                        showRegenerate={msg.role === 'user' || (msg.role === 'assistant' && idx > 0)}
                         disableRegenerate={currentTopicLoading}
                         disableDelete={currentTopicLoading && idx === messages.length - 1 && msg.role === 'assistant' && !msg.content.trim()}
                       />
@@ -960,13 +1024,17 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                       </button>
                     </div>
                     <button
-                      onClick={sendMessage}
-                      disabled={!input.trim() || currentTopicLoading}
-                      title={currentTopicLoading ? '当前话题仍在生成中' : ''}
-                      className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
+                      onClick={currentTopicLoading ? stopCurrentGeneration : sendMessage}
+                      disabled={!currentTopicLoading && !input.trim()}
+                      title={currentTopicLoading ? '停止生成并丢弃本次结果' : ''}
+                      className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                        currentTopicLoading
+                          ? 'bg-rose-600 text-white hover:bg-rose-700'
+                          : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                      }`}
                     >
-                      <Send className="w-3.5 h-3.5" />
-                      发送
+                      {currentTopicLoading ? <Square className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+                      {currentTopicLoading ? '停止' : '发送'}
                     </button>
                   </div>
                 </div>

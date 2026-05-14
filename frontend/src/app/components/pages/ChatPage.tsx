@@ -11,6 +11,7 @@ import {
   Trash2,
   Upload,
   Pencil,
+  Square,
 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { useApp } from '../../../lib/context';
@@ -111,9 +112,32 @@ function hasContextResetMessage(messages: ChatMessage[]) {
   return messages.some(message => message.role === 'assistant' && message.content.includes(CONTEXT_RESET_MESSAGE));
 }
 
-function buildMessageExportName(role: ChatMessage['role'], index: number, format: 'md' | 'txt') {
+function buildMessageExportName(role: ChatMessage['role'], index: number, format: 'md' | 'txt' | 'docx') {
   const prefix = role === 'assistant' ? '安牛助手回答' : '我的提问';
   return `${prefix}-${index + 1}.${format}`;
+}
+
+function buildDocxExportName(role: ChatMessage['role'], text: string) {
+  const fallback = role === 'assistant' ? '安牛助手回答' : '我的提问';
+  const normalized = normalizeAssistantText(text).replace(/\s+/g, ' ').trim();
+  const lead = normalized.split(/[。！？!?；;\n]/)[0]?.trim() || normalized;
+  const cleaned = lead.replace(/[\\/:*?"<>|\r\n\t]+/g, '_').replace(/\s+/g, ' ').trim();
+  return `${(cleaned || fallback).slice(0, 40)}.docx`;
+}
+
+function dropTrailingAssistantMessage(messages: ChatMessage[]) {
+  const last = messages[messages.length - 1];
+  if (last?.role !== 'assistant') return messages;
+  return messages.slice(0, -1);
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function createCurrentSessionFallback(modelId: string) {
@@ -156,6 +180,7 @@ export default function ChatPage() {
   const messagesRef = useRef<ChatMessage[]>(messages);
   const activeSessionIdRef = useRef(activeSessionId);
   const loadingSessionIdsRef = useRef<Record<string, boolean>>({});
+  const generationRef = useRef<{ id: string; controller: AbortController; sessionId: string } | null>(null);
   const autoScrollEnabledRef = useRef(true);
   const currentSessionLoading = !!loadingSessionIds[activeSessionId];
   const currentConversationLoading = !!loadingSessionIds[CURRENT_SESSION_ID];
@@ -433,6 +458,16 @@ export default function ChatPage() {
     syncConversationMessages(nextMessages);
   };
 
+  const stopCurrentGeneration = () => {
+    const current = generationRef.current;
+    if (!current) return;
+    generationRef.current = null;
+    current.controller.abort();
+    const nextMessages = dropTrailingAssistantMessage(messagesRef.current);
+    syncConversationMessages(nextMessages);
+    setSessionLoading(current.sessionId, false);
+  };
+
   const handleSend = (questionOverride?: string) => {
     const question = (questionOverride ?? input).trim();
     if (!question || currentSessionLoading) return;
@@ -511,9 +546,15 @@ export default function ChatPage() {
     if (!questionOverride) setInput('');
     setSessionLoading(sessionIdAtSend, true);
     let settled = false;
+    const generationId = `${sessionIdAtSend}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const controller = new AbortController();
+    generationRef.current = { id: generationId, controller, sessionId: sessionIdAtSend };
     const finish = () => {
       if (settled) return;
       settled = true;
+      if (generationRef.current?.id === generationId) {
+        generationRef.current = null;
+      }
       setSessionLoading(sessionIdAtSend, false);
     };
 
@@ -526,7 +567,9 @@ export default function ChatPage() {
         model_id: sourceModelId,
         use_web_search: sourceUseWebSearch,
       },
+      // 流式输出时将每个 chunk 追加到当前会话
       (chunk) => {
+        if (generationRef.current?.id !== generationId || controller.signal.aborted) return;
         const last = workingMessages[workingMessages.length - 1];
         if (last?.role === 'assistant') {
           workingMessages = [...workingMessages.slice(0, -1), { ...last, content: last.content + chunk }];
@@ -534,6 +577,7 @@ export default function ChatPage() {
         }
       },
       (err) => {
+        if (generationRef.current?.id !== generationId || controller.signal.aborted) return;
         const last = workingMessages[workingMessages.length - 1];
         if (last?.role === 'assistant') {
           workingMessages = [...workingMessages.slice(0, -1), { ...last, content: `请求失败: ${err.message}` }];
@@ -542,9 +586,11 @@ export default function ChatPage() {
         finish();
       },
       () => {
+        if (generationRef.current?.id !== generationId || controller.signal.aborted) return;
         commitSessionState(workingMessages);
         finish();
-      }
+      },
+      controller.signal
     );
   };
 
@@ -552,15 +598,27 @@ export default function ChatPage() {
     await navigator.clipboard.writeText(role === 'assistant' ? normalizeAssistantText(text) : text);
   };
 
-  const exportMessage = (role: ChatMessage['role'], text: string, idx: number, format: 'md' | 'txt') => {
-    const content = format === 'txt' ? normalizeAssistantText(text) : text;
-    const blob = new Blob([content], { type: format === 'txt' ? 'text/plain;charset=utf-8' : 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = buildMessageExportName(role, idx, format);
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportMessage = async (role: ChatMessage['role'], text: string, idx: number, format: 'md' | 'txt' | 'docx') => {
+    try {
+      const filename = buildMessageExportName(role, idx, format);
+      if (format === 'docx') {
+        const docxFilename = buildDocxExportName(role, text);
+        const blob = await chatApi.exportMessageDocx({
+          title: docxFilename.replace(/\.docx$/i, ''),
+          content: text,
+        });
+        downloadBlob(blob, docxFilename);
+        return;
+      }
+
+      const content = format === 'txt' ? normalizeAssistantText(text) : text;
+      const blob = new Blob([content], {
+        type: format === 'txt' ? 'text/plain;charset=utf-8' : 'text/markdown;charset=utf-8',
+      });
+      downloadBlob(blob, filename);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : '导出失败');
+    }
   };
 
   const regenerateMessage = (idx: number) => {
@@ -840,8 +898,12 @@ export default function ChatPage() {
                       onCopy={() => copyMessage(msg.role, msg.content)}
                       onExport={(format) => exportMessage(msg.role, msg.content, idx, format)}
                       onDelete={() => deleteMessage(idx)}
-                      onRegenerate={msg.role === 'assistant' && idx > 0 ? () => regenerateMessage(idx) : undefined}
-                      showRegenerate={msg.role === 'assistant' && idx > 0}
+                      onRegenerate={
+                        msg.role === 'user'
+                          ? () => handleSend(msg.content)
+                          : (msg.role === 'assistant' && idx > 0 ? () => regenerateMessage(idx) : undefined)
+                      }
+                      showRegenerate={msg.role === 'user' || (msg.role === 'assistant' && idx > 0)}
                       disableRegenerate={currentSessionLoading}
                       disableDelete={currentSessionLoading && idx === messages.length - 1 && msg.role === 'assistant' && !msg.content.trim()}
                     />
@@ -945,13 +1007,17 @@ export default function ChatPage() {
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
                     <button
-                      onClick={() => handleSend()}
-                      disabled={!input.trim() || currentSessionLoading}
-                      title={currentSessionLoading ? '当前会话仍在生成中' : ''}
-                      className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
+                      onClick={currentSessionLoading ? stopCurrentGeneration : () => handleSend()}
+                      disabled={!currentSessionLoading && !input.trim()}
+                      title={currentSessionLoading ? '停止生成并丢弃本次结果' : ''}
+                      className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                        currentSessionLoading
+                          ? 'bg-rose-600 text-white hover:bg-rose-700'
+                          : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                      }`}
                     >
-                    <Send className="w-3.5 h-3.5" />
-                    发送
+                    {currentSessionLoading ? <Square className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+                    {currentSessionLoading ? '停止' : '发送'}
                   </button>
                 </div>
               </div>
