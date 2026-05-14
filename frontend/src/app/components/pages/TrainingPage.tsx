@@ -1190,7 +1190,7 @@ export default function TrainingPage() {
         </div>
       </div>
 
-      <div className={`flex-1 overflow-auto px-8 py-6 ${isGenerationLocked ? 'pointer-events-none select-none opacity-90' : ''}`} aria-busy={isGenerationLocked}>
+      <div className={`flex-1 overflow-auto px-8 py-6 ${isGenerationLocked ? 'generation-lock opacity-90' : ''}`} aria-busy={isGenerationLocked}>
         <div className="mb-5 flex gap-3">
           <TopModeCard
             active={mode === 'html'}

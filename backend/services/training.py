@@ -563,8 +563,17 @@ def inject_training_html_safety_styles(html: str) -> str:
       --training-warning: #d97706;
       --training-danger: #dc2626;
       --training-shadow: 0 24px 70px rgba(15, 23, 42, 0.14);
+      --training-deck-pad-x: clamp(10px, 1.2vw, 18px);
+      --training-deck-pad-y: clamp(10px, 1.2vh, 18px);
+    }
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
     }
     html, body {
+      width: 100%;
+      height: 100%;
       -webkit-text-size-adjust: 100%;
       text-rendering: optimizeLegibility;
     }
@@ -584,28 +593,141 @@ def inject_training_html_safety_styles(html: str) -> str:
       height: 100vh;
       display: grid;
       place-items: center;
-      padding: 0;
+      padding: var(--training-deck-pad-y) var(--training-deck-pad-x);
+      min-height: 0;
+      overflow: hidden;
+    }
+    .slide,
+    .slide * {
+      min-width: 0;
     }
     .slide {
       position: relative;
       display: flex;
       flex-direction: column;
       gap: clamp(10px, 1vw, 18px);
-      width: 100vw;
-      height: 100vh;
-      aspect-ratio: auto;
-      padding: clamp(24px, 2.5vw, 44px) clamp(28px, 3.2vw, 60px) clamp(86px, 8.5vh, 116px);
+      width: min(
+        calc(100vw - (var(--training-deck-pad-x) * 2)),
+        calc((100vh - (var(--training-deck-pad-y) * 2)) * 16 / 9)
+      );
+      height: min(
+        calc(100vh - (var(--training-deck-pad-y) * 2)),
+        calc((100vw - (var(--training-deck-pad-x) * 2)) * 9 / 16)
+      );
+      aspect-ratio: 16 / 9;
+      padding: clamp(24px, 2.3vw, 42px) clamp(30px, 3vw, 56px) clamp(70px, 6.8vh, 96px);
       border-radius: 0;
       border: 1px solid rgba(255, 255, 255, 0.72);
       background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
       box-shadow: var(--training-shadow);
-      overflow: hidden !important;
+      overflow: hidden;
+      color: var(--training-text);
     }
     .slide:not(.active) {
       display: none !important;
     }
     .slide.active {
       display: flex !important;
+    }
+    .slide :is(p, li, td, th, div, span) {
+      overflow-wrap: break-word;
+      word-break: break-word;
+      text-wrap: pretty;
+    }
+    .slide img,
+    .slide svg {
+      max-width: 100%;
+      height: auto;
+    }
+    .slide p,
+    .slide ul,
+    .slide ol,
+    .slide h1,
+    .slide h2,
+    .slide h3,
+    .slide h4,
+    .slide h5,
+    .slide h6 {
+      margin: 0;
+    }
+    .slide p,
+    .slide li {
+      font-size: clamp(15px, 1.05vw, 19px) !important;
+      line-height: 1.48 !important;
+    }
+    .slide h1,
+    .slide .page-title {
+      font-size: clamp(30px, 2.5vw, 44px) !important;
+    }
+    .slide h2 {
+      font-size: clamp(24px, 2vw, 34px) !important;
+    }
+    .slide h3,
+    .slide .card-title {
+      font-size: clamp(18px, 1.35vw, 24px) !important;
+    }
+    .slide .slide-subtitle,
+    .slide .cover-sub,
+    .slide .cover-meta,
+    .slide .page-core {
+      font-size: clamp(16px, 1.05vw, 20px) !important;
+      line-height: 1.44 !important;
+    }
+    .slide .tag,
+    .slide .list-compact li,
+    .slide .step-desc,
+    .slide .qa-hint,
+    .slide .card-body,
+    .slide .card-body li,
+    .slide .compare-col li,
+    .slide .table-wrap td,
+    .slide .table-wrap th {
+      font-size: clamp(14px, 1vw, 18px) !important;
+      line-height: 1.48 !important;
+    }
+    .slide .meta-note,
+    .slide .footnote,
+    .slide .caption,
+    .slide .subtext {
+      font-size: clamp(13px, 0.92vw, 16px) !important;
+      line-height: 1.42 !important;
+    }
+    .slide > :not(.page-title):not(.cover-title):not(.cover-badge):not(.cover-sub):not(.cover-meta):not(.cover-audience):not(.page-core) {
+      min-width: 0;
+    }
+    .slide > div:not(.page-title):not(.cover-title):not(.cover-badge):not(.cover-sub):not(.cover-meta):not(.cover-audience):not(.page-core):not(.content-grid):not(.card):not(.qa-card):not(.table-wrap):not(.compare-wrap):not(.flow-steps):not(.alert-box) {
+      max-width: 100%;
+      padding: clamp(12px, 1.3vw, 18px);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+    }
+    .slide .content-grid {
+      min-height: 0;
+      flex: 1 1 auto;
+    }
+    .content-grid {
+      display: grid;
+      gap: clamp(12px, 1.4vw, 24px);
+      align-items: stretch;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    .content-grid.cols-2,
+    .content-grid.cols-3 {
+      align-items: stretch;
+    }
+    .content-grid.cols-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .content-grid.cols-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    @media (max-aspect-ratio: 4 / 3) {
+      .content-grid.cols-3 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
     .slide-cover {
       justify-content: center;
@@ -622,12 +744,6 @@ def inject_training_html_safety_styles(html: str) -> str:
     .slide-cover .cover-badge {
       background: rgba(79, 70, 229, 0.10);
       color: var(--training-accent-strong) !important;
-    }
-    .slide :is(h1, h2, h3, h4, h5, h6, p, li, td, th, dt, dd, span, a, strong, b, em, small, label) {
-      text-wrap: pretty;
-    }
-    .slide > :not(.page-title):not(.cover-title):not(.cover-badge):not(.cover-sub):not(.cover-meta):not(.cover-audience):not(.page-core) {
-      min-width: 0;
     }
     .cover-badge {
       display: inline-flex;
@@ -701,20 +817,12 @@ def inject_training_html_safety_styles(html: str) -> str:
       color: var(--training-accent-strong);
       font-weight: 800;
     }
-    .content-grid {
-      display: grid;
-      gap: clamp(12px, 1.4vw, 24px);
-      align-items: stretch;
-      flex: 1;
-    }
-    .content-grid.cols-2 {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .content-grid.cols-3 {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-    .content-grid > * {
-      min-width: 0;
+    .card,
+    .qa-card,
+    .compare-col,
+    .flow-step,
+    .alert-box {
+      overflow: hidden;
     }
     .card,
     .qa-card,
@@ -744,7 +852,6 @@ def inject_training_html_safety_styles(html: str) -> str:
       align-items: center;
       gap: 10px;
       margin-bottom: 12px;
-      font-size: clamp(17px, 1.05vw, 22px);
     }
     .card-icon {
       display: inline-flex;
@@ -801,11 +908,14 @@ def inject_training_html_safety_styles(html: str) -> str:
       color: var(--training-warm);
     }
     .table-wrap {
+      width: 100%;
+      max-height: 100%;
       overflow: hidden;
       padding: 0;
     }
     .table-wrap table {
       width: 100%;
+      table-layout: fixed;
       border-collapse: collapse;
       background: transparent;
     }
@@ -815,21 +925,25 @@ def inject_training_html_safety_styles(html: str) -> str:
       border-bottom: 1px solid rgba(148, 163, 184, 0.16);
       vertical-align: top;
       text-align: left;
+      word-break: break-word;
+      overflow-wrap: break-word;
     }
     .table-wrap th {
       background: rgba(79, 70, 229, 0.08);
-      color: #1e3a8a;
+      color: #1e3a8a !important;
       font-weight: 800;
     }
     .flow-steps {
       display: grid;
-      grid-template-columns: repeat(7, minmax(0, 1fr));
-      gap: 12px;
-      align-items: center;
-      flex: 1;
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+      gap: clamp(10px, 1vw, 16px);
+      align-items: stretch;
+      flex: 1 1 auto;
+      min-height: 0;
     }
     .flow-step {
-      min-height: 132px;
+      min-height: 0;
+      height: auto;
       padding: 14px 12px;
       display: flex;
       flex-direction: column;
@@ -864,7 +978,8 @@ def inject_training_html_safety_styles(html: str) -> str:
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: clamp(12px, 1.4vw, 20px);
-      flex: 1;
+      flex: 1 1 auto;
+      min-height: 0;
     }
     .compare-col.do {
       border-color: rgba(22, 163, 74, 0.16);
@@ -960,11 +1075,50 @@ def inject_training_html_safety_styles(html: str) -> str:
     .slide .alert-box .text {
       min-width: 0 !important;
     }
+    .slide .card[style*="color:#fff"],
+    .slide .card[style*="color: #fff"],
+    .slide .card[style*="color:#ffffff"],
+    .slide .card[style*="color: #ffffff"] {
+      color: #ffffff !important;
+    }
+    .slide .card[style*="color:#fff"] :is(p, li, span, div, strong, b, em, .card-title, .card-body),
+    .slide .card[style*="color: #fff"] :is(p, li, span, div, strong, b, em, .card-title, .card-body),
+    .slide .card[style*="color:#ffffff"] :is(p, li, span, div, strong, b, em, .card-title, .card-body),
+    .slide .card[style*="color: #ffffff"] :is(p, li, span, div, strong, b, em, .card-title, .card-body) {
+      color: #ffffff !important;
+    }
+    @page {
+      size: 16in 9in;
+      margin: 0;
+    }
     @media print {
-      body { background: white; overflow: visible; }
-      .deck { display: block; width: auto; height: auto; padding: 0; }
-      .deck > .slide { display: block !important; width: 100vw; height: 56.25vw; box-shadow: none; border-radius: 0; break-after: page; page-break-after: always; }
-      .controls, .progress { display: none; }
+      html,
+      body {
+        width: 100%;
+        height: auto;
+        background: white !important;
+        overflow: visible !important;
+      }
+      .deck {
+        display: block !important;
+        width: 100% !important;
+        height: auto !important;
+        padding: 0 !important;
+      }
+      .deck > .slide {
+        display: flex !important;
+        width: 100vw !important;
+        height: 56.25vw !important;
+        aspect-ratio: 16 / 9 !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        break-after: page;
+        page-break-after: always;
+      }
+      .controls,
+      .progress {
+        display: none !important;
+      }
     }
   </style>
 """
@@ -1007,26 +1161,253 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{title}</title>
   <style>
-    * {{ box-sizing: border-box; }}
-    body {{ margin: 0; min-height: 100vh; background: #eef2ff; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; overflow: hidden; }}
-    .deck {{ width: 100vw; height: 100vh; display: grid; place-items: center; padding: 0; }}
-    .slide {{ display: none; width: 100vw; height: 100vh; overflow: hidden; border-radius: 0; background: #f8fafc; box-shadow: 0 24px 70px rgba(15, 23, 42, .18); padding: clamp(24px, 2.5vw, 44px) clamp(28px, 3.2vw, 60px) clamp(86px, 8.5vh, 116px); }}
-    .slide.active {{ display: flex; flex-direction: column; }}
-    .slide h1 {{ margin: 0 0 20px; font-size: 42px; line-height: 1.08; color: #111827; font-weight: 900; }}
-    .slide h2 {{ margin: 0 0 18px; font-size: 34px; line-height: 1.1; color: #111827; font-weight: 900; }}
-    .slide h3 {{ margin: 0 0 14px; font-size: 26px; line-height: 1.12; color: #111827; font-weight: 800; }}
-    .slide p, .slide li {{ font-size: 19px; line-height: 1.5; }}
-    .slide ul, .slide ol {{ padding-left: 1.4em; }}
+    :root {{
+      --deck-pad-x: clamp(10px, 1.2vw, 18px);
+      --deck-pad-y: clamp(10px, 1.2vh, 18px);
+      --slide-bg: #f8fafc;
+      --slide-text: #0f172a;
+      --slide-muted: #334155;
+      --slide-border: rgba(148, 163, 184, 0.22);
+      --slide-shadow: 0 24px 70px rgba(15, 23, 42, .18);
+    }}
+    *,
+    *::before,
+    *::after {{ box-sizing: border-box; }}
+    html, body {{ width: 100%; height: 100%; }}
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      background: #eef2ff;
+      color: var(--slide-text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      overflow: hidden;
+      -webkit-text-size-adjust: 100%;
+      text-rendering: optimizeLegibility;
+    }}
+    .deck {{
+      width: 100vw;
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: var(--deck-pad-y) var(--deck-pad-x);
+      min-height: 0;
+      overflow: hidden;
+    }}
+    .slide,
+    .slide * {{
+      min-width: 0;
+    }}
+    .slide {{
+      display: none;
+      width: min(
+        calc(100vw - (var(--deck-pad-x) * 2)),
+        calc((100vh - (var(--deck-pad-y) * 2)) * 16 / 9)
+      );
+      height: min(
+        calc(100vh - (var(--deck-pad-y) * 2)),
+        calc((100vw - (var(--deck-pad-x) * 2)) * 9 / 16)
+      );
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      border-radius: 0;
+      background: var(--slide-bg);
+      color: var(--slide-text);
+      box-shadow: var(--slide-shadow);
+      padding: clamp(24px, 2.3vw, 42px) clamp(30px, 3vw, 56px) clamp(70px, 6.8vh, 96px);
+    }}
+    .slide.active {{
+      display: flex;
+      flex-direction: column;
+    }}
+    .slide :is(p, li, td, th, div, span) {{
+      overflow-wrap: break-word;
+      word-break: break-word;
+      text-wrap: pretty;
+    }}
+    .slide p, .slide li {{
+      font-size: clamp(15px, 1.05vw, 19px);
+      line-height: 1.48;
+      color: var(--slide-muted);
+    }}
+    .slide h1 {{ margin: 0 0 20px; font-size: clamp(30px, 2.5vw, 44px); line-height: 1.08; color: #111827; font-weight: 900; }}
+    .slide h2 {{ margin: 0 0 18px; font-size: clamp(24px, 2vw, 34px); line-height: 1.1; color: #111827; font-weight: 900; }}
+    .slide h3 {{ margin: 0 0 14px; font-size: clamp(18px, 1.35vw, 24px); line-height: 1.12; color: #111827; font-weight: 800; }}
+    .slide ul, .slide ol {{ padding-left: 1.4em; margin: 0; }}
+    .slide p {{ margin: 0; }}
+    .slide img, .slide svg {{ max-width: 100%; height: auto; }}
+    .slide > div:not(.page-title):not(.cover-title):not(.cover-badge):not(.cover-sub):not(.cover-meta):not(.cover-audience):not(.page-core):not(.content-grid):not(.card):not(.qa-card):not(.table-wrap):not(.compare-wrap):not(.flow-steps):not(.alert-box) {{
+      max-width: 100%;
+      padding: clamp(12px, 1.3vw, 18px);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+    }}
+    .content-grid {{
+      min-height: 0;
+      flex: 1 1 auto;
+      display: grid;
+      gap: clamp(12px, 1.4vw, 24px);
+      align-items: stretch;
+    }}
+    .content-grid.cols-2,
+    .content-grid.cols-3 {{
+      align-items: stretch;
+    }}
+    .content-grid.cols-2 {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+    .content-grid.cols-3 {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+    @media (max-aspect-ratio: 4 / 3) {{
+      .content-grid.cols-3 {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }}
+    }}
+    .card,
+    .qa-card,
+    .compare-col,
+    .flow-step,
+    .alert-box {{
+      overflow: hidden;
+    }}
+    .card,
+    .qa-card,
+    .compare-col,
+    .flow-step,
+    .table-wrap,
+    .alert-box {{
+      border: 1px solid var(--slide-border);
+      border-radius: 20px;
+      background: white;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, .06);
+      color: #0f172a;
+    }}
+    .card,
+    .qa-card,
+    .compare-col {{
+      padding: clamp(14px, 1.6vw, 22px);
+    }}
+    .card-body,
+    .qa-hint,
+    .compare-col ul,
+    .flow-step .step-desc {{
+      overflow-wrap: break-word;
+      word-break: break-word;
+    }}
+    .card-body,
+    .card-body li,
+    .qa-hint,
+    .compare-col li,
+    .table-wrap td {{
+      color: #334155;
+      font-size: clamp(14px, 1vw, 18px);
+      line-height: 1.48;
+    }}
+    .card-title,
+    .qa-q,
+    .comp-title,
+    .step-label {{
+      font-weight: 800;
+      color: #111827;
+      line-height: 1.2;
+    }}
+    .table-wrap {{
+      width: 100%;
+      max-height: 100%;
+      overflow: hidden;
+      padding: 0;
+    }}
+    .table-wrap table {{
+      width: 100%;
+      table-layout: fixed;
+      border-collapse: collapse;
+    }}
+    .table-wrap th,
+    .table-wrap td {{
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(148, 163, 184, .16);
+      text-align: left;
+      vertical-align: top;
+      word-break: break-word;
+      overflow-wrap: break-word;
+    }}
+    .table-wrap th {{
+      background: rgba(79, 70, 229, 0.08);
+      color: #1e3a8a;
+      font-weight: 800;
+    }}
+    .flow-steps {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+      gap: clamp(10px, 1vw, 16px);
+      align-items: stretch;
+      flex: 1 1 auto;
+      min-height: 0;
+    }}
+    .flow-step {{
+      min-height: 0;
+      height: auto;
+      padding: 14px 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 10px;
+      text-align: center;
+    }}
+    .compare-wrap {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: clamp(12px, 1.4vw, 20px);
+      flex: 1 1 auto;
+      min-height: 0;
+    }}
     .controls {{ position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; border: 1px solid rgba(148, 163, 184, .45); border-radius: 999px; background: rgba(255,255,255,.88); padding: 8px 12px; box-shadow: 0 12px 32px rgba(15,23,42,.16); }}
     .controls button {{ border: 0; border-radius: 999px; background: #4f46e5; color: white; padding: 8px 14px; cursor: pointer; }}
     .page-indicator {{ min-width: 78px; text-align: center; font-size: 14px; color: #334155; }}
     .progress {{ position: fixed; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(148,163,184,.28); }}
     .progress-bar {{ height: 100%; width: 0; background: #f97316; transition: width .25s ease; }}
+    .slide .card[style*="color:#fff"],
+    .slide .card[style*="color: #fff"],
+    .slide .card[style*="color:#ffffff"],
+    .slide .card[style*="color: #ffffff"] {{
+      color: #ffffff !important;
+    }}
+    .slide .card[style*="color:#fff"] :is(p, li, span, div, strong, b, em, .card-title, .card-body),
+    .slide .card[style*="color: #fff"] :is(p, li, span, div, strong, b, em, .card-title, .card-body),
+    .slide .card[style*="color:#ffffff"] :is(p, li, span, div, strong, b, em, .card-title, .card-body),
+    .slide .card[style*="color: #ffffff"] :is(p, li, span, div, strong, b, em, .card-title, .card-body) {{
+      color: #ffffff !important;
+    }}
+    @page {{
+      size: 16in 9in;
+      margin: 0;
+    }}
     @media print {{
-      body {{ background: white; overflow: visible; }}
-      .deck {{ display: block; width: auto; height: auto; padding: 0; }}
-      .slide {{ display: block !important; width: 100vw; height: 56.25vw; box-shadow: none; border-radius: 0; break-after: page; page-break-after: always; }}
-      .controls, .progress {{ display: none; }}
+      html,
+      body {{
+        width: 100%;
+        height: auto;
+        background: white !important;
+        overflow: visible !important;
+      }}
+      .deck {{
+        display: block !important;
+        width: 100% !important;
+        height: auto !important;
+        padding: 0 !important;
+      }}
+      .slide {{
+        display: flex !important;
+        width: 100vw !important;
+        height: 56.25vw !important;
+        aspect-ratio: 16 / 9 !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        break-after: page;
+        page-break-after: always;
+      }}
+      .controls,
+      .progress {{
+        display: none !important;
+      }}
     }}
   </style>
 </head>
