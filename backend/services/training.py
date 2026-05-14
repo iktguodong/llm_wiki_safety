@@ -1893,17 +1893,20 @@ class TrainingService:
         html = inject_training_html_safety_styles(html)
         slide_count = count_html_slides(html)
         if slide_count != request.page_count:
-            try:
-                repaired_html = await _repair_html_slide_count(
-                    html,
-                    title=title,
-                    page_count=request.page_count,
-                    model_id=model_id,
-                )
-                html = inject_training_html_safety_styles(repaired_html)
-                slide_count = count_html_slides(html)
-            except ValueError:
-                pass
+            for _ in range(2):
+                try:
+                    repaired_html = await _repair_html_slide_count(
+                        html,
+                        title=title,
+                        page_count=request.page_count,
+                        model_id=model_id,
+                    )
+                    html = inject_training_html_safety_styles(repaired_html)
+                    slide_count = count_html_slides(html)
+                    if slide_count == request.page_count:
+                        break
+                except ValueError:
+                    continue
         if slide_count != request.page_count:
             logger.warning(
                 "HTML material slide count mismatch: expected %s, got %s",
