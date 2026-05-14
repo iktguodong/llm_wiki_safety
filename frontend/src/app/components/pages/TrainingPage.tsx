@@ -264,7 +264,7 @@ function InlineField({
   };
 
   return (
-    <div className="min-w-0 space-y-1.5">
+    <div className="min-w-0 space-y-1">
       <div className="flex items-center gap-3">
         <Label className="shrink-0 whitespace-nowrap text-sm font-medium text-slate-800">{label}</Label>
         <Input
@@ -287,7 +287,7 @@ function InlineField({
           min={min}
           max={max}
           inputMode={type === 'number' ? 'numeric' : undefined}
-          className={`h-11 flex-1 min-w-0 ${className}`}
+          className={`h-10 flex-1 min-w-0 ${className}`}
         />
       </div>
       {helper && <p className="truncate text-xs text-slate-500">{helper}</p>}
@@ -448,11 +448,11 @@ function TopModeCard({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`flex min-h-[76px] flex-1 items-center gap-3 rounded-2xl border px-4 py-3 text-left transition ${
+      className={`flex min-h-[64px] flex-1 items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
         active ? 'border-emerald-300 bg-emerald-50 text-emerald-950' : 'border-slate-200 bg-white hover:border-slate-300'
       } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
     >
-      <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+      <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
         {icon}
       </div>
       <div className="min-w-0">
@@ -1081,7 +1081,7 @@ export default function TrainingPage() {
 
   return (
     <div className="flex h-full flex-col bg-slate-50">
-      <div className="border-b border-slate-200 bg-white px-8 py-5">
+      <div className="border-b border-slate-200 bg-white px-6 py-3">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-slate-900">培训材料生成</h1>
           <div className="flex items-center gap-2">
@@ -1221,8 +1221,8 @@ export default function TrainingPage() {
         </div>
       </div>
 
-      <div className={`flex-1 overflow-auto px-8 py-6 ${isGenerationLocked ? 'generation-lock opacity-90' : ''}`} aria-busy={isGenerationLocked}>
-        <div className="mb-5 flex gap-3">
+      <div className={`flex-1 overflow-auto px-6 py-4 ${isGenerationLocked ? 'generation-lock opacity-90' : ''}`} aria-busy={isGenerationLocked}>
+        <div className="mb-3 flex gap-2">
           <TopModeCard
             active={mode === 'html'}
             disabled={isGenerationLocked}
@@ -1242,16 +1242,16 @@ export default function TrainingPage() {
         </div>
 
         {error && (
-          <div className="mb-5 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-700">
             {error}
           </div>
         )}
 
         {mode === 'html' ? (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <Card className="border-slate-200 shadow-sm">
-              <CardContent className="space-y-6 p-4">
-                <div className="grid gap-4 lg:grid-cols-2">
+              <CardContent className="space-y-4 p-3.5 lg:p-4">
+                <div className="grid gap-3 lg:grid-cols-2">
                   <InlineField
                     label={(
                       <>
@@ -1274,7 +1274,7 @@ export default function TrainingPage() {
                   />
                 </div>
 
-                <div className="grid gap-4 xl:grid-cols-[1fr_1fr_240px]">
+                <div className="grid gap-3 xl:grid-cols-[1fr_1fr_240px]">
                   <InlineField
                     label="汇报人"
                     value={htmlPresenter}
@@ -1311,7 +1311,7 @@ export default function TrainingPage() {
                   />
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   <Label className="text-sm font-medium text-slate-800">生成要求 / 内容说明</Label>
                   <p className="truncate text-xs text-slate-500">请说明本次材料的用途、重点、受众、希望强调的内容、是否需要事故案例/互动题/检查清单等。</p>
                   <Textarea
@@ -1323,8 +1323,23 @@ export default function TrainingPage() {
                   />
                 </div>
 
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <div className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-700">生成网页</div>
+                    <div className="text-xs text-slate-500">先补齐来源后即可生成，按钮会保持在首屏可见。</div>
+                  </div>
+                  <Button
+                    onClick={generateHtml}
+                    disabled={htmlGeneration.loading || !htmlTitle.trim()}
+                    className="h-10 shrink-0 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700"
+                  >
+                    {htmlGeneration.loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Globe className="mr-2 h-4 w-4" />}
+                    生成网页
+                  </Button>
+                </div>
+
+                <div className="grid gap-3 xl:grid-cols-2">
+                  <div className="space-y-2.5 rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <Label className="text-sm font-medium text-slate-700">用户自己上传文档</Label>
@@ -1350,7 +1365,7 @@ export default function TrainingPage() {
                     />
                   </div>
 
-                  <div className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="space-y-2.5 rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <Label className="text-sm font-medium text-slate-700">选择现有知识库的文档</Label>
@@ -1467,16 +1482,6 @@ export default function TrainingPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-end">
-                  <Button
-                    onClick={generateHtml}
-                    disabled={htmlGeneration.loading || !htmlTitle.trim()}
-                    className="h-10 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700"
-                  >
-                    {htmlGeneration.loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Globe className="mr-2 h-4 w-4" />}
-                    生成网页
-                  </Button>
-                </div>
               </CardContent>
             </Card>
 
@@ -1535,10 +1540,10 @@ export default function TrainingPage() {
             )}
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <Card className="border-slate-200 shadow-sm">
-              <CardContent className="space-y-3 p-4">
-                <div className="space-y-1.5">
+              <CardContent className="space-y-3 p-3.5 lg:p-4">
+                <div className="space-y-1">
                   <Label className="text-sm font-medium text-slate-800">PPT主题 / 需求</Label>
                   <p className="truncate text-xs text-slate-500">请说明本次 PPT 的用途、重点、受众、希望强调的内容、是否需要案例/互动题/检查清单等。</p>
                   <Textarea
@@ -1569,9 +1574,20 @@ export default function TrainingPage() {
                   ))}
                 </div>
 
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-700">生成大纲</div>
+                    <div className="text-xs text-slate-500">先选来源和参数，按钮会尽量保持在首屏。</div>
+                  </div>
+                  <Button onClick={generateOutline} disabled={loadingOutline || selectedSources.length === 0} className="bg-indigo-600 hover:bg-indigo-700">
+                    {loadingOutline ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
+                    生成大纲
+                  </Button>
+                </div>
+
                 <div className="flex flex-col gap-3 xl:flex-row xl:items-stretch">
-                  <div className="grid flex-1 gap-3 min-w-0 xl:grid-cols-4">
-                    <div className="h-full space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <div className="grid flex-1 min-w-0 gap-3 xl:grid-cols-4">
+                    <div className="h-full min-w-0 space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                       <Label className="text-sm font-medium text-slate-700">选择文档</Label>
                       <Popover open={kbDocumentPickerOpen} onOpenChange={setKbDocumentPickerOpen}>
                         <PopoverTrigger asChild>
@@ -1680,7 +1696,7 @@ export default function TrainingPage() {
                       className={strongFieldClassName}
                     />
 
-                    <div className="h-full space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <div className="h-full min-w-0 space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                       <Label className="text-sm font-medium text-slate-700">选择风格</Label>
                       <Select value={setupDraft.style} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, style: value as TrainingStyle }))}>
                         <SelectTrigger className={`h-10 w-full rounded-xl px-3 ${strongSelectTriggerClassName}`}>
@@ -1696,7 +1712,7 @@ export default function TrainingPage() {
                       </Select>
                     </div>
 
-                    <div className="h-full space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <div className="h-full min-w-0 space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                       <Label className="text-sm font-medium text-slate-700">有无备注</Label>
                       <Select
                         value={setupDraft.includeSpeakerNotes ? 'yes' : 'no'}
@@ -1713,14 +1729,6 @@ export default function TrainingPage() {
                     </div>
                   </div>
 
-                  <Button
-                    onClick={generateOutline}
-                    disabled={loadingOutline || selectedSources.length === 0}
-                    className="h-10 shrink-0 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700 xl:ml-6 xl:self-center"
-                  >
-                    {loadingOutline ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
-                    生成大纲
-                  </Button>
                 </div>
               </CardContent>
             </Card>

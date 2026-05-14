@@ -50,5 +50,12 @@ def test_load_config_appends_default_silicon_provider(monkeypatch, tmp_path):
     assert provider_ids == ["deepseek", "silicon", "bailian"]
     assert loaded["models"]["providers"][1]["name"] == "SiliconFlow"
     assert loaded["models"]["providers"][1]["base_url"] == "https://api.siliconflow.cn/v1"
+    assert [model["id"] for model in loaded["models"]["providers"][1]["models"]] == [
+        "MiniMaxAI/MiniMax-M2.5",
+        "deepseek-ai/DeepSeek-V4-Flash",
+        "deepseek-ai/DeepSeek-V4-Pro",
+        "moonshotai/Kimi-K2.5",
+        "zai-org/GLM-5.1",
+    ]
     assert loaded["models"]["providers"][2]["name"] == "阿里云百炼"
     assert loaded["models"]["providers"][2]["base_url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1"

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, FlaskConical, CheckCircle2, ChevronDown, X, Bot, MessageSquareText, Wand2 } from 'lucide-react';
+import { Plus, Pencil, FlaskConical, CheckCircle2, ChevronDown, X, Bot, Wand2 } from 'lucide-react';
 import { useApp } from '../../../lib/context';
 import { configApi } from '../../../lib/api';
 import type { ModelProvider, AppConfig } from '../../../lib/types';
@@ -25,9 +25,11 @@ const PROVIDER_PRESETS: Array<{
     name: 'SiliconFlow',
     base_url: 'https://api.siliconflow.cn/v1',
     available_models: [
-      { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B Instruct', type: 'chat' },
-      { id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek V3', type: 'chat' },
-      { id: 'Qwen/Qwen2.5-7B-Instruct', name: 'Qwen 2.5 7B Instruct', type: 'chat' },
+      { id: 'MiniMaxAI/MiniMax-M2.5', name: 'MiniMax M2.5', type: 'chat' },
+      { id: 'deepseek-ai/DeepSeek-V4-Flash', name: 'DeepSeek V4 Flash', type: 'chat' },
+      { id: 'deepseek-ai/DeepSeek-V4-Pro', name: 'DeepSeek V4 Pro', type: 'chat' },
+      { id: 'moonshotai/Kimi-K2.5', name: 'Kimi K2.5', type: 'chat' },
+      { id: 'zai-org/GLM-5.1', name: 'GLM 5.1', type: 'chat' },
     ],
   },
   {
@@ -84,7 +86,12 @@ export default function SettingsPage() {
   const [localDefaultModels, setLocalDefaultModels] = useState<Record<string, string>>(() => {
     try {
       const raw = localStorage.getItem('anniu-default-models-v1');
-      return raw ? JSON.parse(raw) : {};
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as Record<string, string>;
+      return {
+        ...(parsed.chat ? { chat: parsed.chat } : {}),
+        ...(parsed.prompt_optimize ? { prompt_optimize: parsed.prompt_optimize } : {}),
+      };
     } catch {
       return {};
     }
@@ -234,19 +241,12 @@ export default function SettingsPage() {
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100">
             <div className="text-sm text-slate-900" style={{ fontWeight: 500 }}>默认模型设置</div>
-            <div className="text-xs text-slate-500 mt-0.5">借鉴 Cherry Studio：为对话、话题命名和提示词优化指定默认模型</div>
           </div>
           <div className="px-6 py-2">
             <SettingRow label="默认对话模型">
               <div className="flex items-center gap-2">
                 <Bot className="w-4 h-4 text-slate-400" />
                 <ModelSelect value={getLocalDefaultName('chat')} options={allModelNames} onChange={handleLocalDefaultChange('chat')} />
-              </div>
-            </SettingRow>
-            <SettingRow label="话题命名模型">
-              <div className="flex items-center gap-2">
-                <MessageSquareText className="w-4 h-4 text-slate-400" />
-                <ModelSelect value={getLocalDefaultName('topic_naming')} options={allModelNames} onChange={handleLocalDefaultChange('topic_naming')} />
               </div>
             </SettingRow>
             <SettingRow label="提示词优化模型">
@@ -296,7 +296,6 @@ export default function SettingsPage() {
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100">
             <div className="text-sm text-slate-900" style={{ fontWeight: 500 }}>数据管理</div>
-            <div className="text-xs text-slate-500 mt-0.5">知识库存储配置与统计</div>
           </div>
           <div className="px-6 py-4 space-y-4">
             <div className="text-sm text-slate-500">

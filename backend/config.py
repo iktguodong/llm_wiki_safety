@@ -42,9 +42,11 @@ DEFAULT_CONFIG = {
                 "base_url": "https://api.siliconflow.cn/v1",
                 "api_key": "",
                 "models": [
-                    {"id": "Qwen/Qwen2.5-72B-Instruct", "name": "Qwen 2.5 72B Instruct", "type": "chat"},
-                    {"id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek V3", "type": "chat"},
-                    {"id": "Qwen/Qwen2.5-7B-Instruct", "name": "Qwen 2.5 7B Instruct", "type": "chat"}
+                    {"id": "MiniMaxAI/MiniMax-M2.5", "name": "MiniMax M2.5", "type": "chat"},
+                    {"id": "deepseek-ai/DeepSeek-V4-Flash", "name": "DeepSeek V4 Flash", "type": "chat"},
+                    {"id": "deepseek-ai/DeepSeek-V4-Pro", "name": "DeepSeek V4 Pro", "type": "chat"},
+                    {"id": "moonshotai/Kimi-K2.5", "name": "Kimi K2.5", "type": "chat"},
+                    {"id": "zai-org/GLM-5.1", "name": "GLM 5.1", "type": "chat"}
                 ]
             },
             {
@@ -94,6 +96,7 @@ def _ensure_default_model_providers(config: dict):
         if provider.get("id") == "silicon":
             provider["name"] = "SiliconFlow"
             provider["base_url"] = "https://api.siliconflow.cn/v1"
+            provider["models"] = deepcopy(DEFAULT_CONFIG["models"]["providers"][1]["models"])
         elif provider.get("id") == "bailian":
             provider["name"] = "阿里云百炼"
             provider["base_url"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
