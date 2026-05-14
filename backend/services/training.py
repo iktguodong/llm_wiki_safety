@@ -659,6 +659,13 @@ def inject_training_html_safety_styles(html: str) -> str:
     .slide .page-title {
       font-size: clamp(30px, 2.5vw, 44px) !important;
     }
+    .slide .slide-title {
+      font-size: clamp(30px, 2.5vw, 44px) !important;
+      font-weight: 900 !important;
+      line-height: 1.08 !important;
+      color: #111827 !important;
+      letter-spacing: 0.01em !important;
+    }
     .slide h2 {
       font-size: clamp(24px, 2vw, 34px) !important;
     }
@@ -820,6 +827,7 @@ def inject_training_html_safety_styles(html: str) -> str:
     .card,
     .qa-card,
     .compare-col,
+    .compare-item,
     .flow-step,
     .alert-box {
       overflow: hidden;
@@ -828,7 +836,8 @@ def inject_training_html_safety_styles(html: str) -> str:
     .qa-card,
     .table-wrap,
     .flow-step,
-    .compare-col {
+    .compare-col,
+    .compare-item {
       background: var(--training-surface-strong);
       border: 1px solid var(--training-border);
       border-radius: 20px;
@@ -836,7 +845,8 @@ def inject_training_html_safety_styles(html: str) -> str:
     }
     .card,
     .qa-card,
-    .compare-col {
+    .compare-col,
+    .compare-item {
       padding: clamp(14px, 1.6vw, 22px);
     }
     .card-title,
@@ -853,6 +863,15 @@ def inject_training_html_safety_styles(html: str) -> str:
       gap: 10px;
       margin-bottom: 12px;
     }
+    .compare-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: clamp(18px, 1.35vw, 24px) !important;
+      font-weight: 900;
+      color: #111827;
+    }
     .card-icon {
       display: inline-flex;
       width: 1.55em;
@@ -861,9 +880,15 @@ def inject_training_html_safety_styles(html: str) -> str:
       font-size: 1.05em;
       flex: 0 0 auto;
     }
+    .compare-body {
+      color: var(--training-muted);
+      font-size: clamp(14px, 1vw, 18px);
+      line-height: 1.48;
+    }
     .card-body,
     .qa-hint,
     .comp-title + ul,
+    .compare-body,
     .card-body li,
     .table-wrap td,
     .table-wrap th,
@@ -916,22 +941,44 @@ def inject_training_html_safety_styles(html: str) -> str:
     .table-wrap table {
       width: 100%;
       table-layout: fixed;
-      border-collapse: collapse;
+      border-collapse: separate;
+      border-spacing: 0;
       background: transparent;
     }
     .table-wrap th,
     .table-wrap td {
-      padding: 12px 14px;
-      border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
       vertical-align: top;
       text-align: left;
       word-break: break-word;
       overflow-wrap: break-word;
     }
     .table-wrap th {
-      background: rgba(79, 70, 229, 0.08);
+      background: linear-gradient(180deg, rgba(79, 70, 229, 0.12), rgba(79, 70, 229, 0.06));
       color: #1e3a8a !important;
       font-weight: 800;
+    }
+    .table-wrap thead th {
+      font-size: clamp(16px, 1.05vw, 19px) !important;
+      text-align: center;
+      border-bottom: 1px solid rgba(79, 70, 229, 0.16);
+    }
+    .table-wrap thead th:first-child {
+      border-top-left-radius: 18px;
+    }
+    .table-wrap thead th:last-child {
+      border-top-right-radius: 18px;
+    }
+    .table-wrap tbody tr:nth-child(even) td {
+      background: rgba(248, 250, 252, 0.88);
+    }
+    .table-wrap tbody tr:nth-child(odd) td {
+      background: #ffffff;
+    }
+    .table-wrap tbody td:first-child {
+      font-weight: 800;
+      color: #111827;
     }
     .flow-steps {
       display: grid;
@@ -1230,6 +1277,7 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
       color: var(--slide-muted);
     }}
     .slide h1 {{ margin: 0 0 20px; font-size: clamp(30px, 2.5vw, 44px); line-height: 1.08; color: #111827; font-weight: 900; }}
+    .slide .slide-title {{ margin: 0 0 20px; font-size: clamp(30px, 2.5vw, 44px); line-height: 1.08; color: #111827; font-weight: 900; letter-spacing: 0.01em; }}
     .slide h2 {{ margin: 0 0 18px; font-size: clamp(24px, 2vw, 34px); line-height: 1.1; color: #111827; font-weight: 900; }}
     .slide h3 {{ margin: 0 0 14px; font-size: clamp(18px, 1.35vw, 24px); line-height: 1.12; color: #111827; font-weight: 800; }}
     .slide ul, .slide ol {{ padding-left: 1.4em; margin: 0; }}
@@ -1264,6 +1312,7 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     .card,
     .qa-card,
     .compare-col,
+    .compare-item,
     .flow-step,
     .alert-box {{
       overflow: hidden;
@@ -1282,12 +1331,14 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     }}
     .card,
     .qa-card,
-    .compare-col {{
+    .compare-col,
+    .compare-item {{
       padding: clamp(14px, 1.6vw, 22px);
     }}
     .card-body,
     .qa-hint,
     .compare-col ul,
+    .compare-body,
     .flow-step .step-desc {{
       overflow-wrap: break-word;
       word-break: break-word;
@@ -1309,6 +1360,20 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
       color: #111827;
       line-height: 1.2;
     }}
+    .compare-title {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: clamp(18px, 1.35vw, 24px) !important;
+      font-weight: 900;
+      color: #111827;
+    }}
+    .compare-body {{
+      color: var(--slide-muted);
+      font-size: clamp(14px, 1vw, 18px);
+      line-height: 1.48;
+    }}
     .table-wrap {{
       width: 100%;
       max-height: 100%;
@@ -1318,21 +1383,43 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     .table-wrap table {{
       width: 100%;
       table-layout: fixed;
-      border-collapse: collapse;
+      border-collapse: separate;
+      border-spacing: 0;
     }}
     .table-wrap th,
     .table-wrap td {{
-      padding: 12px 14px;
-      border-bottom: 1px solid rgba(148, 163, 184, .16);
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(148, 163, 184, .14);
       text-align: left;
       vertical-align: top;
       word-break: break-word;
       overflow-wrap: break-word;
     }}
     .table-wrap th {{
-      background: rgba(79, 70, 229, 0.08);
+      background: linear-gradient(180deg, rgba(79, 70, 229, 0.12), rgba(79, 70, 229, 0.06));
       color: #1e3a8a;
       font-weight: 800;
+    }}
+    .table-wrap thead th {{
+      font-size: clamp(16px, 1.05vw, 19px);
+      text-align: center;
+      border-bottom: 1px solid rgba(79, 70, 229, 0.16);
+    }}
+    .table-wrap thead th:first-child {{
+      border-top-left-radius: 18px;
+    }}
+    .table-wrap thead th:last-child {{
+      border-top-right-radius: 18px;
+    }}
+    .table-wrap tbody tr:nth-child(even) td {{
+      background: rgba(248, 250, 252, 0.88);
+    }}
+    .table-wrap tbody tr:nth-child(odd) td {{
+      background: #ffffff;
+    }}
+    .table-wrap tbody td:first-child {{
+      font-weight: 800;
+      color: #111827;
     }}
     .flow-steps {{
       display: grid;
