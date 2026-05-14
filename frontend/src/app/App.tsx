@@ -89,7 +89,9 @@ function AppInner() {
         </div>
         {currentPage === 'search' && <SearchPage openReader={openReader} />}
         {currentPage === 'knowledge' && <KnowledgeBasePage openReader={openReader} />}
-        {currentPage === 'training' && <TrainingPage />}
+        <div className={currentPage === 'training' ? 'h-full' : 'hidden'}>
+          <TrainingPage />
+        </div>
         {currentPage === 'settings' && <SettingsPage />}
       </>
     );

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Download, FileText, Globe, Loader2, Plus, Trash2, Upload, WandSparkles, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, CircleX, Download, Eye, FileText, Globe, History, Loader2, Plus, Trash2, Upload, WandSparkles, X } from 'lucide-react';
 import { useApp } from '../../../lib/context';
 import { docApi, trainingApi } from '../../../lib/api';
 import type {
@@ -28,8 +28,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 type MainMode = 'html' | 'ppt';
 type SourceMode = 'kb_document' | 'temporary_upload';
 type SlideCountChoice = '8' | '10' | '12' | '15' | '18' | '20' | '25' | 'custom';
+type TrainingHistoryKind = 'html' | 'ppt';
+type GenerationKind = 'html' | 'outline' | 'ppt';
 
 const TRAINING_MODE_KEY = 'anniu-training-mode-v1';
+const TRAINING_DRAFT_KEY = 'anniu-training-draft-v1';
 
 type KbResources = {
   loading: boolean;
@@ -47,6 +50,75 @@ type PptSetupDraft = {
   style: TrainingStyle;
   includeSpeakerNotes: boolean;
 };
+
+type TrainingDraftStorage = {
+  mode?: MainMode;
+  setupDraft?: PptSetupDraft;
+  htmlTitle?: string;
+  htmlReportDate?: string;
+  htmlPresenter?: string;
+  htmlAudience?: string;
+  htmlRequirements?: string;
+  selectedSources?: TrainingSourceInput[];
+};
+
+type TrainingHistoryItem = {
+  id: string;
+  kind: TrainingHistoryKind;
+  title: string;
+  createdAt: string;
+  pageCount: number;
+  downloadUrl: string;
+  previewUrl?: string;
+  filename: string;
+  notesDownloadUrl?: string;
+  notesFilename?: string;
+};
+
+const TRAINING_HISTORY_KEY = 'anniu-training-history-v1';
+
+function createDefaultPptSetup(kbId = ''): PptSetupDraft {
+  return {
+    sourceMode: 'kb_document',
+    kbId,
+    documentId: '',
+    requirement: '请突出应急处置、报警流程和初期火灾扑救',
+    slideCountChoice: '15',
+    customSlideCount: 12,
+    style: 'standard_training',
+    includeSpeakerNotes: true,
+  };
+}
+
+function readTrainingDraft(): TrainingDraftStorage | null {
+  try {
+    const raw = localStorage.getItem(TRAINING_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as TrainingDraftStorage;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function readTrainingHistory(): TrainingHistoryItem[] {
+  try {
+    const raw = localStorage.getItem(TRAINING_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as TrainingHistoryItem[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function createJobId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `job-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
 
 const styleOptions: { value: TrainingStyle; label: string; desc: string }[] = [
   { value: 'standard_training', label: '标准安全培训', desc: '适合常规安全生产培训，结构均衡' },
@@ -101,9 +173,100 @@ function sourceLabel(source: TrainingSourceInput, knowledgeBases: KnowledgeBase[
   return source.title || '来源';
 }
 
+function sourceKey(source: TrainingSourceInput) {
+  if (source.type === 'kb_document') {
+    return `kb_document:${source.kb_id || ''}:${source.document_id || ''}`;
+  }
+  if (source.type === 'temporary_upload') {
+    return `temporary_upload:${source.upload_id || ''}`;
+  }
+  if (source.type === 'knowledge_base') {
+    return `knowledge_base:${source.kb_id || ''}`;
+  }
+  if (source.type === 'prompt') {
+    return `prompt:${source.prompt || source.title || ''}`;
+  }
+  return `${source.type}:${source.title || ''}:${source.document_id || ''}:${source.upload_id || ''}`;
+}
+
+function SourceTagList({
+  items,
+  knowledgeBases,
+  onRemove,
+}: {
+  items: TrainingSourceInput[];
+  knowledgeBases: KnowledgeBase[];
+  onRemove: (source: TrainingSourceInput) => void;
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((source, index) => (
+        <div
+          key={`${source.type}-${sourceKey(source)}-${index}`}
+          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm"
+        >
+          <span className="max-w-[240px] truncate">{sourceLabel(source, knowledgeBases)}</span>
+          <button
+            type="button"
+            onClick={() => onRemove(source)}
+            className="text-slate-400 transition hover:text-slate-700"
+            aria-label="移除来源"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function InlineField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  helper,
+  type = 'text',
+  min,
+  max,
+  className = '',
+}: {
+  label: ReactNode;
+  value: string | number;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  helper?: string;
+  type?: 'text' | 'number';
+  min?: number;
+  max?: number;
+  className?: string;
+}) {
+  return (
+    <div className="min-w-0 space-y-1.5">
+      <div className="flex items-center gap-3">
+        <Label className="shrink-0 whitespace-nowrap text-sm font-medium text-slate-800">{label}</Label>
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          type={type}
+          min={min}
+          max={max}
+          className={`h-11 flex-1 min-w-0 ${className}`}
+        />
+      </div>
+      {helper && <p className="truncate text-xs text-slate-500">{helper}</p>}
+    </div>
+  );
+}
+
 function buildSlideCount(choice: SlideCountChoice, customSlideCount: number) {
   if (choice === 'custom') {
-    return Math.min(30, Math.max(5, customSlideCount || 15));
+    return Math.min(30, Math.max(1, customSlideCount || 1));
   }
   return Number(choice);
 }
@@ -236,12 +399,14 @@ function OutlineSlideCard({
 
 function TopModeCard({
   active,
+  disabled,
   title,
   subtitle,
   icon,
   onClick,
 }: {
   active: boolean;
+  disabled?: boolean;
   title: string;
   subtitle: string;
   icon: ReactNode;
@@ -251,9 +416,10 @@ function TopModeCard({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={`flex min-h-[76px] flex-1 items-center gap-3 rounded-2xl border px-4 py-3 text-left transition ${
         active ? 'border-emerald-300 bg-emerald-50 text-emerald-950' : 'border-slate-200 bg-white hover:border-slate-300'
-      }`}
+      } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
     >
       <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
         {icon}
@@ -274,7 +440,11 @@ export default function TrainingPage() {
     updateHtmlGeneration,
     resetHtmlGeneration,
   } = useApp();
+  const persistedDraft = useMemo(readTrainingDraft, []);
   const [mode, setMode] = useState<MainMode>(() => {
+    if (persistedDraft?.mode === 'html' || persistedDraft?.mode === 'ppt') {
+      return persistedDraft.mode;
+    }
     try {
       const raw = localStorage.getItem(TRAINING_MODE_KEY);
       if (raw === 'html' || raw === 'ppt') {
@@ -285,24 +455,17 @@ export default function TrainingPage() {
     }
     return 'ppt';
   });
-  const [setupDraft, setSetupDraft] = useState<PptSetupDraft>({
-    sourceMode: 'kb_document',
-    kbId: currentKbId || '',
-    documentId: '',
-    requirement: '请突出应急处置、报警流程和初期火灾扑救',
-    slideCountChoice: '15',
-    customSlideCount: 12,
-    style: 'standard_training',
-    includeSpeakerNotes: true,
-  });
-  const [htmlTitle, setHtmlTitle] = useState('');
-  const [htmlReportDate, setHtmlReportDate] = useState('');
-  const [htmlPresenter, setHtmlPresenter] = useState('');
-  const [htmlAudience, setHtmlAudience] = useState('');
+  const [setupDraft, setSetupDraft] = useState<PptSetupDraft>(() => persistedDraft?.setupDraft || createDefaultPptSetup(currentKbId || ''));
+  const [htmlTitle, setHtmlTitle] = useState(() => persistedDraft?.htmlTitle || '');
+  const [htmlReportDate, setHtmlReportDate] = useState(() => persistedDraft?.htmlReportDate || '');
+  const [htmlPresenter, setHtmlPresenter] = useState(() => persistedDraft?.htmlPresenter || '');
+  const [htmlAudience, setHtmlAudience] = useState(() => persistedDraft?.htmlAudience || '');
   const [htmlRequirements, setHtmlRequirements] = useState(
-    '例如：请根据应急预案生成一份面向班组长的应急处置培训材料，重点突出报警流程、初期处置、岗位职责和常见错误。',
+    () =>
+      persistedDraft?.htmlRequirements ||
+      '例如：请根据应急预案生成一份面向班组长的应急处置培训材料，重点突出报警流程、初期处置、岗位职责和常见错误。',
   );
-  const [selectedSources, setSelectedSources] = useState<TrainingSourceInput[]>([]);
+  const [selectedSources, setSelectedSources] = useState<TrainingSourceInput[]>(() => persistedDraft?.selectedSources || []);
   const [kbResources, setKbResources] = useState<Record<string, KbResources>>({});
   const [outline, setOutline] = useState<TrainingOutline | null>(null);
   const [presentation, setPresentation] = useState<PresentationSpec | null>(null);
@@ -315,10 +478,14 @@ export default function TrainingPage() {
   const [loadingOutline, setLoadingOutline] = useState(false);
   const [loadingPptGenerate, setLoadingPptGenerate] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
+  const [kbDocumentPickerOpen, setKbDocumentPickerOpen] = useState(false);
+  const [pendingKbDocumentIds, setPendingKbDocumentIds] = useState<string[]>([]);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [trainingHistory, setTrainingHistory] = useState<TrainingHistoryItem[]>(() => readTrainingHistory());
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
+  const generationRef = useRef<{ kind: GenerationKind; jobId: string; controller: AbortController } | null>(null);
 
   useEffect(() => {
     return () => {
@@ -326,21 +493,88 @@ export default function TrainingPage() {
     };
   }, []);
 
-  const slideCount = buildSlideCount(setupDraft.slideCountChoice, setupDraft.customSlideCount);
+  const isGenerationLocked = htmlGeneration.loading || loadingOutline || loadingPptGenerate;
+  const activeGenerationKind: GenerationKind | null = htmlGeneration.loading
+    ? 'html'
+    : loadingOutline
+      ? 'outline'
+      : loadingPptGenerate
+        ? 'ppt'
+        : null;
+
+  const setActiveGeneration = (kind: GenerationKind, jobId: string) => {
+    const controller = new AbortController();
+    generationRef.current = { kind, jobId, controller };
+    setHistoryOpen(false);
+    setNewMenuOpen(false);
+    setKbDocumentPickerOpen(false);
+    return controller;
+  };
+
+  const clearActiveGeneration = () => {
+    generationRef.current = null;
+  };
+
+  const discardGeneratedOutputs = (kind: GenerationKind) => {
+    if (kind === 'html') {
+      resetHtmlGeneration();
+      return;
+    }
+    setPptDownloadUrl('');
+    setPptFilename('');
+    setNotesDownloadUrl('');
+    setNotesFilename('');
+    setPresentation(null);
+    setQualityReport(null);
+    if (kind === 'outline') {
+      setOutline(null);
+    }
+    setJobId('');
+  };
+
+  const stopCurrentGeneration = () => {
+    const current = generationRef.current;
+    if (!current) return;
+    current.controller.abort();
+    discardGeneratedOutputs(current.kind);
+    setLoadingOutline(false);
+    setLoadingPptGenerate(false);
+    setError(null);
+    clearActiveGeneration();
+    void trainingApi.cancelJob(current.jobId).catch(() => {
+      // ignore cancellation failures; UI already reset locally
+    });
+  };
+
+  const slideCount = buildSlideCount('custom', setupDraft.customSlideCount);
   const durationMinutes = useMemo(() => durationFromSlideCount(slideCount), [slideCount]);
   const selectedSourceSummary = useMemo(() => {
     if (selectedSources.length === 0) return '选择文档';
     if (selectedSources.length === 1) return sourceLabel(selectedSources[0], knowledgeBases);
     return `已选 ${selectedSources.length} 个文档`;
   }, [knowledgeBases, selectedSources]);
-  const slideCountSummary = useMemo(() => {
-    if (setupDraft.slideCountChoice === 'custom') {
-      return `自由输入 ${setupDraft.customSlideCount || 1} 页`;
-    }
-    return `${slideCount} 页`;
-  }, [slideCount, setupDraft.customSlideCount, setupDraft.slideCountChoice]);
   const styleSummary = useMemo(() => styleOptions.find((item) => item.value === setupDraft.style)?.label || '选择风格', [setupDraft.style]);
   const notesSummary = setupDraft.includeSpeakerNotes ? '有' : '无';
+  const selectedHtmlSources = useMemo(() => selectedSources.filter((source) => source.type === 'kb_document' || source.type === 'temporary_upload'), [selectedSources]);
+  const selectedUploadSources = useMemo(() => selectedSources.filter((source) => source.type === 'temporary_upload'), [selectedSources]);
+  const selectedKbSources = useMemo(() => selectedSources.filter((source) => source.type === 'kb_document'), [selectedSources]);
+  const selectedKbDocsInCurrentKb = useMemo(
+    () =>
+      selectedKbSources.filter(
+        (source) => source.kb_id === setupDraft.kbId && Boolean(source.document_id),
+      ),
+    [selectedKbSources, setupDraft.kbId],
+  );
+  const currentKbDocs = useMemo(() => kbResources[setupDraft.kbId]?.docs || [], [kbResources, setupDraft.kbId]);
+  const pendingKbDocumentSet = useMemo(() => new Set(pendingKbDocumentIds), [pendingKbDocumentIds]);
+
+  const appendTrainingHistory = (item: TrainingHistoryItem) => {
+    setTrainingHistory((prev) => [item, ...prev.filter((entry) => entry.id !== item.id)].slice(0, 20));
+  };
+
+  const removeTrainingHistory = (id: string) => {
+    setTrainingHistory((prev) => prev.filter((item) => item.id !== id));
+  };
 
   useEffect(() => {
     if (!setupDraft.kbId && knowledgeBases[0]) {
@@ -349,12 +583,60 @@ export default function TrainingPage() {
   }, [currentKbId, knowledgeBases, setupDraft.kbId]);
 
   useEffect(() => {
+    const availableKbIds = new Set(knowledgeBases.map((kb) => kb.id));
+    const fallbackKbId = currentKbId || knowledgeBases[0]?.id || '';
+    if (!fallbackKbId) return;
+    setSetupDraft((prev) => {
+      if (prev.kbId && availableKbIds.has(prev.kbId)) {
+        return prev;
+      }
+      if (prev.kbId === fallbackKbId) {
+        return prev;
+      }
+      return { ...prev, kbId: fallbackKbId };
+    });
+  }, [currentKbId, knowledgeBases]);
+
+  useEffect(() => {
+    if (!kbDocumentPickerOpen || setupDraft.sourceMode !== 'kb_document' || !setupDraft.kbId) {
+      return;
+    }
+    setPendingKbDocumentIds(selectedKbDocsInCurrentKb.map((source) => source.document_id as string));
+  }, [kbDocumentPickerOpen, selectedKbDocsInCurrentKb, setupDraft.kbId, setupDraft.sourceMode]);
+
+  useEffect(() => {
     try {
       localStorage.setItem(TRAINING_MODE_KEY, mode);
     } catch {
       // ignore storage failures
     }
   }, [mode]);
+
+  useEffect(() => {
+    try {
+      const payload: TrainingDraftStorage = {
+        mode,
+        setupDraft,
+        htmlTitle,
+        htmlReportDate,
+        htmlPresenter,
+        htmlAudience,
+        htmlRequirements,
+        selectedSources,
+      };
+      localStorage.setItem(TRAINING_DRAFT_KEY, JSON.stringify(payload));
+    } catch {
+      // ignore storage failures
+    }
+  }, [htmlAudience, htmlPresenter, htmlReportDate, htmlRequirements, htmlTitle, mode, selectedSources, setupDraft]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TRAINING_HISTORY_KEY, JSON.stringify(trainingHistory));
+    } catch {
+      // ignore storage failures
+    }
+  }, [trainingHistory]);
 
   useEffect(() => {
     const loadKb = async (kbId: string) => {
@@ -392,18 +674,18 @@ export default function TrainingPage() {
     }
   }, [setupDraft.kbId, setupDraft.sourceMode, kbResources]);
 
+  useEffect(() => {
+    if (!isGenerationLocked) return;
+    setHistoryOpen(false);
+    setNewMenuOpen(false);
+    setKbDocumentPickerOpen(false);
+  }, [isGenerationLocked]);
+
   const resetWorkflow = (nextMode: MainMode = 'ppt') => {
+    generationRef.current?.controller.abort();
+    clearActiveGeneration();
     setMode(nextMode);
-    setSetupDraft({
-      sourceMode: 'kb_document',
-      kbId: currentKbId || knowledgeBases[0]?.id || '',
-      documentId: '',
-      requirement: '',
-      slideCountChoice: '15',
-      customSlideCount: 12,
-      style: 'standard_training',
-      includeSpeakerNotes: true,
-    });
+    setSetupDraft(createDefaultPptSetup(currentKbId || knowledgeBases[0]?.id || ''));
     setHtmlTitle('');
     setHtmlReportDate('');
     setHtmlPresenter('');
@@ -422,9 +704,16 @@ export default function TrainingPage() {
     setLoadingOutline(false);
     setLoadingPptGenerate(false);
     setError(null);
-    setDocumentPickerOpen(false);
+    setKbDocumentPickerOpen(false);
+    setPendingKbDocumentIds([]);
     setNewMenuOpen(false);
+    setHistoryOpen(false);
     uploadInputRef.current && (uploadInputRef.current.value = '');
+    try {
+      localStorage.removeItem(TRAINING_DRAFT_KEY);
+    } catch {
+      // ignore storage failures
+    }
   };
 
   const handleUpload = async (files: FileList | File[]) => {
@@ -462,48 +751,39 @@ export default function TrainingPage() {
     return result;
   };
 
-  const sourceKey = (source: TrainingSourceInput) => {
-    if (source.type === 'kb_document') {
-      return `kb_document:${source.kb_id || ''}:${source.document_id || ''}`;
-    }
-    if (source.type === 'temporary_upload') {
-      return `temporary_upload:${source.upload_id || ''}`;
-    }
-    if (source.type === 'knowledge_base') {
-      return `knowledge_base:${source.kb_id || ''}`;
-    }
-    if (source.type === 'prompt') {
-      return `prompt:${source.prompt || source.title || ''}`;
-    }
-    return `${source.type}:${source.title || ''}:${source.document_id || ''}:${source.upload_id || ''}`;
+  const removeSourceByKey = (target: TrainingSourceInput) => {
+    const key = sourceKey(target);
+    setSelectedSources((prev) => prev.filter((item) => sourceKey(item) !== key));
   };
 
-  const addKbDocumentSource = () => {
+  const addKbDocumentSources = (documentIdsOverride?: string[]) => {
     if (!setupDraft.kbId) {
       setError('请选择知识库');
       return;
     }
-    if (!setupDraft.documentId) {
-      setError('请选择知识库中的文档');
+    const documentIds =
+      documentIdsOverride && documentIdsOverride.length > 0
+        ? documentIdsOverride
+        : pendingKbDocumentIds.length > 0
+          ? pendingKbDocumentIds
+          : setupDraft.documentId
+            ? [setupDraft.documentId]
+            : [];
+    if (documentIds.length === 0) {
+      setError('请选择至少一个知识库文档');
       return;
     }
-    const doc = kbResources[setupDraft.kbId]?.docs.find((item) => item.id === setupDraft.documentId);
-    setSelectedSources((prev) =>
-      dedupeSources([
-        ...prev,
-        {
-          type: 'kb_document',
-          kb_id: setupDraft.kbId,
-          document_id: setupDraft.documentId,
-          title: doc?.file || '知识库文档',
-        },
-      ]),
-    );
-    setSetupDraft((prev) => ({ ...prev, documentId: '' }));
-  };
-
-  const removeSource = (index: number) => {
-    setSelectedSources((prev) => prev.filter((_, i) => i !== index));
+    const docs = currentKbDocs
+      .filter((doc) => documentIds.includes(doc.id))
+      .map((doc) => ({
+        type: 'kb_document' as const,
+        kb_id: setupDraft.kbId,
+        document_id: doc.id,
+        title: doc.file || '知识库文档',
+      }));
+    setSelectedSources((prev) => dedupeSources([...prev, ...docs]));
+    setKbDocumentPickerOpen(false);
+    setPendingKbDocumentIds([]);
   };
 
   const resolveSetupSource = (allowEmpty = false): boolean => {
@@ -523,6 +803,9 @@ export default function TrainingPage() {
     if (!resolveSetupSource(mode === 'html')) {
       return;
     }
+    const nextJobId = jobId || createJobId();
+    const controller = setActiveGeneration('outline', nextJobId);
+    setJobId(nextJobId);
     setOutline(null);
     setPresentation(null);
     setQualityReport(null);
@@ -544,17 +827,20 @@ export default function TrainingPage() {
         focus_areas: [],
         include_quiz: true,
         include_speaker_notes: setupDraft.includeSpeakerNotes,
-        job_id: jobId || undefined,
-      });
+        job_id: nextJobId,
+      }, controller.signal);
       if (isMountedRef.current) {
         setJobId(res.job_id);
         setOutline(res.outline);
       }
     } catch (err) {
-      if (isMountedRef.current) {
+      if (!controller.signal.aborted && isMountedRef.current) {
         setError(err instanceof Error ? err.message : '生成大纲失败');
       }
     } finally {
+      if (generationRef.current?.jobId === nextJobId) {
+        clearActiveGeneration();
+      }
       if (isMountedRef.current) {
         setLoadingOutline(false);
       }
@@ -619,11 +905,14 @@ export default function TrainingPage() {
       setError('请先生成并确认大纲');
       return;
     }
+    const nextJobId = jobId || createJobId();
+    const controller = setActiveGeneration('ppt', nextJobId);
+    setJobId(nextJobId);
     setLoadingPptGenerate(true);
     setError(null);
     try {
       const res: TrainingGenerateResponse = await trainingApi.generatePpt({
-        job_id: jobId || undefined,
+        job_id: nextJobId,
         sources: selectedSources,
         outline,
         template_id: setupDraft.style,
@@ -635,7 +924,7 @@ export default function TrainingPage() {
         slide_count: outline.slides.length,
         style: setupDraft.style,
         focus_areas: [],
-      });
+      }, controller.signal);
       if (isMountedRef.current) {
         setJobId(res.job_id);
         setPresentation(res.presentation);
@@ -644,12 +933,26 @@ export default function TrainingPage() {
         setPptFilename(res.filename);
         setNotesDownloadUrl(res.notes_download_url || '');
         setNotesFilename(res.notes_filename || '');
+        appendTrainingHistory({
+          id: `${Date.now()}`,
+          kind: 'ppt',
+          title: res.presentation.title || res.presentation.topic || 'PPT',
+          createdAt: new Date().toISOString(),
+          pageCount: res.presentation.slides.length,
+          downloadUrl: trainingApi.download(res.filename),
+          filename: res.filename,
+          notesDownloadUrl: res.notes_download_url ? trainingApi.resolveUrl(res.notes_download_url) : undefined,
+          notesFilename: res.notes_filename || undefined,
+        });
       }
     } catch (err) {
-      if (isMountedRef.current) {
+      if (!controller.signal.aborted && isMountedRef.current) {
         setError(err instanceof Error ? err.message : '生成 PPT 失败');
       }
     } finally {
+      if (generationRef.current?.jobId === nextJobId) {
+        clearActiveGeneration();
+      }
       if (isMountedRef.current) {
         setLoadingPptGenerate(false);
       }
@@ -666,6 +969,8 @@ export default function TrainingPage() {
       setError('页数必须是 5 到 30 之间的有效数字');
       return;
     }
+    const nextJobId = createJobId();
+    const controller = setActiveGeneration('html', nextJobId);
     setError(null);
     resetHtmlGeneration();
     updateHtmlGeneration({ loading: true, error: null });
@@ -675,9 +980,6 @@ export default function TrainingPage() {
     setNotesDownloadUrl('');
     setNotesFilename('');
     try {
-      const documentIds = selectedSources
-        .filter((source) => source.type === 'kb_document' && source.document_id)
-        .map((source) => source.document_id as string);
       const res: TrainingHtmlGenerateResponse = await trainingApi.generateTrainingHtml({
         kb_id: setupDraft.kbId || currentKbId || null,
         title,
@@ -685,15 +987,29 @@ export default function TrainingPage() {
         presenter: htmlPresenter.trim() || null,
         audience: htmlAudience.trim() || null,
         requirements: htmlRequirements.trim() || null,
-        document_ids: documentIds,
+        job_id: nextJobId,
+        sources: selectedHtmlSources,
+        document_ids: selectedSources
+          .filter((source) => source.type === 'kb_document' && source.document_id)
+          .map((source) => source.document_id as string),
         page_count: slideCount,
-      });
+      }, controller.signal);
       updateHtmlGeneration({
         loading: false,
         error: null,
         title: res.title,
         html: res.html,
         slideCount: res.slide_count,
+        downloadUrl: trainingApi.resolveUrl(res.download_url),
+        previewUrl: trainingApi.resolveUrl(res.preview_url || res.download_url),
+        filename: res.filename,
+      });
+      appendTrainingHistory({
+        id: `${Date.now()}`,
+        kind: 'html',
+        title: res.title,
+        createdAt: new Date().toISOString(),
+        pageCount: res.slide_count,
         downloadUrl: trainingApi.resolveUrl(res.download_url),
         previewUrl: trainingApi.resolveUrl(res.preview_url || res.download_url),
         filename: res.filename,
@@ -705,6 +1021,9 @@ export default function TrainingPage() {
         setNotesFilename('');
       }
     } catch (err) {
+      if (controller.signal.aborted) {
+        return;
+      }
       const message = err instanceof Error ? err.message : '生成网页失败';
       if (isMountedRef.current) {
         setError(message);
@@ -713,20 +1032,20 @@ export default function TrainingPage() {
         loading: false,
         error: message,
       });
+    } finally {
+      if (generationRef.current?.jobId === nextJobId) {
+        clearActiveGeneration();
+      }
     }
   };
 
   const openHtmlPreview = () => {
-    if (!htmlGeneration.html) return;
-    const previewWindow = window.open('', '_blank');
+    const previewUrl = htmlGeneration.previewUrl || htmlGeneration.downloadUrl;
+    if (!previewUrl) return;
+    const previewWindow = window.open(previewUrl, '_blank', 'noopener,noreferrer');
     if (!previewWindow) {
       setError('浏览器阻止了新窗口，请允许弹窗后重试');
-      return;
     }
-    previewWindow.document.open();
-    previewWindow.document.write(htmlGeneration.html);
-    previewWindow.document.close();
-    previewWindow.focus();
   };
 
   return (
@@ -734,51 +1053,148 @@ export default function TrainingPage() {
       <div className="border-b border-slate-200 bg-white px-8 py-5">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-slate-900">培训材料生成</h1>
-          <Popover open={newMenuOpen} onOpenChange={setNewMenuOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline">
-                <Plus className="mr-2 h-4 w-4" />
-                新建
+          <div className="flex items-center gap-2">
+            {activeGenerationKind && (
+              <Button variant="destructive" onClick={() => void stopCurrentGeneration()}>
+                <CircleX className="mr-2 h-4 w-4" />
+                停止生成
               </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-52 rounded-2xl border-slate-200 p-2 shadow-2xl">
-              <div className="space-y-1">
-                <button
-                  type="button"
-                  onClick={() => resetWorkflow('html')}
-                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-slate-50"
-                >
-                  <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-                    <Globe className="h-4 w-4" />
+            )}
+            <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" disabled={isGenerationLocked}>
+                  <History className="mr-2 h-4 w-4" />
+                  历史记录
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-[760px] max-w-[calc(100vw-1rem)] rounded-2xl border-slate-200 p-4 shadow-2xl">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">培训材料历史</div>
+                    <div className="text-xs text-slate-500">查看、下载或删除你之前生成过的培训材料</div>
                   </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-900">生成网页</div>
-                    <div className="text-xs text-slate-500">适合做成网页形式的培训内容</div>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => resetWorkflow('ppt')}
-                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-slate-50"
-                >
-                  <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700">
-                    <FileText className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-900">生成 PPT</div>
-                    <div className="text-xs text-slate-500">适合导出后继续编辑修改</div>
-                  </div>
-                </button>
-              </div>
-            </PopoverContent>
-          </Popover>
+                  <button
+                    type="button"
+                    onClick={() => setTrainingHistory([])}
+                    className="text-xs text-slate-400 transition hover:text-slate-600"
+                  >
+                    清空
+                  </button>
+                </div>
+                <div className="max-h-[70vh] space-y-3 overflow-auto pr-1">
+                  {trainingHistory.length > 0 ? (
+                    trainingHistory.map((item) => (
+                      <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${item.kind === 'html' ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                                {item.kind === 'html' ? '网页' : 'PPT'}
+                              </span>
+                              <div className="min-w-0 truncate text-sm font-medium text-slate-900">{item.title}</div>
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                              <span>{new Date(item.createdAt).toLocaleString()}</span>
+                              <span>{item.pageCount} 页</span>
+                              <span className="truncate">{item.filename}</span>
+                            </div>
+                          </div>
+                          <div className="flex flex-nowrap gap-2 overflow-x-auto md:overflow-visible">
+                            {item.previewUrl && item.kind === 'html' && (
+                              <Button asChild size="sm" variant="outline" className="shrink-0 whitespace-nowrap">
+                                <a href={item.previewUrl} target="_blank" rel="noreferrer">
+                                  <Eye className="mr-2 h-3.5 w-3.5" />
+                                  预览
+                                </a>
+                              </Button>
+                            )}
+                            <Button asChild size="sm" variant="outline" className="shrink-0 whitespace-nowrap">
+                              <a href={item.downloadUrl} target="_blank" rel="noreferrer" download>
+                                <Download className="mr-2 h-3.5 w-3.5" />
+                                下载
+                              </a>
+                            </Button>
+                            {item.notesDownloadUrl && (
+                              <Button asChild size="sm" variant="outline" className="shrink-0 whitespace-nowrap">
+                                <a href={item.notesDownloadUrl} target="_blank" rel="noreferrer" download>
+                                  <Download className="mr-2 h-3.5 w-3.5" />
+                                  讲稿
+                                </a>
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                if (window.confirm('确定删除这条历史记录吗？')) {
+                                  removeTrainingHistory(item.id);
+                                }
+                              }}
+                              className="shrink-0 whitespace-nowrap text-rose-600 hover:text-rose-700"
+                            >
+                              <Trash2 className="mr-2 h-3.5 w-3.5" />
+                              删除
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-400">
+                      暂无历史记录
+                    </div>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Popover open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" disabled={isGenerationLocked}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  新建
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-52 rounded-2xl border-slate-200 p-2 shadow-2xl">
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => resetWorkflow('html')}
+                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-slate-50"
+                  >
+                    <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                      <Globe className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-900">生成网页</div>
+                      <div className="text-xs text-slate-500">适合做成网页形式的培训内容</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => resetWorkflow('ppt')}
+                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-slate-50"
+                  >
+                    <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700">
+                      <FileText className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-900">生成 PPT</div>
+                      <div className="text-xs text-slate-500">适合导出后继续编辑修改</div>
+                    </div>
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 py-6">
+      <div className={`flex-1 overflow-auto px-8 py-6 ${isGenerationLocked ? 'pointer-events-none select-none opacity-90' : ''}`} aria-busy={isGenerationLocked}>
         <div className="mb-5 flex gap-3">
           <TopModeCard
             active={mode === 'html'}
+            disabled={isGenerationLocked}
             title="生成精美网页"
             subtitle="适用日常汇报培训"
             icon={<Globe className="h-5 w-5" />}
@@ -786,6 +1202,7 @@ export default function TrainingPage() {
           />
           <TopModeCard
             active={mode === 'ppt'}
+            disabled={isGenerationLocked}
             title="生成可导出的PPT"
             subtitle="适用自由编辑修改"
             icon={<FileText className="h-5 w-5" />}
@@ -802,185 +1219,232 @@ export default function TrainingPage() {
         {mode === 'html' ? (
           <div className="space-y-6">
             <Card className="border-slate-200 shadow-sm">
-              <CardContent className="space-y-5 p-4">
+              <CardContent className="space-y-6 p-4">
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium text-slate-800">本次材料标题 <span className="text-rose-500">*</span></Label>
-                    <Input
-                      value={htmlTitle}
-                      onChange={(e) => setHtmlTitle(e.target.value)}
-                      placeholder="请输入本次培训/汇报/展示材料标题"
-                      className={`h-11 ${strongFieldClassName}`}
-                    />
-                    <p className="text-xs text-slate-500">将展示在第一页封面，并作为整份材料的主题。</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium text-slate-800">汇报时间</Label>
-                    <Input
-                      value={htmlReportDate}
-                      onChange={(e) => setHtmlReportDate(e.target.value)}
-                      placeholder="例如：2026年5月 / 2026年5月12日"
-                      className={`h-11 ${strongFieldClassName}`}
-                    />
-                    <p className="text-xs text-slate-500">选填，将展示在第一页。</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium text-slate-800">汇报人</Label>
-                    <Input
-                      value={htmlPresenter}
-                      onChange={(e) => setHtmlPresenter(e.target.value)}
-                      placeholder="例如：安全管理部 / 张三"
-                      className={`h-11 ${strongFieldClassName}`}
-                    />
-                    <p className="text-xs text-slate-500">选填，将展示在第一页。</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium text-slate-800">汇报对象</Label>
-                    <Input
-                      value={htmlAudience}
-                      onChange={(e) => setHtmlAudience(e.target.value)}
-                      placeholder="例如：一线作业人员、班组长、企业主要负责人、监管检查组"
-                      className={`h-11 ${strongFieldClassName}`}
-                    />
-                    <p className="text-xs text-slate-500">用于调整内容深度、语气和展示方式，不一定展示在封面。</p>
-                  </div>
+                  <InlineField
+                    label={(
+                      <>
+                        本次材料标题 <span className="text-rose-500">*</span>
+                      </>
+                    )}
+                    value={htmlTitle}
+                    onChange={setHtmlTitle}
+                    placeholder="请输入本次培训/汇报/展示材料标题"
+                    helper="将展示在第一页封面，并作为整份材料的主题。"
+                    className={strongFieldClassName}
+                  />
+                  <InlineField
+                    label="汇报时间"
+                    value={htmlReportDate}
+                    onChange={setHtmlReportDate}
+                    placeholder="例如：2026年5月 / 2026年5月12日"
+                    helper="选填，将展示在第一页。"
+                    className={strongFieldClassName}
+                  />
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-[1fr_1fr_240px]">
+                  <InlineField
+                    label="汇报人"
+                    value={htmlPresenter}
+                    onChange={setHtmlPresenter}
+                    placeholder="例如：安全管理部 / 张三"
+                    helper="选填，将展示在第一页。"
+                    className={strongFieldClassName}
+                  />
+                  <InlineField
+                    label="汇报对象"
+                    value={htmlAudience}
+                    onChange={setHtmlAudience}
+                    placeholder="例如：一线作业人员、班组长、企业主要负责人、监管检查组"
+                    helper="用于调整内容深度、语气和展示方式。"
+                    className={strongFieldClassName}
+                  />
+                  <InlineField
+                    label="输入页数"
+                    value={setupDraft.customSlideCount}
+                    onChange={(value) => {
+                      const next = Number(value);
+                      setSetupDraft((prev) => ({
+                        ...prev,
+                        slideCountChoice: 'custom',
+                        customSlideCount: Number.isFinite(next) ? Math.max(1, Math.min(30, next)) : 1,
+                      }));
+                    }}
+                    type="number"
+                    min={1}
+                    max={30}
+                    placeholder="1 到 30"
+                    helper="请输入 1 到 30。"
+                    className={strongSelectTriggerClassName}
+                  />
                 </div>
 
                 <div className="space-y-1.5">
                   <Label className="text-sm font-medium text-slate-800">生成要求 / 内容说明</Label>
-                  <p className="text-xs text-slate-500">请说明本次材料的用途、重点、受众、希望强调的内容、是否需要事故案例/互动题/检查清单等。</p>
+                  <p className="truncate text-xs text-slate-500">请说明本次材料的用途、重点、受众、希望强调的内容、是否需要事故案例/互动题/检查清单等。</p>
                   <Textarea
-                    rows={5}
+                    rows={3}
                     value={htmlRequirements}
                     onChange={(e) => setHtmlRequirements(e.target.value)}
                     placeholder="例如：请根据应急预案生成一份面向班组长的应急处置培训材料，重点突出报警流程、初期处置、岗位职责和常见错误。"
-                    className={`min-h-[140px] ${strongTextareaClassName}`}
+                    className={`min-h-[96px] max-h-[280px] resize-y overflow-y-auto ${strongTextareaClassName}`}
                   />
                 </div>
 
-                {selectedSources.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {selectedSources.map((source, index) => (
-                      <div
-                        key={`${source.type}-${sourceKey(source)}-${index}`}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700"
-                      >
-                        <span className="max-w-[260px] truncate">{sourceLabel(source, knowledgeBases)}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeSource(index)}
-                          className="text-slate-400 transition hover:text-slate-700"
-                          aria-label="移除来源"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <div className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <Label className="text-sm font-medium text-slate-700">用户自己上传文档</Label>
+                        <p className="text-xs text-slate-500">支持一次选择多个文件，上传后会自动加入本次材料来源。</p>
                       </div>
-                    ))}
+                      <Button type="button" variant="outline" className="h-10 shrink-0" onClick={() => uploadInputRef.current?.click()}>
+                        <Upload className="mr-2 h-4 w-4" />
+                        上传文档
+                      </Button>
+                    </div>
+                    <input
+                      ref={uploadInputRef}
+                      type="file"
+                      multiple
+                      accept=".pdf,.doc,.docx,.txt,.md,.markdown"
+                      className="hidden"
+                      onChange={(e) => e.target.files && void handleUpload(e.target.files)}
+                    />
+                    <SourceTagList
+                      items={selectedUploadSources}
+                      knowledgeBases={knowledgeBases}
+                      onRemove={removeSourceByKey}
+                    />
                   </div>
-                )}
 
-                <div className="grid gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(220px,.7fr)_auto] xl:items-center">
-                  <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                    <Label className="text-sm font-medium text-slate-700">选择文档</Label>
-                    <Popover open={documentPickerOpen} onOpenChange={setDocumentPickerOpen}>
+                  <div className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <Label className="text-sm font-medium text-slate-700">选择现有知识库的文档</Label>
+                        <p className="text-xs text-slate-500">可以一次勾选多个知识库文档加入本次材料。</p>
+                      </div>
+                      <Popover open={kbDocumentPickerOpen} onOpenChange={setKbDocumentPickerOpen}>
                       <PopoverTrigger asChild>
                         <Button
                           type="button"
                           variant="outline"
-                          className="h-10 w-full justify-between rounded-xl border-slate-200 bg-white px-3 text-slate-900 shadow-sm"
+                          className="h-10 shrink-0 rounded-xl border-slate-200 bg-white px-3 text-slate-900 shadow-sm"
                         >
-                          <span className="truncate text-left">{selectedSourceSummary}</span>
-                          <span className="ml-3 shrink-0 text-slate-400">▾</span>
+                            {selectedKbSources.length > 0 ? `已选 ${selectedKbSources.length} 个文档` : '选择知识库文档'}
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent align="start" className="w-[640px] max-w-[calc(100vw-2rem)] rounded-[24px] border-slate-200 p-4 shadow-2xl">
-                        {knowledgeBases.length === 0 ? (
-                          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                            当前还没有知识库文档。可以不选文档直接生成通用材料，或先到知识库页面上传安全制度、应急预案、操作规程等资料。
-                          </div>
-                        ) : (
-                          <div className="space-y-3">
-                            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto]">
-                              <Select
-                                value={setupDraft.kbId}
-                                onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, kbId: value, documentId: '' }))}
-                              >
-                                <SelectTrigger className="h-10 min-w-0">
-                                  <SelectValue placeholder="选择知识库" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {knowledgeBases.map((kb) => (
-                                    <SelectItem key={kb.id} value={kb.id}>
-                                      {kb.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Select value={setupDraft.documentId} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, documentId: value }))}>
-                                <SelectTrigger className="h-10 min-w-0">
-                                  <SelectValue placeholder="选择文档" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(kbResources[setupDraft.kbId]?.docs || []).map((doc) => (
-                                    <SelectItem key={doc.id} value={doc.id}>
-                                      {doc.file}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Button type="button" onClick={addKbDocumentSource} className="h-10 shrink-0 whitespace-nowrap bg-indigo-600 hover:bg-indigo-700">
-                                加入
-                              </Button>
+                        <PopoverContent align="end" className="w-[720px] max-w-[calc(100vw-2rem)] rounded-[24px] border-slate-200 p-4 shadow-2xl">
+                          {knowledgeBases.length === 0 ? (
+                            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                              当前还没有知识库。可以直接上传文档，或先到知识库页面上传安全制度、应急预案、操作规程等资料。
                             </div>
-                            {setupDraft.kbId && !kbResources[setupDraft.kbId]?.loading && (kbResources[setupDraft.kbId]?.docs || []).length === 0 && (
-                              <p className="text-sm text-slate-500">当前知识库暂无可选文档，可以不选文档直接生成。</p>
-                            )}
-                          </div>
-                        )}
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <Label className="text-sm font-medium text-slate-700">选择知识库</Label>
+                                <Select
+                                  value={setupDraft.kbId}
+                                  onValueChange={(value) => {
+                                    setSetupDraft((prev) => ({ ...prev, kbId: value }));
+                                    setPendingKbDocumentIds([]);
+                                  }}
+                                >
+                                  <SelectTrigger className={`h-10 min-w-0 ${strongSelectTriggerClassName}`}>
+                                    <SelectValue placeholder="选择知识库" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {knowledgeBases.map((kb) => (
+                                      <SelectItem key={kb.id} value={kb.id}>
+                                        {kb.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
 
-                  <div className="space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                    <Label className="text-sm font-medium text-slate-700">选择页数</Label>
-                    <Select value={setupDraft.slideCountChoice} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, slideCountChoice: value as SlideCountChoice }))}>
-                      <SelectTrigger className={`h-10 w-full rounded-[18px] px-4 ${strongSelectTriggerClassName}`}>
-                        <SelectValue>{slideCountSummary}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent className="w-[240px] rounded-[28px] border-slate-200 bg-white p-3 shadow-2xl">
-                        {['8', '10', '12', '15', '18', '20', '25'].map((item) => (
-                          <SelectItem key={item} value={item} className="my-1 rounded-2xl bg-white px-5 py-4 text-base font-medium text-slate-800">
-                            {item} 页
-                          </SelectItem>
-                        ))}
-                        <SelectItem value="custom" className="my-1 rounded-2xl bg-white px-5 py-4 text-base font-medium text-slate-800">
-                          自由输入
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {setupDraft.slideCountChoice === 'custom' && (
-                      <Input
-                        type="number"
-                        min={5}
-                        max={30}
-                        value={setupDraft.customSlideCount}
-                        onChange={(e) => setSetupDraft((prev) => ({ ...prev, customSlideCount: Number(e.target.value) || 15 }))}
-                        className={`h-10 w-full rounded-[18px] ${strongFieldClassName}`}
-                        placeholder="请输入页数"
-                      />
-                    )}
+                              {setupDraft.kbId ? (
+                                <div className="space-y-3">
+                                  <div className="max-h-[320px] space-y-2 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3">
+                                    {kbResources[setupDraft.kbId]?.loading ? (
+                                      <p className="px-1 py-6 text-center text-sm text-slate-500">正在加载当前知识库的文档...</p>
+                                    ) : currentKbDocs.length === 0 ? (
+                                      <p className="px-1 py-6 text-center text-sm text-slate-500">当前知识库暂无可选文档。</p>
+                                    ) : (
+                                      currentKbDocs.map((doc) => {
+                                        const checked = pendingKbDocumentSet.has(doc.id);
+                                        return (
+                                          <label
+                                            key={doc.id}
+                                            className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2 transition ${
+                                              checked ? 'border-indigo-200 bg-indigo-50/60' : 'border-transparent hover:border-slate-200 hover:bg-slate-50'
+                                            }`}
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={checked}
+                                              onChange={(event) => {
+                                                const nextChecked = event.target.checked;
+                                                setPendingKbDocumentIds((prev) => {
+                                                  if (nextChecked) {
+                                                    return prev.includes(doc.id) ? prev : [...prev, doc.id];
+                                                  }
+                                                  return prev.filter((item) => item !== doc.id);
+                                                });
+                                              }}
+                                              className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                            />
+                                            <div className="min-w-0">
+                                              <div className="truncate text-sm font-medium text-slate-900">{doc.file}</div>
+                                              <div className="mt-0.5 text-xs text-slate-500">
+                                                {doc.page_count > 0 ? `${doc.page_count} 页` : '页数未知'}
+                                                {doc.parse_status ? ` · ${doc.parse_status}` : ''}
+                                              </div>
+                                            </div>
+                                          </label>
+                                        );
+                                      })
+                                    )}
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <p className="text-xs text-slate-500">
+                                      已勾选 {pendingKbDocumentIds.length} 个文档，点击加入后会并入本次材料来源。
+                                    </p>
+                                    <Button
+                                      type="button"
+                                      onClick={() => addKbDocumentSources()}
+                                      className="h-10 shrink-0 whitespace-nowrap bg-indigo-600 hover:bg-indigo-700"
+                                    >
+                                      加入所选文档
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-sm text-slate-500">请先选择一个知识库，再勾选其中的文档。</p>
+                              )}
+                            </div>
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <SourceTagList
+                      items={selectedKbSources}
+                      knowledgeBases={knowledgeBases}
+                      onRemove={removeSourceByKey}
+                    />
                   </div>
+                </div>
 
-                  <div className="flex items-center justify-end xl:self-center">
-                    <Button
-                      onClick={generateHtml}
-                      disabled={htmlGeneration.loading || !htmlTitle.trim()}
-                      className="h-10 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700"
-                    >
-                      {htmlGeneration.loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Globe className="mr-2 h-4 w-4" />}
-                      生成网页
-                    </Button>
-                  </div>
+                <div className="flex items-center justify-end">
+                  <Button
+                    onClick={generateHtml}
+                    disabled={htmlGeneration.loading || !htmlTitle.trim()}
+                    className="h-10 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700"
+                  >
+                    {htmlGeneration.loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Globe className="mr-2 h-4 w-4" />}
+                    生成网页
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -1012,16 +1476,6 @@ export default function TrainingPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm text-slate-600">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                      <div className="font-medium text-slate-900">标题</div>
-                      <div className="mt-1 truncate">{htmlGeneration.title || '网页'}</div>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                      <div className="font-medium text-slate-900">页数</div>
-                      <div className="mt-1">{htmlGeneration.slideCount || slideCount} 页</div>
-                    </div>
-                  </div>
                   {htmlGeneration.error && (
                     <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
                       {htmlGeneration.error}
@@ -1029,12 +1483,20 @@ export default function TrainingPage() {
                   )}
                   {htmlGeneration.html && (
                     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
-                      <iframe
-                        title="网页汇报展示材料预览"
-                        srcDoc={htmlGeneration.html}
-                        sandbox="allow-scripts allow-same-origin"
-                        className="h-[620px] w-full bg-white"
-                      />
+                      {htmlGeneration.previewUrl ? (
+                        <iframe
+                          title="网页汇报展示材料预览"
+                          src={htmlGeneration.previewUrl}
+                          className="h-[620px] w-full bg-white"
+                        />
+                      ) : (
+                        <iframe
+                          title="网页汇报展示材料预览"
+                          srcDoc={htmlGeneration.html}
+                          sandbox="allow-scripts allow-same-origin"
+                          className="h-[620px] w-full bg-white"
+                        />
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -1045,13 +1507,17 @@ export default function TrainingPage() {
           <div className="space-y-6">
             <Card className="border-slate-200 shadow-sm">
               <CardContent className="space-y-3 p-4">
-                <Textarea
-                  rows={3}
-                  value={setupDraft.requirement}
-                  onChange={(e) => setSetupDraft((prev) => ({ ...prev, requirement: e.target.value }))}
-                  placeholder="PPT主题 / 需求"
-                  className={`min-h-[112px] ${strongTextareaClassName}`}
-                />
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium text-slate-800">PPT主题 / 需求</Label>
+                  <p className="truncate text-xs text-slate-500">请说明本次 PPT 的用途、重点、受众、希望强调的内容、是否需要案例/互动题/检查清单等。</p>
+                  <Textarea
+                    rows={3}
+                    value={setupDraft.requirement}
+                    onChange={(e) => setSetupDraft((prev) => ({ ...prev, requirement: e.target.value }))}
+                    placeholder="PPT主题 / 需求"
+                    className={`min-h-[112px] ${strongTextareaClassName}`}
+                  />
+                </div>
 
                 <div className="flex flex-wrap gap-2">
                   {selectedSources.map((source, index) => (
@@ -1062,7 +1528,7 @@ export default function TrainingPage() {
                       <span className="max-w-[260px] truncate">{sourceLabel(source, knowledgeBases)}</span>
                       <button
                         type="button"
-                        onClick={() => removeSource(index)}
+                        onClick={() => removeSourceByKey(source)}
                         className="text-slate-400 transition hover:text-slate-700"
                         aria-label="移除来源"
                       >
@@ -1076,7 +1542,7 @@ export default function TrainingPage() {
                   <div className="grid flex-1 gap-3 min-w-0 xl:grid-cols-4">
                     <div className="h-full space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                       <Label className="text-sm font-medium text-slate-700">选择文档</Label>
-                      <Popover open={documentPickerOpen} onOpenChange={setDocumentPickerOpen}>
+                      <Popover open={kbDocumentPickerOpen} onOpenChange={setKbDocumentPickerOpen}>
                         <PopoverTrigger asChild>
                           <Button
                             type="button"
@@ -1139,7 +1605,7 @@ export default function TrainingPage() {
                                     ))}
                                   </SelectContent>
                                 </Select>
-                                <Button type="button" onClick={addKbDocumentSource} className="h-10 shrink-0 whitespace-nowrap bg-indigo-600 hover:bg-indigo-700">
+                                <Button type="button" onClick={() => addKbDocumentSources()} className="h-10 shrink-0 whitespace-nowrap bg-indigo-600 hover:bg-indigo-700">
                                   加入
                                 </Button>
                               </div>
@@ -1164,34 +1630,24 @@ export default function TrainingPage() {
                       </Popover>
                     </div>
 
-                    <div className="h-full space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                      <Label className="text-sm font-medium text-slate-700">选择页数</Label>
-                      <Select value={setupDraft.slideCountChoice} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, slideCountChoice: value as SlideCountChoice }))}>
-                        <SelectTrigger className={`h-10 w-full rounded-[18px] px-4 ${strongSelectTriggerClassName}`}>
-                          <SelectValue>{slideCountSummary}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent className="w-[240px] rounded-[28px] border-slate-200 bg-white p-3 shadow-2xl">
-                          {['5', '15', '20', '30'].map((item) => (
-                            <SelectItem key={item} value={item} className="my-1 rounded-2xl bg-white px-5 py-4 text-base font-medium text-slate-800">
-                              {item} 页
-                            </SelectItem>
-                          ))}
-                          <SelectItem value="custom" className="my-1 rounded-2xl bg-white px-5 py-4 text-base font-medium text-slate-800">
-                            自由输入
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {setupDraft.slideCountChoice === 'custom' && (
-                        <Input
-                          type="number"
-                          min={1}
-                          value={setupDraft.customSlideCount}
-                          onChange={(e) => setSetupDraft((prev) => ({ ...prev, customSlideCount: Number(e.target.value) || 1 }))}
-                          className={`h-10 w-full rounded-[18px] ${strongFieldClassName}`}
-                          placeholder="请输入页数"
-                        />
-                      )}
-                    </div>
+                    <InlineField
+                      label="输入页数"
+                      value={setupDraft.customSlideCount}
+                      onChange={(value) => {
+                        const next = Number(value);
+                        setSetupDraft((prev) => ({
+                          ...prev,
+                          slideCountChoice: 'custom',
+                          customSlideCount: Number.isFinite(next) ? Math.max(1, Math.min(30, next)) : 1,
+                        }));
+                      }}
+                      type="number"
+                      min={1}
+                      max={30}
+                      placeholder="1 到 30"
+                      helper="请输入 1 到 30。"
+                      className={strongFieldClassName}
+                    />
 
                     <div className="h-full space-y-1.5 min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                       <Label className="text-sm font-medium text-slate-700">选择风格</Label>

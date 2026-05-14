@@ -338,12 +338,14 @@ export interface TrainingGenerateResponse {
 }
 
 export interface TrainingHtmlGenerateRequest {
+  job_id?: string;
   kb_id?: string | null;
   title: string;
   report_date?: string | null;
   presenter?: string | null;
   audience?: string | null;
   requirements?: string | null;
+  sources?: TrainingSourceInput[];
   document_ids: string[];
   page_count: number;
 }

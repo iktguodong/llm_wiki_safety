@@ -492,12 +492,14 @@ class TrainingGenerateResponse(BaseModel):
 
 class TrainingHtmlGenerateRequest(BaseModel):
     """生成单文件 HTML 汇报展示材料请求"""
+    job_id: Optional[str] = None
     kb_id: Optional[str] = None
     title: str = Field(..., min_length=1, description="本次材料标题")
     report_date: Optional[str] = None
     presenter: Optional[str] = None
     audience: Optional[str] = None
     requirements: Optional[str] = None
+    sources: List[TrainingSourceInput] = Field(default_factory=list)
     document_ids: List[str] = Field(default_factory=list)
     page_count: int = Field(default=15, ge=5, le=30)
 

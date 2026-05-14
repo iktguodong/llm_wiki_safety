@@ -3,7 +3,9 @@
 FastAPI + 所有业务API
 """
 
+import asyncio
 import sys
+import uuid
 from pathlib import Path
 
 # 支持从 backend/ 目录直接运行：将项目根目录加入路径
@@ -13,8 +15,8 @@ if __name__ == "__main__":
         sys.path.insert(0, str(project_root))
 
 from typing import List, Optional, Any
-from fastapi import FastAPI, File, UploadFile, HTTPException, Body
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi import FastAPI, File, UploadFile, HTTPException, Body, Query
+from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -56,6 +58,8 @@ from backend.services.presentation.slide_planner import plan_slides
 from backend.services.presentation.quality_check import check_presentation
 from backend.services.presentation.pptx_renderer import render_presentation
 from backend.services.presentation.project_store import (
+    cancel_running_job,
+    cleanup_training_job,
     create_job,
     get_upload_dir,
     resolve_download_path,
@@ -64,6 +68,8 @@ from backend.services.presentation.project_store import (
     save_quality_report,
     save_spec,
     save_upload_metadata,
+    register_running_job,
+    unregister_running_job,
 )
 from backend.services.presentation.safety_templates import get_template
 
@@ -509,11 +515,20 @@ async def generate_training_outline(payload: dict = Body(...)):
     """生成培训大纲。支持新旧两种请求格式。"""
     request = _training_payload_to_request(payload)
     job = create_job("outline", job_id=request.get("job_id"))
+    task = asyncio.current_task()
+    if task is not None:
+        register_running_job(job.job_id, task)
     try:
         content_pack = build_content_pack(request, job.job_id)
         outline = await build_outline(content_pack, request, llm_service)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except asyncio.CancelledError:
+        cleanup_training_job(job.job_id)
+        raise
+    finally:
+        if task is not None:
+            unregister_running_job(job.job_id, task)
 
     save_content_pack(job.job_id, content_pack.model_dump())
     save_outline(job.job_id, outline.model_dump())
@@ -539,6 +554,9 @@ async def generate_training_ppt(payload: dict = Body(...)):
     """生成培训PPT。支持确认后的大纲继续生成。"""
     request = _training_payload_to_request(payload)
     job = create_job("generate", job_id=request.get("job_id"))
+    task = asyncio.current_task()
+    if task is not None:
+        register_running_job(job.job_id, task)
     try:
         content_pack = build_content_pack(request, job.job_id)
         outline_payload = payload.get("outline")
@@ -557,6 +575,12 @@ async def generate_training_ppt(payload: dict = Body(...)):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except asyncio.CancelledError:
+        cleanup_training_job(job.job_id)
+        raise
+    finally:
+        if task is not None:
+            unregister_running_job(job.job_id, task)
 
     save_content_pack(job.job_id, content_pack.model_dump())
     save_outline(job.job_id, outline.model_dump())
@@ -579,13 +603,32 @@ async def generate_training_ppt(payload: dict = Body(...)):
 @app.post("/api/training/html", response_model=ApiResponse)
 async def generate_training_html(payload: TrainingHtmlGenerateRequest):
     """生成单文件 HTML 汇报展示材料，不复用 PPT/旧 HTML Deck 链路。"""
+    if not payload.job_id:
+        payload.job_id = f"html-{uuid.uuid4().hex[:10]}"
+    task = asyncio.current_task()
+    if task is not None:
+        register_running_job(payload.job_id, task)
     try:
         result = await training_service.generate_html_material(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except asyncio.CancelledError:
+        cleanup_training_job(payload.job_id)
+        raise
+    finally:
+        if task is not None:
+            unregister_running_job(payload.job_id, task)
 
     response = TrainingHtmlGenerateResponse(**result)
     return ApiResponse(data=response)
+
+
+@app.post("/api/training/cancel/{job_id}")
+async def cancel_training_job(job_id: str):
+    """取消进行中的培训生成任务并清理中间产物。"""
+    cancelled = cancel_running_job(job_id)
+    cleanup_training_job(job_id)
+    return ApiResponse(data={"job_id": job_id, "cancelled": cancelled})
 
 
 @app.get("/api/training/download/{filename}")
@@ -601,7 +644,7 @@ async def download_training_ppt(filename: str):
 
 
 @app.get("/api/training/download-html/{filename}")
-async def download_training_html(filename: str):
+async def download_training_html(filename: str, download_name: Optional[str] = Query(default=None)):
     """安全下载生成的 HTML 文件。"""
     try:
         file_path = resolve_training_html_path(filename)
@@ -609,7 +652,7 @@ async def download_training_html(filename: str):
         raise HTTPException(status_code=400, detail=str(exc))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="文件不存在")
-    return FileResponse(str(file_path), filename=file_path.name, media_type="text/html")
+    return FileResponse(str(file_path), filename=download_name or file_path.name, media_type="text/html")
 
 
 @app.get("/api/training/preview-html/{filename}")

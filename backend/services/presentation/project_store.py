@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +16,9 @@ from .models import PresentationJob, utc_now_str
 
 PRESENTATIONS_DIR = OUTPUT_DIR / "presentations"
 UPLOADS_DIR = PRESENTATIONS_DIR / "_uploads"
+TRAINING_HTML_PREFIX = "training_html_"
+
+_RUNNING_TRAINING_JOBS: dict[str, asyncio.Task[Any]] = {}
 
 
 @dataclass(frozen=True)
@@ -125,6 +130,37 @@ def save_speaker_notes_docx(job_id: str, document) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     document.save(str(path))
     return path
+
+
+def register_running_job(job_id: str, task: asyncio.Task[Any]) -> None:
+    _RUNNING_TRAINING_JOBS[job_id] = task
+
+
+def unregister_running_job(job_id: str, task: asyncio.Task[Any] | None = None) -> None:
+    current = _RUNNING_TRAINING_JOBS.get(job_id)
+    if current is None:
+        return
+    if task is None or current is task:
+        _RUNNING_TRAINING_JOBS.pop(job_id, None)
+
+
+def cancel_running_job(job_id: str) -> bool:
+    task = _RUNNING_TRAINING_JOBS.get(job_id)
+    if task is None or task.done():
+        return False
+    task.cancel()
+    return True
+
+
+def cleanup_training_job(job_id: str) -> None:
+    paths = get_job_paths(job_id)
+    shutil.rmtree(paths.root, ignore_errors=True)
+    html_file = OUTPUT_DIR / f"{TRAINING_HTML_PREFIX}{job_id}.html"
+    if html_file.exists():
+        try:
+            html_file.unlink()
+        except OSError:
+            pass
 
 
 def get_upload_dir(upload_id: str) -> Path:

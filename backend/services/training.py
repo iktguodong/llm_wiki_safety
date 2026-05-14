@@ -7,9 +7,12 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlencode
+
+from bs4 import BeautifulSoup
 
 from backend.config import config
-from backend.models import TrainingHtmlGenerateRequest
+from backend.models import TrainingHtmlGenerateRequest, TrainingSourceInput
 
 from backend.services.llm import llm_service
 from backend.services.presentation.content_pack import build_content_pack, normalize_sources
@@ -118,6 +121,10 @@ TRAINING_HTML_PROMPT_TEMPLATE = """你是“企业安全生产培训与汇报展
 22. 支持打印为 PDF。
 23. 打印时每一页应单独分页。
 24. 页面应可在普通现代浏览器中直接打开运行。
+25. 必须为本页中使用到的自定义 class 提供完整 CSS，尤其是 cover/page-title/page-core/content-grid/card/table-wrap/flow-steps/compare-wrap/qa-card 等布局类；只写 class 名称但不给样式定义，视为不合格。
+26. 不要只依赖浏览器默认排版。每页必须通过 CSS 形成明确版式，例如封面、双栏卡片、表格、流程图、对照表、问答卡等。
+27. 必须严格依据用户上传文档和用户明确要求编制内容，不能自行新增“近期行动要求”“会后行动”“下一步计划”“行动清单”“总结金句”之类未在资料中出现的收束段落。
+28. 如果资料里没有某项内容，就用“资料未提供”“可根据企业实际补充”等中性表述，不要擅自补编。
 
 ====================
 五、首页封面要求
@@ -156,6 +163,10 @@ TRAINING_HTML_PROMPT_TEMPLATE = """你是“企业安全生产培训与汇报展
 9. 对培训类材料，应增加“怎么做、查什么、禁什么、谁负责、异常怎么办”等可执行内容。
 10. 对汇报类材料，应增加“背景、问题、分析、措施、计划、结论”等逻辑内容。
 11. 对展示类材料，应增加“亮点、结构、流程、价值、落地方式”等内容。
+12. 页面内容应尽量占满 16:9 画布的主要视觉区域，避免只在左上角或右上角放一小块内容、其余大片留白。
+13. 双栏或多栏页面应尽量平衡各栏信息量，不要出现一侧只有一张小提示卡、另一侧大量空白的情况。
+14. 若单页信息不足，不要留白等待；应优先通过拆分要点、增加对照卡、步骤卡、流程卡或清单表来补足版面。
+15. 所有正文、卡片、注释和底部信息必须完整落在 16:9 页面内，不能超出页面下边界或被底部控制条遮挡。
 
 每页正文文字建议总量控制在 120～260 个中文字符之间；表格页、检查清单页可以更多，但要保持可读。
 
@@ -259,6 +270,10 @@ TRAINING_HTML_PROMPT_TEMPLATE = """你是“企业安全生产培训与汇报展
 - 文档中没有的岗位职责
 - 文档中没有的流程要求
 
+所有页面必须保证文字与背景有明显对比，避免深色背景上使用深色文字，也避免浅色背景上使用浅色文字。
+如果使用深色背景，请确保标题、正文、页码、注释等关键信息都清晰可读。
+如果页面内容来自用户上传文档，请只围绕文档已经提供的信息展开，不要自行补充文档未写明的行动项、案例结论、落地计划或总结性口号。
+
 如资料不足，可写：
 
 - “可根据企业实际补充”
@@ -325,6 +340,8 @@ TRAINING_HTML_PROMPT_TEMPLATE = """你是“企业安全生产培训与汇报展
 - 总结金句页
 
 每页布局应有变化，避免所有页面都是同一种列表。
+同一页内的字体层级、卡片圆角、边距和间距应尽量统一，避免同一份材料中某些页面标题特别大、某些页面又明显过小。
+对于信息密度较低的主题页，优先采用“标题 + 核心结论 + 2~4 个卡片/要点块 + 一个补充说明块”的结构，让页面视觉重心更均衡。
 
 ====================
 十一、交互功能要求
@@ -460,24 +477,28 @@ def build_training_html_prompt(
 
 
 def collect_training_html_source_context(request: TrainingHtmlGenerateRequest) -> str:
-    kb_id = request.kb_id or config.get("current_kb_id")
-    document_ids = [doc_id for doc_id in request.document_ids if str(doc_id).strip()]
-    if not document_ids:
-        return ""
-    if not kb_id:
-        raise ValueError("已选择文档，但当前没有可用知识库")
-
     sources = [
-        {
-            "type": "kb_document",
-            "kb_id": kb_id,
-            "document_id": doc_id,
-        }
-        for doc_id in document_ids
+        source if isinstance(source, TrainingSourceInput) else TrainingSourceInput(**source.model_dump() if hasattr(source, "model_dump") else dict(source))
+        for source in request.sources
+        if getattr(source, "type", None) in {"knowledge_base", "wiki_page", "kb_document", "temporary_upload", "prompt"}
     ]
+    if not sources and request.document_ids:
+        kb_id = request.kb_id or config.get("current_kb_id")
+        document_ids = [doc_id for doc_id in request.document_ids if str(doc_id).strip()]
+        if not document_ids:
+            return ""
+        if not kb_id:
+            raise ValueError("已选择文档，但当前没有可用知识库")
+        sources = [
+            TrainingSourceInput(type="kb_document", kb_id=kb_id, document_id=doc_id)
+            for doc_id in document_ids
+        ]
+    if not sources:
+        return ""
+
     pack = build_content_pack(
         {
-            "sources": sources,
+            "sources": [source.model_dump() for source in sources],
             "topic": request.title,
             "audience": request.audience or "",
             "prefer_wiki_pages": True,
@@ -528,36 +549,406 @@ def inject_training_html_safety_styles(html: str) -> str:
     """给模型输出加一层轻量的排版修正，避免过小字体和图标压字。"""
     style_block = """
   <style id="training-html-safety">
+    :root {
+      --training-bg: #eef2ff;
+      --training-surface: #f8fafc;
+      --training-surface-strong: #ffffff;
+      --training-border: rgba(148, 163, 184, 0.24);
+      --training-text: #0f172a;
+      --training-muted: #475569;
+      --training-accent: #4f46e5;
+      --training-accent-strong: #3730a3;
+      --training-warm: #f97316;
+      --training-success: #16a34a;
+      --training-warning: #d97706;
+      --training-danger: #dc2626;
+      --training-shadow: 0 24px 70px rgba(15, 23, 42, 0.14);
+    }
     html, body {
       -webkit-text-size-adjust: 100%;
       text-rendering: optimizeLegibility;
     }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow: hidden;
+      color: var(--training-text);
+      background:
+        radial-gradient(circle at top left, rgba(79, 70, 229, 0.12), transparent 24%),
+        radial-gradient(circle at bottom right, rgba(249, 115, 22, 0.08), transparent 22%),
+        var(--training-bg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    .deck {
+      width: 100vw;
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 0;
+    }
     .slide {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: clamp(10px, 1vw, 18px);
+      width: 100vw;
+      height: 100vh;
+      aspect-ratio: auto;
+      padding: clamp(24px, 2.5vw, 44px) clamp(28px, 3.2vw, 60px) clamp(86px, 8.5vh, 116px);
+      border-radius: 0;
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
+      box-shadow: var(--training-shadow);
       overflow: hidden !important;
     }
+    .slide:not(.active) {
+      display: none !important;
+    }
+    .slide.active {
+      display: flex !important;
+    }
+    .slide-cover {
+      justify-content: center;
+      align-items: center;
+      background:
+        radial-gradient(circle at top right, rgba(79, 70, 229, 0.18), transparent 28%),
+        radial-gradient(circle at bottom left, rgba(249, 115, 22, 0.12), transparent 24%),
+        linear-gradient(180deg, #ffffff, #f8fafc);
+    }
+    .slide-cover :is(.cover-badge, .cover-title, .cover-sub, .cover-meta, .cover-audience, .meta-icon) {
+      color: #111827 !important;
+      text-shadow: none !important;
+    }
+    .slide-cover .cover-badge {
+      background: rgba(79, 70, 229, 0.10);
+      color: var(--training-accent-strong) !important;
+    }
+    .slide :is(h1, h2, h3, h4, h5, h6, p, li, td, th, dt, dd, span, a, strong, b, em, small, label) {
+      text-wrap: pretty;
+    }
+    .slide > :not(.page-title):not(.cover-title):not(.cover-badge):not(.cover-sub):not(.cover-meta):not(.cover-audience):not(.page-core) {
+      min-width: 0;
+    }
+    .cover-badge {
+      display: inline-flex;
+      width: fit-content;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(79, 70, 229, 0.08);
+      color: var(--training-accent-strong);
+      font-size: clamp(14px, 1vw, 18px);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .cover-title {
+      max-width: 11.5em;
+      margin: 12px 0 0;
+      font-size: clamp(38px, 3.6vw, 60px) !important;
+      line-height: 1.05 !important;
+      font-weight: 900;
+      color: #111827;
+    }
+    .cover-sub {
+      max-width: 12.5em;
+      font-size: clamp(18px, 1.6vw, 26px);
+      font-weight: 700;
+      line-height: 1.22;
+      color: var(--training-accent-strong);
+    }
+    .cover-meta,
+    .cover-audience {
+      max-width: 42rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px 20px;
+      align-items: center;
+      color: var(--training-muted);
+      font-size: clamp(16px, 1.05vw, 20px);
+      line-height: 1.4;
+    }
+    .cover-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .meta-icon {
+      font-size: 1.1em;
+    }
+    .page-title {
+      margin: 0;
+      font-size: clamp(26px, 2.05vw, 38px);
+      line-height: 1.12;
+      font-weight: 900;
+      color: #111827;
+      letter-spacing: 0.01em;
+    }
+    .page-core {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px 16px;
+      border-radius: 18px;
+      background: rgba(79, 70, 229, 0.06);
+      border: 1px solid rgba(79, 70, 229, 0.12);
+      color: var(--training-text);
+      font-size: clamp(15px, 1vw, 18px);
+      line-height: 1.5;
+    }
+    .core-label {
+      flex: 0 0 auto;
+      color: var(--training-accent-strong);
+      font-weight: 800;
+    }
+    .content-grid {
+      display: grid;
+      gap: clamp(12px, 1.4vw, 24px);
+      align-items: stretch;
+      flex: 1;
+    }
+    .content-grid.cols-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .content-grid.cols-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .content-grid > * {
+      min-width: 0;
+    }
+    .card,
+    .qa-card,
+    .table-wrap,
+    .flow-step,
+    .compare-col {
+      background: var(--training-surface-strong);
+      border: 1px solid var(--training-border);
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+    }
+    .card,
+    .qa-card,
+    .compare-col {
+      padding: clamp(14px, 1.6vw, 22px);
+    }
+    .card-title,
+    .qa-q,
+    .comp-title,
+    .step-label {
+      font-weight: 800;
+      color: #111827;
+      line-height: 1.2;
+    }
+    .card-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: clamp(17px, 1.05vw, 22px);
+    }
+    .card-icon {
+      display: inline-flex;
+      width: 1.55em;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.05em;
+      flex: 0 0 auto;
+    }
+    .card-body,
+    .qa-hint,
+    .comp-title + ul,
+    .card-body li,
+    .table-wrap td,
+    .table-wrap th,
+    .alert-box {
+      color: var(--training-muted);
+      font-size: clamp(15px, 1.02vw, 19px) !important;
+      line-height: 1.5 !important;
+    }
+    .card-body ul,
+    .card-body ol,
+    .qa-card ul,
+    .compare-col ul {
+      margin: 0;
+      padding-left: 1.2em;
+    }
+    .card-body li + li,
+    .qa-card li + li,
+    .compare-col li + li {
+      margin-top: 8px;
+    }
+    .card.info { background: linear-gradient(180deg, rgba(239, 246, 255, 0.95), rgba(255, 255, 255, 0.98)); }
+    .card.success { background: linear-gradient(180deg, rgba(236, 253, 245, 0.95), rgba(255, 255, 255, 0.98)); }
+    .card.warning { background: linear-gradient(180deg, rgba(255, 247, 237, 0.95), rgba(255, 255, 255, 0.98)); }
+    .card.danger { background: linear-gradient(180deg, rgba(254, 242, 242, 0.95), rgba(255, 255, 255, 0.98)); }
+    .card.info .card-title { color: #1d4ed8; }
+    .card.success .card-title { color: #166534; }
+    .card.warning .card-title { color: #b45309; }
+    .card.danger .card-title { color: #b91c1c; }
+    .alert-box {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: clamp(14px, 1.6vw, 20px);
+      border-radius: 20px;
+      background: rgba(249, 115, 22, 0.08);
+      border: 1px solid rgba(249, 115, 22, 0.16);
+    }
+    .alert-icon {
+      flex: 0 0 auto;
+      font-size: 1.35em;
+      line-height: 1;
+      color: var(--training-warm);
+    }
+    .table-wrap {
+      overflow: hidden;
+      padding: 0;
+    }
+    .table-wrap table {
+      width: 100%;
+      border-collapse: collapse;
+      background: transparent;
+    }
+    .table-wrap th,
+    .table-wrap td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+      vertical-align: top;
+      text-align: left;
+    }
+    .table-wrap th {
+      background: rgba(79, 70, 229, 0.08);
+      color: #1e3a8a;
+      font-weight: 800;
+    }
+    .flow-steps {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 12px;
+      align-items: center;
+      flex: 1;
+    }
+    .flow-step {
+      min-height: 132px;
+      padding: 14px 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 10px;
+      text-align: center;
+    }
+    .step-num {
+      width: 42px;
+      height: 42px;
+      margin: 0 auto;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, var(--training-accent), #7c3aed);
+      color: white;
+      font-weight: 800;
+      box-shadow: 0 10px 24px rgba(79, 70, 229, 0.24);
+    }
+    .step-desc {
+      color: var(--training-muted);
+      font-size: clamp(13px, 0.9vw, 17px);
+      line-height: 1.45;
+    }
+    .flow-arrow {
+      color: var(--training-accent-strong);
+      font-size: clamp(20px, 1.8vw, 30px);
+      font-weight: 800;
+      text-align: center;
+    }
+    .compare-wrap {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: clamp(12px, 1.4vw, 20px);
+      flex: 1;
+    }
+    .compare-col.do {
+      border-color: rgba(22, 163, 74, 0.16);
+      background: linear-gradient(180deg, rgba(240, 253, 244, 0.96), rgba(255, 255, 255, 0.98));
+    }
+    .compare-col.dont {
+      border-color: rgba(220, 38, 38, 0.16);
+      background: linear-gradient(180deg, rgba(254, 242, 242, 0.96), rgba(255, 255, 255, 0.98));
+    }
+    .comp-title {
+      margin-bottom: 12px;
+      font-size: clamp(17px, 1.05vw, 22px);
+    }
+    .comp-title.do {
+      color: #15803d;
+    }
+    .comp-title.dont {
+      color: #b91c1c;
+    }
+    .qa-card {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .qa-q {
+      font-size: clamp(17px, 1.08vw, 22px);
+    }
+    .qa-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.2em;
+      margin-right: 8px;
+      border-radius: 999px;
+      background: rgba(79, 70, 229, 0.1);
+      color: var(--training-accent-strong);
+      font-weight: 800;
+    }
+    .qa-hint {
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px dashed rgba(148, 163, 184, 0.24);
+    }
+    .slide .list-compact li {
+      line-height: 1.5 !important;
+      font-size: clamp(15px, 1vw, 19px) !important;
+    }
+    .slide .tag {
+      font-size: clamp(13px, 0.9vw, 17px) !important;
+    }
+    .slide img, .slide svg {
+      max-width: 100%;
+      height: auto;
+    }
+    .slide p { margin: 0; }
+    .slide ul, .slide ol { margin: 0; }
+    .slide h1, .slide h2, .slide h3, .slide h4, .slide h5, .slide h6 { margin: 0; }
     .slide :is(p, li, td, .text, .desc, .note, .caption, .subtext) {
-      line-height: 1.55 !important;
-      font-size: clamp(18px, 1.15vw, 24px) !important;
+      line-height: 1.5 !important;
     }
     .slide :is(h1, h2, h3, .slide-title, .cover-title) {
       line-height: 1.08 !important;
       letter-spacing: 0.01em !important;
     }
+    .slide h1 {
+      font-size: clamp(30px, 2.8vw, 46px) !important;
+      font-weight: 900 !important;
+    }
+    .slide h2 {
+      font-size: clamp(24px, 2.2vw, 36px) !important;
+      font-weight: 900 !important;
+    }
+    .slide h3 {
+      font-size: clamp(20px, 1.7vw, 28px) !important;
+      font-weight: 800 !important;
+    }
+    .slide p,
+    .slide li {
+      font-size: clamp(15px, 1vw, 19px) !important;
+    }
     .slide .slide-subtitle,
     .slide .cover-sub,
     .slide .cover-meta {
       line-height: 1.3 !important;
-    }
-    .slide .card,
-    .slide .role-card,
-    .slide .alert-box {
-      padding: clamp(16px, 2vw, 28px) !important;
-    }
-    .slide .card-grid {
-      gap: clamp(12px, 1.4vw, 24px) !important;
-    }
-    .slide .alert-box {
-      gap: 12px !important;
     }
     .slide .alert-box .icon {
       width: 2em !important;
@@ -569,16 +960,11 @@ def inject_training_html_safety_styles(html: str) -> str:
     .slide .alert-box .text {
       min-width: 0 !important;
     }
-    .slide .list-compact li {
-      line-height: 1.55 !important;
-      font-size: clamp(18px, 1.1vw, 23px) !important;
-    }
-    .slide .tag {
-      font-size: clamp(13px, 0.9vw, 17px) !important;
-    }
-    .slide img, .slide svg {
-      max-width: 100%;
-      height: auto;
+    @media print {
+      body { background: white; overflow: visible; }
+      .deck { display: block; width: auto; height: auto; padding: 0; }
+      .deck > .slide { display: block !important; width: 100vw; height: 56.25vw; box-shadow: none; border-radius: 0; break-after: page; page-break-after: always; }
+      .controls, .progress { display: none; }
     }
   </style>
 """
@@ -591,6 +977,20 @@ def inject_training_html_safety_styles(html: str) -> str:
 
 
 def _slide_sections_from_text(text: str) -> list[str]:
+    soup = BeautifulSoup(text or "", "html.parser")
+
+    def is_slide_tag(tag: Any) -> bool:
+        classes = tag.get("class") or []
+        return tag.name in {"section", "div"} and "slide" in classes
+
+    slides: list[str] = []
+    for tag in soup.find_all(is_slide_tag):
+        if tag.find_parent(is_slide_tag) is None:
+            slides.append(str(tag))
+
+    if slides:
+        return slides
+
     return re.findall(
         r"<(?:section|div)\b[^>]*class=[\"'][^\"']*\bslide\b[^\"']*[\"'][^>]*>.*?</(?:section|div)>",
         text or "",
@@ -608,13 +1008,14 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
   <title>{title}</title>
   <style>
     * {{ box-sizing: border-box; }}
-    body {{ margin: 0; min-height: 100vh; background: #e5e7eb; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; overflow: hidden; }}
-    .deck {{ width: 100vw; height: 100vh; display: grid; place-items: center; padding: 28px; }}
-    .slide {{ display: none; width: min(1280px, calc(100vw - 56px)); aspect-ratio: 16 / 9; overflow: hidden; border-radius: 28px; background: #f8fafc; box-shadow: 0 24px 70px rgba(15, 23, 42, .18); padding: 64px; }}
-    .slide.active {{ display: block; }}
-    .slide h1 {{ margin: 0 0 24px; font-size: 46px; line-height: 1.12; color: #1e3a8a; }}
-    .slide h2 {{ margin: 0 0 22px; font-size: 38px; line-height: 1.16; color: #1e3a8a; }}
-    .slide p, .slide li {{ font-size: 22px; line-height: 1.55; }}
+    body {{ margin: 0; min-height: 100vh; background: #eef2ff; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; overflow: hidden; }}
+    .deck {{ width: 100vw; height: 100vh; display: grid; place-items: center; padding: 0; }}
+    .slide {{ display: none; width: 100vw; height: 100vh; overflow: hidden; border-radius: 0; background: #f8fafc; box-shadow: 0 24px 70px rgba(15, 23, 42, .18); padding: clamp(24px, 2.5vw, 44px) clamp(28px, 3.2vw, 60px) clamp(86px, 8.5vh, 116px); }}
+    .slide.active {{ display: flex; flex-direction: column; }}
+    .slide h1 {{ margin: 0 0 20px; font-size: 42px; line-height: 1.08; color: #111827; font-weight: 900; }}
+    .slide h2 {{ margin: 0 0 18px; font-size: 34px; line-height: 1.1; color: #111827; font-weight: 900; }}
+    .slide h3 {{ margin: 0 0 14px; font-size: 26px; line-height: 1.12; color: #111827; font-weight: 800; }}
+    .slide p, .slide li {{ font-size: 19px; line-height: 1.5; }}
     .slide ul, .slide ol {{ padding-left: 1.4em; }}
     .controls {{ position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; border: 1px solid rgba(148, 163, 184, .45); border-radius: 999px; background: rgba(255,255,255,.88); padding: 8px 12px; box-shadow: 0 12px 32px rgba(15,23,42,.16); }}
     .controls button {{ border: 0; border-radius: 999px; background: #4f46e5; color: white; padding: 8px 14px; cursor: pointer; }}
@@ -692,12 +1093,45 @@ async def _repair_html_output(raw: str, *, title: str, page_count: int, model_id
 - 必须包含 <html lang="zh-CN">、<head>、<meta charset="UTF-8">、<style>、<body>、<script>
 - 保留已有内容，不要重新发散
 - 尽量保持 {page_count} 个 class="slide" 页面
+- 修复时顺便收紧版式：避免大面积留白、避免单页内容挤在角落、避免左右栏严重失衡、避免底部内容超出 16:9 边界
+- 同一份材料内的标题字号、正文字号、卡片边距和行距应保持相对统一，不要某些页特别大、某些页特别小
 - 不要输出 markdown，不要解释
 
 材料标题：{title}
 
 上一次输出如下：
 {raw[:30000]}
+"""
+    repaired = await _generate_html_with_continuation(
+        [
+            {"role": "system", "content": "你只输出修复后的完整 HTML，不输出解释。"},
+            {"role": "user", "content": repair_prompt},
+        ],
+        model_id=model_id,
+    )
+    return extract_html_from_model_output(repaired)
+
+
+async def _repair_html_slide_count(html: str, *, title: str, page_count: int, model_id: str | None) -> str:
+    current_count = count_html_slides(html)
+    repair_prompt = f"""下面是一份已经生成出来的 HTML 汇报材料，但页数不符合要求。
+
+请在尽量保留原有主题、视觉风格、封面信息、内容重点和版式结构的基础上，修复为完整单文件 HTML。
+要求：
+- 第一行必须是 <!DOCTYPE html>
+- 必须包含 <html lang="zh-CN">、<head>、<meta charset="UTF-8">、<style>、<body>、<script>
+- 必须严格输出 {page_count} 个 class="slide" 页面
+- 当前 HTML 只有 {current_count} 页，必须补足到 {page_count} 页
+- 如果页面过少，请补充新的实质内容页，不要只重复标题
+- 如果页面过多，请合并或删减到目标页数
+- 封面必须保留在第 1 页
+- 修复时同步检查版式：不要留下大块空白，不要让卡片超出 16:9 页面边界，不要让某些页明显比其他页更松散
+- 不要输出 markdown，不要输出解释
+
+材料标题：{title}
+
+当前 HTML 如下：
+{html[:30000]}
 """
     repaired = await _generate_html_with_continuation(
         [
@@ -718,16 +1152,32 @@ def count_html_slides(html: str) -> int:
     return count
 
 
-def save_training_html_file(html: str) -> tuple[str, str, str]:
+def save_training_html_file(
+    html: str,
+    *,
+    title: str | None = None,
+    job_id: str | None = None,
+) -> tuple[str, str, str]:
     from backend.config import OUTPUT_DIR
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"training_html_{time.strftime('%Y%m%d_%H%M%S')}.html"
+    filename = f"training_html_{job_id or time.strftime('%Y%m%d_%H%M%S')}.html"
     path = OUTPUT_DIR / Path(filename).name
     path.write_text(html, encoding="utf-8")
     download_url = f"/api/training/download-html/{filename}"
+    if title:
+        download_name = build_training_html_download_name(title)
+        download_url = f"{download_url}?{urlencode({'download_name': download_name})}"
     preview_url = f"/api/training/preview-html/{filename}"
     return filename, download_url, preview_url
+
+
+def build_training_html_download_name(title: str, fallback: str = "training-material") -> str:
+    cleaned = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", title).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
+    if not cleaned:
+        cleaned = fallback
+    return f"{cleaned}.html"
 
 
 async def _generate_html_with_continuation(
@@ -975,12 +1425,27 @@ class TrainingService:
         html = inject_training_html_safety_styles(html)
         slide_count = count_html_slides(html)
         if slide_count != request.page_count:
+            try:
+                repaired_html = await _repair_html_slide_count(
+                    html,
+                    title=title,
+                    page_count=request.page_count,
+                    model_id=model_id,
+                )
+                html = inject_training_html_safety_styles(repaired_html)
+                slide_count = count_html_slides(html)
+            except ValueError:
+                pass
+        if slide_count != request.page_count:
             logger.warning(
                 "HTML material slide count mismatch: expected %s, got %s",
                 request.page_count,
                 slide_count,
             )
-        filename, download_url, preview_url = save_training_html_file(html)
+        try:
+            filename, download_url, preview_url = save_training_html_file(html, title=title, job_id=request.job_id)
+        except TypeError:
+            filename, download_url, preview_url = save_training_html_file(html)
         return {
             "title": title,
             "filename": filename,
