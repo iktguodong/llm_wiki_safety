@@ -152,13 +152,13 @@ function createCurrentSessionFallback(modelId: string) {
 }
 
 export default function ChatPage() {
-  const { knowledgeBases, providers, currentModelId } = useApp();
-  const currentSessionStorage = readLocal(STORAGE_KEYS.current, createCurrentSessionFallback(currentModelId));
+  const { knowledgeBases, providers, defaultChatModelId } = useApp();
+  const currentSessionStorage = readLocal(STORAGE_KEYS.current, createCurrentSessionFallback(defaultChatModelId));
   const [draftSelectedKbs, setDraftSelectedKbs] = useState<string[]>(() => currentSessionStorage.selectedKbs);
-  const [draftSelectedModelId, setDraftSelectedModelId] = useState(() => currentSessionStorage.modelId || currentModelId);
+  const [draftSelectedModelId, setDraftSelectedModelId] = useState(() => currentSessionStorage.modelId || defaultChatModelId);
   const [draftTemporaryUploads, setDraftTemporaryUploads] = useState<TemporaryTrainingUploadResponse[]>(() => currentSessionStorage.temporaryUploads || []);
   const [selectedKbs, setSelectedKbs] = useState<string[]>(() => currentSessionStorage.selectedKbs);
-  const [selectedModelId, setSelectedModelId] = useState(() => currentSessionStorage.modelId || currentModelId);
+  const [selectedModelId, setSelectedModelId] = useState(() => currentSessionStorage.modelId || defaultChatModelId);
   const [modelOpen, setModelOpen] = useState(false);
   const [input, setInput] = useState('');
   const [draftMessages, setDraftMessages] = useState(() => currentSessionStorage.messages || initialMessages);
@@ -223,11 +223,6 @@ export default function ChatPage() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
-
-  useEffect(() => {
-    setSelectedModelId(currentModelId);
-    setDraftSelectedModelId(currentModelId);
-  }, [currentModelId]);
 
   useEffect(() => {
     writeLocal(STORAGE_KEYS.current, {
@@ -318,14 +313,14 @@ export default function ChatPage() {
     setSessionLoading(CURRENT_SESSION_ID, false);
     setDraftMessages(initialMessages);
     setDraftSelectedKbs([]);
-    setDraftSelectedModelId(currentModelId);
+    setDraftSelectedModelId(defaultChatModelId);
     setDraftTemporaryUploads([]);
     setDraftUseWebSearch(false);
     setDraftContextCleared(false);
     setDraftSessionTitle('当前对话');
     setMessages(initialMessages);
     setSelectedKbs([]);
-    setSelectedModelId(currentModelId);
+    setSelectedModelId(defaultChatModelId);
     setTemporaryUploads([]);
     setUseWebSearch(false);
     setContextCleared(false);
@@ -409,7 +404,7 @@ export default function ChatPage() {
   const restoreSession = (session: ChatSession) => {
     setMessages(session.messages);
     setSelectedKbs(session.selectedKbs);
-    setSelectedModelId(session.modelId || currentModelId);
+    setSelectedModelId(session.modelId || defaultChatModelId);
     setTemporaryUploads(session.temporaryUploads || []);
     setUseWebSearch(session.useWebSearch ?? false);
     setContextCleared(session.contextCleared ?? false);
@@ -763,8 +758,8 @@ export default function ChatPage() {
         <aside className="w-64 flex-shrink-0 border-r border-slate-200 bg-white/70 px-3 py-4 overflow-y-auto">
           <div className="flex items-center justify-between mb-3">
             <div className="text-sm font-medium text-slate-800">会话</div>
-            <button
-              onClick={newConversation}
+                <button
+                    onClick={newConversation}
               title="新建对话"
               className="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
             >

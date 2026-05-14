@@ -71,7 +71,17 @@ function ModelSelect({ value, options, onChange }: { value: string; options: str
 }
 
 export default function SettingsPage() {
-  const { providers, modelRoles, updateModelRole, syncAllConfig, knowledgeBases } = useApp();
+  const {
+    providers,
+    modelRoles,
+    updateModelRole,
+    syncAllConfig,
+    knowledgeBases,
+    defaultChatModelId,
+    defaultPromptOptimizeModelId,
+    setDefaultChatModelId,
+    setDefaultPromptOptimizeModelId,
+  } = useApp();
   const [testing, setTesting] = useState<Record<string, boolean>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ModelProvider | null>(null);
@@ -83,23 +93,6 @@ export default function SettingsPage() {
   const idToName = new Map(allModels.map(m => [m.id, m.name]));
   const totalStorageMb = knowledgeBases.reduce((sum, kb) => sum + (kb.total_size_mb || 0), 0);
   const totalDocuments = knowledgeBases.reduce((sum, kb) => sum + (kb.document_count || 0), 0);
-  const [localDefaultModels, setLocalDefaultModels] = useState<Record<string, string>>(() => {
-    try {
-      const raw = localStorage.getItem('anniu-default-models-v1');
-      if (!raw) return {};
-      const parsed = JSON.parse(raw) as Record<string, string>;
-      return {
-        ...(parsed.chat ? { chat: parsed.chat } : {}),
-        ...(parsed.prompt_optimize ? { prompt_optimize: parsed.prompt_optimize } : {}),
-      };
-    } catch {
-      return {};
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem('anniu-default-models-v1', JSON.stringify(localDefaultModels));
-  }, [localDefaultModels]);
 
   const getRoleModelName = (role: string): string => {
     const modelId = modelRoles[role];
@@ -111,14 +104,19 @@ export default function SettingsPage() {
     if (modelId) updateModelRole(role, modelId);
   };
 
-  const getLocalDefaultName = (key: string, fallbackRole = 'qa_chat') => {
-    const modelId = localDefaultModels[key] || modelRoles[fallbackRole];
+  const getLocalDefaultName = (key: 'chat' | 'prompt_optimize') => {
+    const modelId = key === 'chat' ? defaultChatModelId : defaultPromptOptimizeModelId;
     return (modelId && idToName.get(modelId)) || allModelNames[0] || '';
   };
 
-  const handleLocalDefaultChange = (key: string) => (name: string) => {
+  const handleLocalDefaultChange = (key: 'chat' | 'prompt_optimize') => (name: string) => {
     const modelId = nameToId.get(name);
-    if (modelId) setLocalDefaultModels(prev => ({ ...prev, [key]: modelId }));
+    if (!modelId) return;
+    if (key === 'chat') {
+      setDefaultChatModelId(modelId);
+    } else {
+      setDefaultPromptOptimizeModelId(modelId);
+    }
   };
 
   const handleTest = async (provider: ModelProvider) => {

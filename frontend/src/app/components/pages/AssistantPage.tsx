@@ -205,7 +205,7 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 export default function AssistantPage({ activeAssistantId, onStartChat }: AssistantPageProps) {
-  const { knowledgeBases, providers, currentModelId } = useApp();
+  const { knowledgeBases, providers, defaultChatModelId, defaultPromptOptimizeModelId } = useApp();
   const initialLegacyState = useMemo(() => migrateLegacyAssistants(), []);
   const [customAssistants, setCustomAssistants] = useState<AssistantDefinition[]>(() => {
     const raw = localStorage.getItem(ASSISTANT_CUSTOM_KEY);
@@ -344,7 +344,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
       description: '描述这个助手适合处理的任务。',
       icon: DEFAULT_ASSISTANT_ICON,
       system_prompt: '你是一个专业助手。请根据用户需求提供清晰、可靠、可执行的回答。',
-      default_model_id: currentModelId,
+      default_model_id: defaultChatModelId,
       default_knowledge_base_ids: [],
       use_web_search: false,
     });
@@ -624,16 +624,16 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
 
     try {
       chatApi.ask(
-        {
-          question,
-          messages: historyMessages,
-          knowledge_base_ids: selectedAssistant.default_knowledge_base_ids,
-          temporary_upload_ids: sourceTemporaryUploads.map(item => item.upload_id),
-          model_id: selectedAssistant.default_model_id || currentModelId,
-          use_web_search: currentTopic?.useWebSearch ?? selectedAssistant.use_web_search,
-          assistant_id: selectedAssistant.id,
-          assistant_prompt: selectedAssistant.system_prompt,
-        },
+          {
+            question,
+            messages: historyMessages,
+            knowledge_base_ids: selectedAssistant.default_knowledge_base_ids,
+            temporary_upload_ids: sourceTemporaryUploads.map(item => item.upload_id),
+          model_id: selectedAssistant.default_model_id || defaultChatModelId,
+            use_web_search: currentTopic?.useWebSearch ?? selectedAssistant.use_web_search,
+            assistant_id: selectedAssistant.id,
+            assistant_prompt: selectedAssistant.system_prompt,
+          },
         (chunk) => {
           if (generationRef.current?.id !== generationId || controller.signal.aborted) return;
           updateTopicById(targetTopicId, topic => {
@@ -803,7 +803,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                       />
                       <h2 className="text-slate-900 font-medium text-lg">{selectedAssistant.name}</h2>
                       <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-xs">
-                        {allModels.find(m => m.id === selectedAssistant.default_model_id)?.name || selectedAssistant.default_model_id || currentModelId || '当前模型'}
+                        {allModels.find(m => m.id === selectedAssistant.default_model_id)?.name || selectedAssistant.default_model_id || defaultChatModelId || '默认模型'}
                       </span>
                     </div>
                   </div>
@@ -1049,7 +1049,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
               </div>
             </>
           ) : (
-            <div className="h-full flex items-center justify-center text-sm text-slate-400">暂无助手</div>
+          <div className="h-full flex items-center justify-center text-sm text-slate-400">暂无助手</div>
           )}
         </main>
       </div>
@@ -1059,7 +1059,8 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
           assistant={editing}
           knowledgeBases={knowledgeBases}
           models={allModels}
-          currentModelId={currentModelId}
+          defaultChatModelId={defaultChatModelId}
+          defaultPromptOptimizeModelId={defaultPromptOptimizeModelId}
           onClose={() => { setDialogOpen(false); setEditing(null); }}
           onSave={saveAssistant}
         />
@@ -1072,14 +1073,16 @@ function AssistantDialog({
   assistant,
   knowledgeBases,
   models,
-  currentModelId,
+  defaultChatModelId,
+  defaultPromptOptimizeModelId,
   onClose,
   onSave,
 }: {
   assistant: AssistantDefinition;
   knowledgeBases: ReturnType<typeof useApp>['knowledgeBases'];
   models: Array<{ id: string; name: string; type: string }>;
-  currentModelId: string;
+  defaultChatModelId: string;
+  defaultPromptOptimizeModelId: string;
   onClose: () => void;
   onSave: (assistant: AssistantDefinition) => void;
 }) {
@@ -1104,7 +1107,7 @@ function AssistantDialog({
         name: draft.name.trim(),
         description: draft.description.trim(),
         system_prompt: draft.system_prompt.trim(),
-        model_id: draft.default_model_id || currentModelId,
+        model_id: draft.default_model_id || defaultPromptOptimizeModelId,
       });
       setDraft(prev => ({
         ...prev,
@@ -1199,7 +1202,7 @@ function AssistantDialog({
                 onChange={(e) => setDraft(prev => ({ ...prev, default_model_id: e.target.value || undefined }))}
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                <option value="">使用当前模型</option>
+                <option value="">使用默认对话模型</option>
                 {models.map(model => (
                   <option key={model.id} value={model.id}>{model.name}</option>
                 ))}
