@@ -35,6 +35,28 @@ DEFAULT_CONFIG = {
                     {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "type": "chat"},
                     {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro", "type": "chat"}
                 ]
+            },
+            {
+                "id": "silicon",
+                "name": "SiliconFlow",
+                "base_url": "https://api.siliconflow.cn/v1",
+                "api_key": "",
+                "models": [
+                    {"id": "Qwen/Qwen2.5-72B-Instruct", "name": "Qwen 2.5 72B Instruct", "type": "chat"},
+                    {"id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek V3", "type": "chat"},
+                    {"id": "Qwen/Qwen2.5-7B-Instruct", "name": "Qwen 2.5 7B Instruct", "type": "chat"}
+                ]
+            },
+            {
+                "id": "bailian",
+                "name": "阿里云百炼",
+                "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "api_key": "",
+                "models": [
+                    {"id": "qwen-plus", "name": "Qwen Plus", "type": "chat"},
+                    {"id": "qwen-max", "name": "Qwen Max", "type": "chat"},
+                    {"id": "qwen-turbo", "name": "Qwen Turbo", "type": "chat"}
+                ]
             }
         ],
         "model_roles": {
@@ -52,6 +74,31 @@ DEFAULT_CONFIG = {
 }
 
 
+def _ensure_default_model_providers(config: dict):
+    """确保默认模型服务商始终存在，避免老配置缺少新预设。"""
+    models = config.setdefault("models", {})
+    providers = models.setdefault("providers", [])
+
+    if not isinstance(providers, list):
+        models["providers"] = deepcopy(DEFAULT_CONFIG["models"]["providers"])
+        return
+
+    existing_ids = {provider.get("id") for provider in providers if isinstance(provider, dict)}
+    for default_provider in DEFAULT_CONFIG["models"]["providers"]:
+        if default_provider["id"] not in existing_ids:
+            providers.append(deepcopy(default_provider))
+
+    for provider in providers:
+        if not isinstance(provider, dict):
+            continue
+        if provider.get("id") == "silicon":
+            provider["name"] = "SiliconFlow"
+            provider["base_url"] = "https://api.siliconflow.cn/v1"
+        elif provider.get("id") == "bailian":
+            provider["name"] = "阿里云百炼"
+            provider["base_url"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
 def ensure_config_dir():
     """确保配置目录存在"""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -66,7 +113,18 @@ def load_config() -> dict:
     if CONFIG_FILE.exists():
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             loaded = json.load(f)
-        config.update(loaded)
+        for key, value in loaded.items():
+            if key == "models" and isinstance(value, dict):
+                models = config.setdefault("models", {})
+                for model_key, model_value in value.items():
+                    if model_key == "providers":
+                        models["providers"] = model_value
+                    else:
+                        models[model_key] = model_value
+            else:
+                config[key] = value
+
+    _ensure_default_model_providers(config)
 
     model_roles = config.get("models", {}).get("model_roles", {})
     if model_roles.get("ppt_gen") == "deepseek-v4-pro":

@@ -20,6 +20,26 @@ const PROVIDER_PRESETS: Array<{
       { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', type: 'chat' },
     ],
   },
+  {
+    id: 'silicon',
+    name: 'SiliconFlow',
+    base_url: 'https://api.siliconflow.cn/v1',
+    available_models: [
+      { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B Instruct', type: 'chat' },
+      { id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek V3', type: 'chat' },
+      { id: 'Qwen/Qwen2.5-7B-Instruct', name: 'Qwen 2.5 7B Instruct', type: 'chat' },
+    ],
+  },
+  {
+    id: 'bailian',
+    name: '阿里云百炼',
+    base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    available_models: [
+      { id: 'qwen-plus', name: 'Qwen Plus', type: 'chat' },
+      { id: 'qwen-max', name: 'Qwen Max', type: 'chat' },
+      { id: 'qwen-turbo', name: 'Qwen Turbo', type: 'chat' },
+    ],
+  },
 ];
 
 function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
