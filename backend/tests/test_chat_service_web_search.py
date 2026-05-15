@@ -91,7 +91,7 @@ async def test_web_search_retries_with_simplified_query_when_first_attempt_is_ch
 
 
 @pytest.mark.asyncio
-async def test_build_web_results_ignores_history_context(monkeypatch):
+async def test_build_web_results_uses_question_only(monkeypatch):
     captured: list[str] = []
 
     async def fake_web_search(question: str, max_results: int = ChatService._WEB_SEARCH_MAX_CANDIDATES):
@@ -106,13 +106,7 @@ async def test_build_web_results_ignores_history_context(monkeypatch):
 
     monkeypatch.setattr(ChatService, "_web_search", fake_web_search)
 
-    history_messages = [
-        {"role": "user", "content": "请帮我写一份安全生产法培训提纲，重点讲事故隐患排查治理。"},
-        {"role": "assistant", "content": "好的。"},
-        {"role": "user", "content": "另外，安全生产法第77条是什么内容？"},
-    ]
-
-    results = await ChatService._build_web_results("安全生产法第77条是什么内容？", history_messages)
+    results = await ChatService._build_web_results("安全生产法第77条是什么内容？")
 
     assert captured == ["安全生产法第77条是什么内容？"]
     assert len(results) == 1

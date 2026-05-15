@@ -49,7 +49,7 @@ When information conflicts, prefer:
   - `knowledge_base.py` creates, lists, deletes, and stats knowledge bases.
   - `document.py` uploads, tracks, deletes, and previews document deletion.
   - `wiki.py` generates Wiki pages, index/log files, and lint checks.
-  - `chat.py` answers questions from Wiki content and can fall back to web search.
+  - `chat.py` answers from Wiki when one or more knowledge bases are selected (`QA_PROMPT` + retrieved pages; empty retrieval still uses KB mode). When **no** knowledge base is selected, it uses web search (if enabled) or a general-domain LLM path. Relevance scoring uses only keywords with **length ≥ 3 characters**; 2-character terms are excluded from scoring to reduce spurious matches. Score contributions: title +4, summary +2, body +1, heading +0.5; pages with score 0 are omitted from the injected excerpts.
   - `search.py` performs original-document search with snippets and highlights.
   - `training.py` generates outlines and PPTX files.
   - `llm.py` wraps model-provider access.
@@ -135,3 +135,13 @@ If you add or rename an endpoint, update the frontend client and any affected ty
 - Prefer a small number of high-value wiki pages over many thin pages.
 - Answers from chat should stay grounded in the wiki and clearly state when the knowledge base does not contain enough information.
 - Chat and Assistant responses should avoid user-visible truncation. If the upstream model stops because of length, the backend should continue the answer rather than surfacing a half-finished reply.
+- When modifying `chat.py` relevance scoring, keep the **keyword length ≥ 3** rule intact for the KB retrieval path. Loosening it to include 2-character terms tends to match almost every page in a safety-domain KB and dilutes the excerpts sent to the model.
+
+## Chat routing (knowledge base vs open)
+
+`ChatService.ask()` in `backend/services/chat.py`:
+
+- **At least one `knowledge_base_ids`**: always wiki-backed Q&A (`QA_PROMPT` with index + any scored pages; `use_web_search` is ignored for routing).
+- **No `knowledge_base_ids`**: if `use_web_search` and web results exist → web-grounded answer; otherwise → general LLM (`_build_general_messages`).
+
+Retrieval helpers are covered in `backend/tests/test_chat_kb_retrieval.py`; web selection and no-KB flows in `backend/tests/test_chat_service_web_search.py`.
