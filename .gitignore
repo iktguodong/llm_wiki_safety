@@ -78,6 +78,14 @@ output/
 # 用户数据（如果本地开发时有测试数据）
 # knowledge-bases/
 
+# 本地运行时知识库数据（用户上传/解析产生的实际数据，不入版本库）
+knowledge-bases/
+
+# 本地调试/分析文档（仅根目录）
+/BUG_ANALYSIS.md
+/IMPLEMENTATION_SUMMARY.md
+/chat_logic_analysis.md
+
 # Git相关
 *.orig
 MERGE_HEAD
