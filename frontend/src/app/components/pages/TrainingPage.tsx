@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, CircleX, Download, Eye, FileText, Globe, History, Loader2, Plus, Trash2, Upload, WandSparkles, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle2, CircleX, Download, Eye, FileText, Globe, History, Loader2, Plus, RefreshCw, Trash2, Upload, WandSparkles, X } from 'lucide-react';
 import { useApp } from '../../../lib/context';
 import { docApi, trainingApi } from '../../../lib/api';
 import type {
@@ -251,6 +251,17 @@ function InlineField({
     setDraftValue(String(value));
   }, [value]);
 
+  const clampNumberString = (raw: string): string => {
+    const num = Number(raw);
+    if (!Number.isFinite(num)) {
+      return raw;
+    }
+    let clamped = num;
+    if (typeof max === 'number' && clamped > max) clamped = max;
+    // 下限不在输入过程中强制提升，避免打断用户输入。
+    return String(clamped);
+  };
+
   const commitNumberValue = () => {
     if (type !== 'number') {
       return;
@@ -271,7 +282,13 @@ function InlineField({
           value={type === 'number' ? draftValue : value}
           onChange={(e) => {
             if (type === 'number') {
-              setDraftValue(e.target.value);
+              const raw = e.target.value;
+              // 超过上限时实时夹到上限，避免输入出 31 这种超出范围的值。
+              const clamped = raw === '' ? '' : clampNumberString(raw);
+              setDraftValue(clamped);
+              if (clamped !== '' && clamped !== raw) {
+                onChange(clamped);
+              }
               return;
             }
             onChange(e.target.value);
@@ -1328,14 +1345,28 @@ export default function TrainingPage() {
                     <div className="text-sm font-medium text-slate-700">生成网页</div>
                     <div className="text-xs text-slate-500">先补齐来源后即可生成，按钮会保持在首屏可见。</div>
                   </div>
-                  <Button
-                    onClick={generateHtml}
-                    disabled={htmlGeneration.loading || !htmlTitle.trim()}
-                    className="h-10 shrink-0 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700"
-                  >
-                    {htmlGeneration.loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Globe className="mr-2 h-4 w-4" />}
-                    生成网页
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {(htmlGeneration.html || htmlGeneration.downloadUrl) && !htmlGeneration.loading && (
+                      <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+                        <CheckCircle2 className="h-4 w-4" />
+                        已生成网页
+                      </span>
+                    )}
+                    <Button
+                      onClick={generateHtml}
+                      disabled={htmlGeneration.loading || !htmlTitle.trim()}
+                      className="h-10 shrink-0 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700"
+                    >
+                      {htmlGeneration.loading ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (htmlGeneration.html || htmlGeneration.downloadUrl) ? (
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                      ) : (
+                        <Globe className="mr-2 h-4 w-4" />
+                      )}
+                      {(htmlGeneration.html || htmlGeneration.downloadUrl) && !htmlGeneration.loading ? '重新生成' : '生成网页'}
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="grid gap-3 xl:grid-cols-2">

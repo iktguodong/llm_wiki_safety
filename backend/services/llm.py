@@ -24,6 +24,60 @@ class LLMService:
             "请前往「设置」页补充 API Key 后再重试。"
         )
 
+    @staticmethod
+    def _format_missing_base_url_message(provider: Dict, model: Dict) -> str:
+        provider_name = provider.get("name") or provider.get("id") or "模型服务商"
+        model_name = model.get("name") or model.get("id") or "当前模型"
+        return (
+            f"模型服务地址（Base URL）未配置，当前使用的是「{provider_name} / {model_name}」。"
+            "请前往「设置」页填写 Base URL 后再重试。"
+        )
+
+    @staticmethod
+    def _format_request_exception(exc: Exception, provider: Dict, model: Dict) -> str:
+        """将底层网络/请求异常转换成对用户更友好的提示。"""
+        provider_name = provider.get("name") or provider.get("id") or "模型服务商"
+        model_name = model.get("name") or model.get("id") or "当前模型"
+        base_url = provider.get("base_url") or "(未配置)"
+        raw = str(exc).strip()
+        detail = raw or exc.__class__.__name__
+
+        # DNS 解析失败：常见于 base_url 拼写错误或服务商域名不可达
+        if (
+            isinstance(exc, httpx.ConnectError)
+            or "nodename nor servname" in raw
+            or "Name or service not known" in raw
+            or "getaddrinfo" in raw
+            or "Temporary failure in name resolution" in raw
+        ):
+            return (
+                f"无法连接到模型服务「{provider_name} / {model_name}」（{base_url}）。"
+                "请检查：1) 是否已在「设置」页选择了正确的模型并填写 API Key；"
+                "2) Base URL 是否拼写正确、域名可访问；3) 当前网络是否可以访问该服务。"
+                f" 原始错误：{detail}"
+            )
+        if isinstance(exc, httpx.ConnectTimeout) or isinstance(exc, httpx.ReadTimeout) or isinstance(exc, httpx.TimeoutException):
+            return (
+                f"连接模型服务「{provider_name} / {model_name}」超时（{base_url}）。"
+                "请检查网络或稍后重试。"
+                f" 原始错误：{detail}"
+            )
+        if isinstance(exc, httpx.ProxyError):
+            return (
+                f"通过代理访问模型服务「{provider_name} / {model_name}」失败。"
+                "请检查系统/终端代理配置。"
+                f" 原始错误：{detail}"
+            )
+        if isinstance(exc, httpx.HTTPError):
+            return (
+                f"调用模型服务「{provider_name} / {model_name}」失败（{base_url}）。"
+                f" 原始错误：{detail}"
+            )
+        return (
+            f"调用模型服务「{provider_name} / {model_name}」时发生未知错误。"
+            f" 原始错误：{detail}"
+        )
+
     def _get_model_config(self, model_id: str) -> Optional[Dict]:
         """获取模型配置"""
         providers = config.get("models", {}).get("providers", [])
@@ -67,6 +121,11 @@ class LLMService:
             yield {"type": "error", "message": self._format_missing_api_key_message(provider, model)}
             return
 
+        base_url = (provider.get("base_url") or "").strip()
+        if not base_url:
+            yield {"type": "error", "message": self._format_missing_base_url_message(provider, model)}
+            return
+
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
@@ -84,7 +143,7 @@ class LLMService:
         try:
             if not stream:
                 response = await self.client.post(
-                    f"{provider['base_url']}/chat/completions",
+                    f"{base_url}/chat/completions",
                     headers=headers,
                     json=payload
                 )
@@ -109,7 +168,7 @@ class LLMService:
             finish_reason = None
             async with self.client.stream(
                 "POST",
-                f"{provider['base_url']}/chat/completions",
+                f"{base_url}/chat/completions",
                 headers=headers,
                 json=payload
             ) as response:
@@ -142,7 +201,7 @@ class LLMService:
 
             yield {"type": "done", "finish_reason": finish_reason}
         except Exception as e:
-            yield {"type": "error", "message": f"请求错误: {str(e)}"}
+            yield {"type": "error", "message": self._format_request_exception(e, provider, model)}
 
     async def chat(
         self,
