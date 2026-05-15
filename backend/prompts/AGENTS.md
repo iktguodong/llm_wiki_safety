@@ -75,10 +75,18 @@ Every page should be written so it is easy to answer questions from later.
 
 ## Wiki links
 
-- Use `[[wiki-links]]` for important related concepts.
-- Link to the pages a user is most likely to jump to next.
-- Prefer links that help future questions find the right page quickly.
-- Do not over-link every sentence; keep links purposeful.
+- Use `[[wiki-links]]` only inside a dedicated `## 相关页面` (Related pages) section at the bottom of a page.
+- Every `[[xxx]]` must point to a page slug that is actually being created in the same ingest run, or that already exists in the wiki. **Never invent slugs.**
+- Do not put `[[xxx]]` inside body paragraphs, headings, tables, or lists. Use plain text for in-line concept mentions.
+- If there are no good related pages, omit the `## 相关页面` section entirely instead of writing speculative links.
+- Keep links purposeful and few. A page rarely needs more than 3-5 outbound links.
+
+## Citation rules
+
+- Every factual claim should reference its source document.
+- Use `（来源：原文档名）` after the claim to cite the raw file (use the actual filename associated with the page).
+- If multiple sources disagree, note the difference explicitly instead of forcing a single answer.
+- If a claim has no source in the supplied materials, mark it as uncertain (“不足以从当前文档直接确认”) or omit it. Do not invent sources, thresholds, phone numbers, timelines, or responsibilities.
 
 ## Index and log
 

@@ -31,10 +31,13 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
   const [pollVersion, setPollVersion] = useState(0);
   const loadingDocsRef = useRef<Record<string, boolean>>({});
 
-  const loadDocs = useCallback(async (kbId: string) => {
+  // silent=true：仅静默刷新数据，不切换 loadingDocs 状态，避免轮询导致整个文档列表反复闪“正在加载文档...”。
+  const loadDocs = useCallback(async (kbId: string, silent: boolean = false) => {
     if (loadingDocsRef.current[kbId]) return null;
     loadingDocsRef.current[kbId] = true;
-    setLoadingDocs(prev => ({ ...prev, [kbId]: true }));
+    if (!silent) {
+      setLoadingDocs(prev => ({ ...prev, [kbId]: true }));
+    }
     try {
       const res = await docApi.list(kbId);
       setDocuments(prev => ({ ...prev, [kbId]: res.items }));
@@ -44,7 +47,9 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
       return null;
     } finally {
       loadingDocsRef.current[kbId] = false;
-      setLoadingDocs(prev => ({ ...prev, [kbId]: false }));
+      if (!silent) {
+        setLoadingDocs(prev => ({ ...prev, [kbId]: false }));
+      }
     }
   }, []);
 
@@ -70,8 +75,9 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    const tick = async () => {
-      const docs = await loadDocs(selectedKbId);
+    // 第一次拉取走非静默（首屏需要看到"正在加载"占位），之后的轮询全部静默，避免列表在 loading 态和内容态之间来回切换出现闪动。
+    const tick = async (silent: boolean) => {
+      const docs = await loadDocs(selectedKbId, silent);
       if (cancelled || !docs) return;
 
       const hasPending = docs.some(doc => doc.parse_status === 'pending' || doc.parse_status === 'parsing');
@@ -81,11 +87,11 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
       }
 
       timeoutId = setTimeout(() => {
-        void tick();
+        void tick(true);
       }, 3000);
     };
 
-    void tick();
+    void tick(false);
 
     return () => {
       cancelled = true;
