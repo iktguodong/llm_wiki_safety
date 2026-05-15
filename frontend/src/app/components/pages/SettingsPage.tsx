@@ -86,31 +86,33 @@ export default function SettingsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ModelProvider | null>(null);
 
-  // 模型名称 ↔ ID 映射
-  const allModels = providers.flatMap(p => p.models);
-  const allModelNames = allModels.map(m => m.name);
-  const nameToId = new Map(allModels.map(m => [m.name, m.id]));
-  const idToName = new Map(allModels.map(m => [m.id, m.name]));
+  // 模型显示名称（「服务商 / 模型名」）↔ ID 映射，避免不同服务商重名冲突
+  const allModels = providers.flatMap(p =>
+    p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
+  );
+  const allModelLabels = allModels.map(m => m.label);
+  const labelToId = new Map(allModels.map(m => [m.label, m.id]));
+  const idToLabel = new Map(allModels.map(m => [m.id, m.label]));
   const totalStorageMb = knowledgeBases.reduce((sum, kb) => sum + (kb.total_size_mb || 0), 0);
   const totalDocuments = knowledgeBases.reduce((sum, kb) => sum + (kb.document_count || 0), 0);
 
   const getRoleModelName = (role: string): string => {
     const modelId = modelRoles[role];
-    return (modelId && idToName.get(modelId)) || allModelNames[0] || '';
+    return (modelId && idToLabel.get(modelId)) || allModelLabels[0] || '';
   };
 
-  const handleRoleChange = (role: string) => (name: string) => {
-    const modelId = nameToId.get(name);
+  const handleRoleChange = (role: string) => (label: string) => {
+    const modelId = labelToId.get(label);
     if (modelId) updateModelRole(role, modelId);
   };
 
   const getLocalDefaultName = (key: 'chat' | 'prompt_optimize') => {
     const modelId = key === 'chat' ? defaultChatModelId : defaultPromptOptimizeModelId;
-    return (modelId && idToName.get(modelId)) || allModelNames[0] || '';
+    return (modelId && idToLabel.get(modelId)) || allModelLabels[0] || '';
   };
 
-  const handleLocalDefaultChange = (key: 'chat' | 'prompt_optimize') => (name: string) => {
-    const modelId = nameToId.get(name);
+  const handleLocalDefaultChange = (key: 'chat' | 'prompt_optimize') => (label: string) => {
+    const modelId = labelToId.get(label);
     if (!modelId) return;
     if (key === 'chat') {
       setDefaultChatModelId(modelId);
@@ -244,13 +246,13 @@ export default function SettingsPage() {
             <SettingRow label="默认对话模型">
               <div className="flex items-center gap-2">
                 <Bot className="w-4 h-4 text-slate-400" />
-                <ModelSelect value={getLocalDefaultName('chat')} options={allModelNames} onChange={handleLocalDefaultChange('chat')} />
+                <ModelSelect value={getLocalDefaultName('chat')} options={allModelLabels} onChange={handleLocalDefaultChange('chat')} />
               </div>
             </SettingRow>
             <SettingRow label="提示词优化模型">
               <div className="flex items-center gap-2">
                 <Wand2 className="w-4 h-4 text-slate-400" />
-                <ModelSelect value={getLocalDefaultName('prompt_optimize')} options={allModelNames} onChange={handleLocalDefaultChange('prompt_optimize')} />
+                <ModelSelect value={getLocalDefaultName('prompt_optimize')} options={allModelLabels} onChange={handleLocalDefaultChange('prompt_optimize')} />
               </div>
             </SettingRow>
           </div>
@@ -266,21 +268,21 @@ export default function SettingsPage() {
             <SettingRow label="文档解析模型">
               <ModelSelect
                 value={getRoleModelName('doc_parse')}
-                options={allModelNames}
+                options={allModelLabels}
                 onChange={handleRoleChange('doc_parse')}
               />
             </SettingRow>
             <SettingRow label="知识问答模型">
               <ModelSelect
                 value={getRoleModelName('qa_chat')}
-                options={allModelNames}
+                options={allModelLabels}
                 onChange={handleRoleChange('qa_chat')}
               />
             </SettingRow>
             <SettingRow label="PPT 生成模型">
               <ModelSelect
                 value={getRoleModelName('ppt_gen')}
-                options={allModelNames}
+                options={allModelLabels}
                 onChange={handleRoleChange('ppt_gen')}
               />
             </SettingRow>

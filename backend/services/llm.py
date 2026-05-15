@@ -13,7 +13,14 @@ class LLMService:
     """LLM服务"""
     
     def __init__(self):
-        self.client = httpx.AsyncClient(timeout=120.0)
+        # 将超时拆分为连接/读取/写入/连接池四类：
+        # - connect: 快速发现服务商不可达。
+        # - read: 设为 600s，避免长输出（如 HTML 生成）在非流式下被 120s read 超时提前终止；
+        #   流式下每个 chunk 都会刷新 read 计时器，该值是“两个 chunk 之间”的最大间隔。
+        # - write/pool: 常规值即可。
+        self.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=10.0, read=600.0, write=60.0, pool=10.0)
+        )
 
     @staticmethod
     def _format_missing_api_key_message(provider: Dict, model: Dict) -> str:

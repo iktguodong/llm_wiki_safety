@@ -698,9 +698,7 @@ def inject_training_html_safety_styles(html: str) -> str:
       line-height: 1.44 !important;
     }
     .slide .cover-badge,
-    .slide .cover-audience,
-    .slide .page-core,
-    .slide .slide-core {
+    .slide .cover-audience {
       white-space: nowrap !important;
     }
     .slide .tag,
@@ -1208,9 +1206,7 @@ def inject_training_html_safety_styles(html: str) -> str:
       line-height: 1.3 !important;
     }
     .slide .cover-badge,
-    .slide .cover-audience,
-    .slide .page-core,
-    .slide .slide-core {
+    .slide .cover-audience {
       white-space: nowrap !important;
     }
     .slide .alert-box .icon {
@@ -2422,7 +2418,7 @@ async def _generate_html_with_continuation(
         async for event in llm_service.chat_events(
             current_messages,
             model_id=model_id,
-            stream=False,
+            stream=True,
             temperature=0.45,
             max_tokens=HTML_GENERATION_MAX_TOKENS,
         ):

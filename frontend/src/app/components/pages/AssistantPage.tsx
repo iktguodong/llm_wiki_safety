@@ -243,7 +243,9 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   const loadingTopicIdsRef = useRef<Record<string, boolean>>({});
   const generationRef = useRef<{ id: string; controller: AbortController; topicId: string } | null>(null);
   const autoScrollEnabledRef = useRef(true);
-  const allModels = providers.flatMap(p => p.models);
+  const allModels = providers.flatMap(p =>
+    p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
+  );
   const items = useMemo(
     () => buildMergedAssistants(customAssistants, overrides, hiddenDefaultIds),
     [customAssistants, overrides, hiddenDefaultIds],
@@ -803,7 +805,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                       />
                       <h2 className="text-slate-900 font-medium text-lg">{selectedAssistant.name}</h2>
                       <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-xs">
-                        {allModels.find(m => m.id === selectedAssistant.default_model_id)?.name || selectedAssistant.default_model_id || defaultChatModelId || '默认模型'}
+                        {allModels.find(m => m.id === selectedAssistant.default_model_id)?.label || selectedAssistant.default_model_id || defaultChatModelId || '默认模型'}
                       </span>
                     </div>
                   </div>
@@ -1080,7 +1082,7 @@ function AssistantDialog({
 }: {
   assistant: AssistantDefinition;
   knowledgeBases: ReturnType<typeof useApp>['knowledgeBases'];
-  models: Array<{ id: string; name: string; type: string }>;
+  models: Array<{ id: string; name: string; type: string; providerName?: string; label?: string }>;
   defaultChatModelId: string;
   defaultPromptOptimizeModelId: string;
   onClose: () => void;
@@ -1204,7 +1206,7 @@ function AssistantDialog({
               >
                 <option value="">使用默认对话模型</option>
                 {models.map(model => (
-                  <option key={model.id} value={model.id}>{model.name}</option>
+                  <option key={model.id} value={model.id}>{model.label || model.name}</option>
                 ))}
               </select>
             </div>

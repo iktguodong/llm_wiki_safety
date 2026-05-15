@@ -626,8 +626,10 @@ export default function ChatPage() {
     }
   };
 
-  const allModels = providers.flatMap(p => p.models);
-  const currentModelName = allModels.find(m => m.id === selectedModelId)?.name || selectedModelId || '默认模型';
+  const allModels = providers.flatMap(p =>
+    p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
+  );
+  const currentModelName = allModels.find(m => m.id === selectedModelId)?.label || selectedModelId || '默认模型';
   const totalPages = selectedKbs.reduce((sum, id) => {
     const kb = knowledgeBases.find((k: KnowledgeBase) => k.id === id);
     return sum + (kb?.wiki_page_count ?? 0);
@@ -736,7 +738,7 @@ export default function ChatPage() {
                       m.id === selectedModelId ? 'text-indigo-600' : 'text-slate-700'
                     }`}
                   >
-                    {m.name}
+                    {m.label}
                   </button>
                 ))}
               </div>
