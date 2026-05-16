@@ -861,7 +861,6 @@ export default function TrainingPage() {
     setPptFilename('');
     setNotesDownloadUrl('');
     setNotesFilename('');
-    setJobId('');
     setLoadingOutline(true);
     setError(null);
     try {

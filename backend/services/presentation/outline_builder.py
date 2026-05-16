@@ -482,6 +482,11 @@ async def generate_outline(content_pack: ContentPack, settings: Any, llm_client=
             content_pack.warnings.append(
                 f"LLM 大纲生成超时（{OUTLINE_TIMEOUT_SECONDS:.0f} 秒），已回退到规则大纲"
             )
+        except asyncio.CancelledError:
+            # 必须显式重新抛出，不能在 except Exception 中被吞没
+            # Python <3.11: CancelledError 继承自 Exception，会被 except Exception 捕获
+            # Python 3.11+: CancelledError 继承自 BaseException，但仍需显式传递
+            raise
         except Exception as exc:
             content_pack.warnings.append(f"LLM 大纲生成失败，已回退到规则大纲：{str(exc)[:200]}")
 
