@@ -567,12 +567,12 @@ def inject_training_html_safety_styles(html: str) -> str:
       --training-shadow: 0 24px 70px rgba(15, 23, 42, 0.14);
       --training-deck-pad-x: clamp(10px, 1.2vw, 18px);
       --training-deck-pad-y: clamp(10px, 1.2vh, 18px);
-    }
+    }}
     *,
     *::before,
     *::after {
       box-sizing: border-box;
-    }
+    }}
     html, body {
       width: 100%;
       height: 100%;
@@ -584,7 +584,8 @@ def inject_training_html_safety_styles(html: str) -> str:
     body {
       display: block !important;
       min-height: 100vh;
-      overflow: hidden;
+      overflow-x: hidden;
+      overflow-y: auto;
       color: var(--training-text);
       background:
         radial-gradient(circle at top left, rgba(79, 70, 229, 0.12), transparent 24%),
@@ -593,12 +594,29 @@ def inject_training_html_safety_styles(html: str) -> str:
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
     }
     .deck {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: clamp(16px, 2vh, 28px);
+      width: 100%;
+      min-height: 100vh;
+      padding: clamp(16px, 2vh, 28px) var(--training-deck-pad-x) clamp(96px, 10vh, 128px);
+      overflow: visible;
+    }
+    body.training-html-presenting,
+    body.training-html-printing {
+      overflow: hidden;
+    }
+    body.training-html-presenting .deck {
       position: fixed;
       inset: 0;
       display: grid;
       place-items: center;
-      padding: var(--training-deck-pad-y) var(--training-deck-pad-x);
+      gap: 0;
+      width: auto;
       min-height: 0;
+      padding: var(--training-deck-pad-y) var(--training-deck-pad-x);
       overflow: hidden;
     }
     .slide,
@@ -609,6 +627,7 @@ def inject_training_html_safety_styles(html: str) -> str:
       position: relative;
       display: flex;
       flex-direction: column;
+      flex-shrink: 0;
       gap: clamp(10px, 1vw, 18px);
       width: min(
         calc(100vw - (var(--training-deck-pad-x) * 2)),
@@ -627,11 +646,42 @@ def inject_training_html_safety_styles(html: str) -> str:
       overflow: hidden;
       color: var(--training-text);
     }
-    .slide:not(.active) {
+    body.training-html-presenting .slide {
       display: none !important;
     }
-    .slide.active {
+    body.training-html-presenting .slide.active {
       display: flex !important;
+    }
+    body.training-html-printing .deck {
+      display: block !important;
+      width: 100% !important;
+      height: auto !important;
+      padding: 0 !important;
+      overflow: visible !important;
+    }
+    body.training-html-browse .slide {
+      width: min(960px, calc(100vw - (var(--training-deck-pad-x) * 2)));
+    }
+    body.training-html-printing .slide {
+      display: flex !important;
+      width: 100vw !important;
+      height: 56.25vw !important;
+      aspect-ratio: 16 / 9 !important;
+      box-shadow: none !important;
+      border-radius: 0 !important;
+      break-after: page;
+      page-break-after: always;
+    }
+    body.training-html-printing .controls,
+    body.training-html-printing .progress {
+      display: none !important;
+    }
+    body.training-html-printing,
+    body.training-html-printing .deck,
+    body.training-html-printing .slide,
+    body.training-html-printing .slide * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
     }
     .slide.dense {
       padding: clamp(20px, 1.9vw, 34px) clamp(24px, 2.2vw, 46px) clamp(58px, 5.6vh, 78px);
@@ -675,6 +725,9 @@ def inject_training_html_safety_styles(html: str) -> str:
     .slide h1,
     .slide .page-title {
       font-size: clamp(30px, 2.5vw, 44px) !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: clip !important;
     }
     .slide .slide-title {
       font-size: clamp(30px, 2.5vw, 44px) !important;
@@ -682,6 +735,9 @@ def inject_training_html_safety_styles(html: str) -> str:
       line-height: 1.08 !important;
       color: #111827 !important;
       letter-spacing: 0.01em !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: clip !important;
     }
     .slide h2 {
       font-size: clamp(24px, 2vw, 34px) !important;
@@ -826,7 +882,8 @@ def inject_training_html_safety_styles(html: str) -> str:
       letter-spacing: 0.04em;
     }
     .cover-title {
-      max-width: 11.5em;
+      width: min(72vw, 22em);
+      max-width: 100%;
       margin: 12px 0 0;
       font-size: clamp(38px, 3.6vw, 60px) !important;
       line-height: 1.05 !important;
@@ -834,7 +891,8 @@ def inject_training_html_safety_styles(html: str) -> str:
       color: #111827;
     }
     .cover-sub {
-      max-width: 12.5em;
+      width: min(60vw, 20em);
+      max-width: 100%;
       font-size: clamp(18px, 1.6vw, 26px);
       font-weight: 700;
       line-height: 1.22;
@@ -1184,6 +1242,11 @@ def inject_training_html_safety_styles(html: str) -> str:
       line-height: 1.08 !important;
       letter-spacing: 0.01em !important;
     }
+    .slide > :is(h1, .slide-title, .cover-title, .page-title) {
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: clip !important;
+    }
     .slide h1 {
       font-size: clamp(30px, 2.8vw, 46px) !important;
       font-weight: 900 !important;
@@ -1204,6 +1267,11 @@ def inject_training_html_safety_styles(html: str) -> str:
     .slide .cover-sub,
     .slide .cover-meta {
       line-height: 1.3 !important;
+    }
+    .slide .cover-sub {
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: clip !important;
     }
     .slide .cover-badge,
     .slide .cover-audience {
@@ -1428,8 +1496,10 @@ def inject_training_html_safety_styles(html: str) -> str:
       background: #f97316;
       transition: width 0.25s ease;
     }
-    body.training-html-fullscreen > .controls,
-    body.training-html-fullscreen > .progress,
+    body.training-html-presenting > .controls,
+    body.training-html-presenting > .progress,
+    body.training-html-printing > .controls,
+    body.training-html-printing > .progress,
     :fullscreen .controls,
     :fullscreen .progress {
       display: none !important;
@@ -1443,8 +1513,10 @@ def inject_training_html_safety_styles(html: str) -> str:
       body {
         width: 100%;
         height: auto;
-        background: white !important;
+        background: #ffffff !important;
         overflow: visible !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
       .deck {
         display: block !important;
@@ -1461,6 +1533,13 @@ def inject_training_html_safety_styles(html: str) -> str:
         border-radius: 0 !important;
         break-after: page;
         page-break-after: always;
+      }
+      .deck > .slide-cover {
+        background: linear-gradient(180deg, #ffffff, #f8fafc) !important;
+        background-image:
+          radial-gradient(circle at top right, rgba(79, 70, 229, 0.18), transparent 28%),
+          radial-gradient(circle at bottom left, rgba(249, 115, 22, 0.12), transparent 24%),
+          linear-gradient(180deg, #ffffff, #f8fafc) !important;
       }
       .controls,
       .progress {
@@ -1662,8 +1741,55 @@ def inject_training_html_controls(html: str) -> str:
       const progressBar = document.getElementById('progressBar');
       let currentSlide = 0;
 
-      function syncFullscreenState() {
-        document.body.classList.toggle('training-html-fullscreen', !!document.fullscreenElement);
+      function isPresenting() {
+        return !!document.fullscreenElement;
+      }
+
+      function fitAllSlides() {
+        slides.forEach((slide) => fitActiveSlide(slide));
+      }
+
+      function fitSlideTitles(slide) {
+        if (!slide) return;
+        slide.querySelectorAll(':scope > h1, :scope > .slide-title, :scope > .cover-title, :scope > .page-title').forEach((title) => {
+          if (!title) return;
+          if (title.dataset.initialFontSize == null) {
+            title.dataset.initialFontSize = getComputedStyle(title).fontSize;
+          } else {
+            title.style.fontSize = title.dataset.initialFontSize;
+          }
+          title.style.whiteSpace = 'nowrap';
+          title.style.overflow = 'hidden';
+          title.style.textOverflow = 'clip';
+          const baseSize = Number.parseFloat(title.dataset.initialFontSize);
+          if (!Number.isFinite(baseSize) || baseSize <= 0) return;
+          const minSize = Math.max(16, baseSize * 0.58);
+          let size = baseSize;
+          const maxWidth = title.clientWidth || title.parentElement?.clientWidth || slide.clientWidth;
+          while (size > minSize && title.scrollWidth > maxWidth) {
+            size -= 1;
+            title.style.fontSize = `${size}px`;
+          }
+        });
+      }
+
+      function syncModeState() {
+        const presenting = isPresenting();
+        document.body.classList.toggle('training-html-browse', !presenting);
+        document.body.classList.toggle('training-html-presenting', presenting);
+        document.body.classList.toggle('training-html-printing', false);
+        if (presenting) {
+          slides.forEach((slide, i) => slide.classList.toggle('active', i === currentSlide));
+          requestAnimationFrame(() => {
+            fitActiveSlide(slides[currentSlide]);
+            fitSlideTitles(slides[currentSlide]);
+          });
+        } else {
+          requestAnimationFrame(() => {
+            fitAllSlides();
+            slides.forEach((slide) => fitSlideTitles(slide));
+          });
+        }
       }
 
       function rememberInitialDensity(slide) {
@@ -1692,15 +1818,23 @@ def inject_training_html_controls(html: str) -> str:
         ['dense', 'very-dense', 'ultra-dense', 'fit-tight'].forEach((cls) => {
           if (isOverflowing(slide)) slide.classList.add(cls);
         });
+        fitSlideTitles(slide);
       }
 
-      function showSlide(index) {
+      function showSlide(index, options = { scrollIntoView: true }) {
         if (!slides.length) return;
         currentSlide = (index + slides.length) % slides.length;
         slides.forEach((slide, i) => slide.classList.toggle('active', i === currentSlide));
         if (pageIndicator) pageIndicator.textContent = `${currentSlide + 1} / ${slides.length}`;
         if (progressBar) progressBar.style.width = `${((currentSlide + 1) / slides.length) * 100}%`;
-        requestAnimationFrame(() => fitActiveSlide(slides[currentSlide]));
+        if (isPresenting()) {
+          requestAnimationFrame(() => fitActiveSlide(slides[currentSlide]));
+        } else if (options.scrollIntoView) {
+          slides[currentSlide]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          requestAnimationFrame(() => fitSlideTitles(slides[currentSlide]));
+        } else {
+          requestAnimationFrame(() => fitSlideTitles(slides[currentSlide]));
+        }
       }
 
       window.trainingNextSlide = function () { showSlide(currentSlide + 1); };
@@ -1712,12 +1846,39 @@ def inject_training_html_controls(html: str) -> str:
           const target = document.querySelector('.deck') || document.documentElement;
           target.requestFullscreen?.();
         }
-        requestAnimationFrame(syncFullscreenState);
+        requestAnimationFrame(syncModeState);
       };
 
-      document.addEventListener('fullscreenchange', syncFullscreenState);
-      syncFullscreenState();
-      window.addEventListener('resize', () => requestAnimationFrame(() => fitActiveSlide(slides[currentSlide])));
+      document.addEventListener('fullscreenchange', syncModeState);
+      window.addEventListener('beforeprint', () => {
+        document.body.classList.add('training-html-printing');
+        document.body.classList.remove('training-html-browse');
+        slides.forEach((slide) => slide.classList.remove('active'));
+      });
+      window.addEventListener('afterprint', () => {
+        document.body.classList.remove('training-html-printing');
+        syncModeState();
+        showSlide(currentSlide, { scrollIntoView: false });
+        requestAnimationFrame(() => {
+          if (isPresenting()) {
+            fitActiveSlide(slides[currentSlide]);
+          } else {
+            fitAllSlides();
+            slides.forEach((slide) => fitSlideTitles(slide));
+          }
+        });
+      });
+      syncModeState();
+      window.addEventListener('resize', () => {
+        requestAnimationFrame(() => {
+          if (isPresenting()) {
+            fitActiveSlide(slides[currentSlide]);
+          } else {
+            fitAllSlides();
+            slides.forEach((slide) => fitSlideTitles(slide));
+          }
+        });
+      });
 
       window.addEventListener('keydown', (event) => {
         if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
@@ -1747,7 +1908,11 @@ def inject_training_html_controls(html: str) -> str:
         startX = null;
       }, { passive: true });
 
-      showSlide(0);
+      showSlide(0, { scrollIntoView: false });
+      requestAnimationFrame(() => {
+        fitAllSlides();
+        slides.forEach((slide) => fitSlideTitles(slide));
+      });
     })();
   </script>
 """
@@ -1838,17 +2003,35 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
       background: #eef2ff;
       color: var(--slide-text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
-      overflow: hidden;
+      overflow-x: hidden;
+      overflow-y: auto;
       -webkit-text-size-adjust: 100%;
       text-rendering: optimizeLegibility;
     }}
     .deck {{
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: clamp(16px, 2vh, 28px);
+      width: 100%;
+      min-height: 100vh;
+      padding: clamp(16px, 2vh, 28px) var(--deck-pad-x) clamp(96px, 10vh, 128px);
+      overflow: visible;
+    }}
+    body.training-html-presenting,
+    body.training-html-printing {{
+      overflow: hidden;
+    }}
+    body.training-html-presenting .deck {{
       position: fixed;
       inset: 0;
       display: grid;
       place-items: center;
-      padding: var(--deck-pad-y) var(--deck-pad-x);
+      gap: 0;
+      width: auto;
       min-height: 0;
+      padding: var(--deck-pad-y) var(--deck-pad-x);
       overflow: hidden;
     }}
     .slide,
@@ -1856,7 +2039,11 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
       min-width: 0;
     }}
     .slide {{
-      display: none;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      gap: clamp(10px, 1vw, 18px);
       width: min(
         calc(100vw - (var(--deck-pad-x) * 2)),
         calc((100vh - (var(--deck-pad-y) * 2)) * 16 / 9)
@@ -1876,6 +2063,40 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     .slide.active {{
       display: flex;
       flex-direction: column;
+    }}
+    body.training-html-presenting .slide {{
+      display: none !important;
+    }}
+    body.training-html-presenting .slide.active {{
+      display: flex !important;
+    }}
+    body.training-html-printing .deck {{
+      display: block !important;
+      width: 100% !important;
+      height: auto !important;
+      padding: 0 !important;
+      overflow: visible !important;
+    }}
+    body.training-html-printing .slide {{
+      display: flex !important;
+      width: 100vw !important;
+      height: 56.25vw !important;
+      aspect-ratio: 16 / 9 !important;
+      box-shadow: none !important;
+      border-radius: 0 !important;
+      break-after: page;
+      page-break-after: always;
+    }}
+    body.training-html-printing .controls,
+    body.training-html-printing .progress {{
+      display: none !important;
+    }}
+    body.training-html-printing,
+    body.training-html-printing .deck,
+    body.training-html-printing .slide,
+    body.training-html-printing .slide * {{
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
     }}
     .slide.dense {{
       padding: clamp(20px, 1.9vw, 34px) clamp(24px, 2.2vw, 46px) clamp(58px, 5.6vh, 78px);
@@ -1902,6 +2123,19 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     .slide ul, .slide ol {{ padding-left: 1.4em; margin: 0; }}
     .slide p {{ margin: 0; }}
     .slide img, .slide svg {{ max-width: 100%; height: auto; }}
+    .slide > h1,
+    .slide > .slide-title,
+    .slide > .cover-title,
+    .slide > .page-title {{
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: clip;
+    }}
+    .slide .cover-sub {{
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: clip;
+    }}
     .slide > div:not(.page-title):not(.cover-title):not(.cover-badge):not(.cover-sub):not(.cover-meta):not(.cover-audience):not(.page-core):not(.content-grid):not(.card):not(.qa-card):not(.table-wrap):not(.compare-wrap):not(.flow-steps):not(.alert-box) {{
       max-width: 100%;
       padding: clamp(12px, 1.3vw, 18px);
@@ -2117,8 +2351,10 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     .page-indicator {{ min-width: 78px; text-align: center; font-size: 14px; color: #334155; }}
     .progress {{ position: fixed; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(148,163,184,.28); }}
     .progress-bar {{ height: 100%; width: 0; background: #f97316; transition: width .25s ease; }}
-    body.training-html-fullscreen .controls,
-    body.training-html-fullscreen .progress {{
+    body.training-html-presenting .controls,
+    body.training-html-presenting .progress,
+    body.training-html-printing .controls,
+    body.training-html-printing .progress {{
       display: none !important;
     }}
     .slide .card[style*="color:#fff"],
@@ -2220,8 +2456,10 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
       body {{
         width: 100%;
         height: auto;
-        background: white !important;
+        background: #ffffff !important;
         overflow: visible !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }}
       .deck {{
         display: block !important;
@@ -2238,6 +2476,13 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
         border-radius: 0 !important;
         break-after: page;
         page-break-after: always;
+      }}
+      .slide-cover {{
+        background: linear-gradient(180deg, #ffffff, #f8fafc) !important;
+        background-image:
+          radial-gradient(circle at top right, rgba(79, 70, 229, 0.18), transparent 28%),
+          radial-gradient(circle at bottom left, rgba(249, 115, 22, 0.12), transparent 24%),
+          linear-gradient(180deg, #ffffff, #f8fafc) !important;
       }}
       .controls,
       .progress {{
@@ -2263,21 +2508,129 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     const slides = Array.from(document.querySelectorAll('.slide'));
     const pageIndicator = document.getElementById('pageIndicator');
     const progressBar = document.getElementById('progressBar');
-    function syncFullscreenState() {{
-      document.body.classList.toggle('training-html-fullscreen', !!document.fullscreenElement);
+    function isPresenting() {{
+      return !!document.fullscreenElement;
     }}
-    function showSlide(index) {{
+    function fitAllSlides() {{
+      slides.forEach((slide) => fitActiveSlide(slide));
+    }}
+    function fitSlideTitles(slide) {{
+      if (!slide) return;
+      slide.querySelectorAll(':scope > h1, :scope > .slide-title, :scope > .cover-title, :scope > .page-title').forEach((title) => {{
+        if (!title) return;
+        if (title.dataset.initialFontSize == null) {{
+          title.dataset.initialFontSize = getComputedStyle(title).fontSize;
+        }} else {{
+          title.style.fontSize = title.dataset.initialFontSize;
+        }}
+        title.style.whiteSpace = 'nowrap';
+        title.style.overflow = 'hidden';
+        title.style.textOverflow = 'clip';
+        const baseSize = Number.parseFloat(title.dataset.initialFontSize);
+        if (!Number.isFinite(baseSize) || baseSize <= 0) return;
+          const minSize = Math.max(16, baseSize * 0.58);
+        let size = baseSize;
+        const maxWidth = title.clientWidth || title.parentElement?.clientWidth || slide.clientWidth;
+        while (size > minSize && title.scrollWidth > maxWidth) {{
+          size -= 1;
+          title.style.fontSize = `${{size}}px`;
+        }}
+      }});
+    }}
+    function rememberInitialDensity(slide) {{
+      if (slide.dataset.initialDensity != null) return;
+      slide.dataset.initialDensity = ['dense', 'very-dense']
+        .filter((cls) => slide.classList.contains(cls))
+        .join(' ');
+    }}
+    function restoreInitialDensity(slide) {{
+      rememberInitialDensity(slide);
+      slide.classList.remove('dense', 'very-dense', 'ultra-dense', 'fit-tight');
+      slide.dataset.initialDensity
+        .split(' ')
+        .filter(Boolean)
+        .forEach((cls) => slide.classList.add(cls));
+    }}
+    function isOverflowing(slide) {{
+      return slide.scrollHeight > slide.clientHeight + 2 || slide.scrollWidth > slide.clientWidth + 2;
+    }}
+    function fitActiveSlide(slide) {{
+      if (!slide) return;
+      restoreInitialDensity(slide);
+      ['dense', 'very-dense', 'ultra-dense', 'fit-tight'].forEach((cls) => {{
+        if (isOverflowing(slide)) slide.classList.add(cls);
+      }});
+      fitSlideTitles(slide);
+    }}
+    function syncModeState() {{
+      const presenting = isPresenting();
+      document.body.classList.toggle('training-html-browse', !presenting);
+      document.body.classList.toggle('training-html-presenting', presenting);
+      document.body.classList.toggle('training-html-printing', false);
+      if (presenting) {{
+        slides.forEach((slide, i) => slide.classList.toggle('active', i === currentSlide));
+        requestAnimationFrame(() => {{
+          fitActiveSlide(slides[currentSlide]);
+          fitSlideTitles(slides[currentSlide]);
+        }});
+      }} else {{
+        requestAnimationFrame(() => {{
+          fitAllSlides();
+          slides.forEach((slide) => fitSlideTitles(slide));
+        }});
+      }}
+    }}
+    function showSlide(index, options = {{ scrollIntoView: true }}) {{
       if (!slides.length) return;
-      currentSlide = Math.max(0, Math.min(index, slides.length - 1));
+      currentSlide = (index + slides.length) % slides.length;
       slides.forEach((slide, i) => slide.classList.toggle('active', i === currentSlide));
       pageIndicator.textContent = `${{currentSlide + 1}} / ${{slides.length}}`;
       progressBar.style.width = `${{((currentSlide + 1) / slides.length) * 100}}%`;
+      if (isPresenting()) {{
+        requestAnimationFrame(() => {{
+          fitActiveSlide(slides[currentSlide]);
+          fitSlideTitles(slides[currentSlide]);
+        }});
+      }} else if (options.scrollIntoView) {{
+        slides[currentSlide]?.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+        requestAnimationFrame(() => fitSlideTitles(slides[currentSlide]));
+      }} else {{
+        requestAnimationFrame(() => fitSlideTitles(slides[currentSlide]));
+      }}
     }}
     function nextSlide() {{ showSlide(currentSlide + 1); }}
     function prevSlide() {{ showSlide(currentSlide - 1); }}
     function toggleFullscreen() {{ document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); }}
-    document.addEventListener('fullscreenchange', syncFullscreenState);
-    syncFullscreenState();
+    document.addEventListener('fullscreenchange', syncModeState);
+    window.addEventListener('beforeprint', () => {{
+      document.body.classList.add('training-html-printing');
+      document.body.classList.remove('training-html-browse');
+      slides.forEach((slide) => slide.classList.remove('active'));
+    }});
+    window.addEventListener('afterprint', () => {{
+      document.body.classList.remove('training-html-printing');
+      syncModeState();
+      showSlide(currentSlide, {{ scrollIntoView: false }});
+      requestAnimationFrame(() => {{
+        if (isPresenting()) {{
+          fitActiveSlide(slides[currentSlide]);
+        }} else {{
+          fitAllSlides();
+          slides.forEach((slide) => fitSlideTitles(slide));
+        }}
+      }});
+    }});
+    syncModeState();
+    window.addEventListener('resize', () => {{
+      requestAnimationFrame(() => {{
+        if (isPresenting()) {{
+          fitActiveSlide(slides[currentSlide]);
+        }} else {{
+          fitAllSlides();
+          slides.forEach((slide) => fitSlideTitles(slide));
+        }}
+      }});
+    }});
     document.addEventListener('keydown', (event) => {{
       if (['ArrowRight', 'PageDown', ' '].includes(event.key)) {{ event.preventDefault(); nextSlide(); }}
       if (['ArrowLeft', 'PageUp'].includes(event.key)) {{ event.preventDefault(); prevSlide(); }}
@@ -2290,7 +2643,11 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
       const dx = event.changedTouches[0].clientX - touchStartX;
       if (Math.abs(dx) > 50) dx < 0 ? nextSlide() : prevSlide();
     }}, {{ passive: true }});
-    showSlide(0);
+    showSlide(0, {{ scrollIntoView: false }});
+    requestAnimationFrame(() => {{
+      fitAllSlides();
+      slides.forEach((slide) => fitSlideTitles(slide));
+    }});
   </script>
 </body>
 </html>"""

@@ -160,9 +160,13 @@ def test_training_html_safety_styles_add_layout_defaults():
     assert ".content-grid.cols-2" in injected
     assert ".content-grid.col4" in injected
     assert ".card-title" in injected
-    assert ".slide:not(.active)" in injected
+    assert "body.training-html-presenting .slide.active" in injected
+    assert "white-space: nowrap !important;" in injected
+    assert "body.training-html-printing .slide" in injected
+    assert "body.training-html-printing .slide *" in injected
+    assert "height: 56.25vw !important;" in injected
     assert ".compare-wrap" in injected
-    assert "body.training-html-fullscreen > .controls" in injected
+    assert "body.training-html-presenting > .controls" in injected
 
 
 @pytest.mark.asyncio
@@ -354,6 +358,14 @@ def test_inject_training_html_controls_replaces_llm_provided_controls():
     # LLM 自带的 nextSlide / prevSlide 函数定义已被剥离
     assert "function nextSlide" not in result
     assert "function prevSlide" not in result
+    assert "window.print()" in result
+    assert "training-html-browse" in result
+    assert "training-html-presenting" in result
+    assert "training-html-printing" in result
+    assert "beforeprint" in result
+    assert "afterprint" in result
+    assert "scrollIntoView" in result
+    assert "fitSlideTitles" in result
 
     # .slide 上的 inline display 已被清理
     assert 'style="display: block"' not in result
