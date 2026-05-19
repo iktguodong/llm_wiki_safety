@@ -162,9 +162,12 @@ def test_training_html_safety_styles_add_layout_defaults():
     assert ".card-title" in injected
     assert "body.training-html-presenting .slide.active" in injected
     assert "white-space: nowrap !important;" in injected
+    assert "size: 338.7mm 190.5mm;" in injected
+    assert "@media print" in injected
     assert "body.training-html-printing .slide" in injected
     assert "body.training-html-printing .slide *" in injected
-    assert "height: 56.25vw !important;" in injected
+    assert "width: 338.7mm !important;" in injected
+    assert "height: 190.5mm !important;" in injected
     assert ".compare-wrap" in injected
     assert "body.training-html-presenting > .controls" in injected
 

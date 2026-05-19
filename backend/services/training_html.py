@@ -645,6 +645,10 @@ def inject_training_html_safety_styles(html: str) -> str:
     body.training-html-presenting .slide.active {
       display: flex !important;
     }
+    @page {
+      size: 338.7mm 190.5mm;
+      margin: 0;
+    }
     body.training-html-printing .deck {
       display: block !important;
       width: 100% !important;
@@ -657,11 +661,13 @@ def inject_training_html_safety_styles(html: str) -> str:
     }
     body.training-html-printing .slide {
       display: flex !important;
-      width: 100vw !important;
-      height: 56.25vw !important;
+      width: 338.7mm !important;
+      height: 190.5mm !important;
       aspect-ratio: 16 / 9 !important;
+      margin: 0 !important;
       box-shadow: none !important;
       border-radius: 0 !important;
+      border: 0 !important;
       break-after: page;
       page-break-after: always;
     }
@@ -675,6 +681,40 @@ def inject_training_html_safety_styles(html: str) -> str:
     body.training-html-printing .slide * {
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
+    }
+    @media print {
+      html,
+      body {
+        width: 338.7mm;
+        height: 190.5mm;
+        margin: 0;
+        padding: 0;
+        background: #ffffff !important;
+        overflow: visible !important;
+      }
+      .deck {
+        display: block !important;
+        width: 100% !important;
+        height: auto !important;
+        padding: 0 !important;
+        overflow: visible !important;
+      }
+      .slide {
+        display: flex !important;
+        width: 338.7mm !important;
+        height: 190.5mm !important;
+        aspect-ratio: 16 / 9 !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        border: 0 !important;
+        break-after: page;
+        page-break-after: always;
+      }
+      .controls,
+      .progress {
+        display: none !important;
+      }
     }
     .slide.dense {
       padding: clamp(20px, 1.9vw, 34px) clamp(24px, 2.2vw, 46px) clamp(58px, 5.6vh, 78px);
@@ -1498,14 +1538,16 @@ def inject_training_html_safety_styles(html: str) -> str:
       display: none !important;
     }
     @page {
-      size: 16in 9in;
+      size: 338.7mm 190.5mm;
       margin: 0;
     }
     @media print {
       html,
       body {
-        width: 100%;
-        height: auto;
+        width: 338.7mm;
+        height: 190.5mm;
+        margin: 0;
+        padding: 0;
         background: #ffffff !important;
         overflow: visible !important;
         -webkit-print-color-adjust: exact !important;
@@ -1519,11 +1561,13 @@ def inject_training_html_safety_styles(html: str) -> str:
       }
       .deck > .slide {
         display: flex !important;
-        width: 100vw !important;
-        height: 56.25vw !important;
+        width: 338.7mm !important;
+        height: 190.5mm !important;
         aspect-ratio: 16 / 9 !important;
+        margin: 0 !important;
         box-shadow: none !important;
         border-radius: 0 !important;
+        border: 0 !important;
         break-after: page;
         page-break-after: always;
       }
@@ -2063,6 +2107,10 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     body.training-html-presenting .slide.active {{
       display: flex !important;
     }}
+    @page {{
+      size: 338.7mm 190.5mm;
+      margin: 0;
+    }}
     body.training-html-printing .deck {{
       display: block !important;
       width: 100% !important;
@@ -2072,11 +2120,13 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     }}
     body.training-html-printing .slide {{
       display: flex !important;
-      width: 100vw !important;
-      height: 56.25vw !important;
+      width: 338.7mm !important;
+      height: 190.5mm !important;
       aspect-ratio: 16 / 9 !important;
+      margin: 0 !important;
       box-shadow: none !important;
       border-radius: 0 !important;
+      border: 0 !important;
       break-after: page;
       page-break-after: always;
     }}
@@ -2090,6 +2140,40 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
     body.training-html-printing .slide * {{
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
+    }}
+    @media print {{
+      html,
+      body {{
+        width: 338.7mm;
+        height: 190.5mm;
+        margin: 0;
+        padding: 0;
+        background: #ffffff !important;
+        overflow: visible !important;
+      }}
+      .deck {{
+        display: block !important;
+        width: 100% !important;
+        height: auto !important;
+        padding: 0 !important;
+        overflow: visible !important;
+      }}
+      .slide {{
+        display: flex !important;
+        width: 338.7mm !important;
+        height: 190.5mm !important;
+        aspect-ratio: 16 / 9 !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        border: 0 !important;
+        break-after: page;
+        page-break-after: always;
+      }}
+      .controls,
+      .progress {{
+        display: none !important;
+      }}
     }}
     .slide.dense {{
       padding: clamp(20px, 1.9vw, 34px) clamp(24px, 2.2vw, 46px) clamp(58px, 5.6vh, 78px);
@@ -2441,14 +2525,16 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
       padding: 10px 8px;
     }}
     @page {{
-      size: 16in 9in;
+      size: 338.7mm 190.5mm;
       margin: 0;
     }}
     @media print {{
       html,
       body {{
-        width: 100%;
-        height: auto;
+        width: 338.7mm;
+        height: 190.5mm;
+        margin: 0;
+        padding: 0;
         background: #ffffff !important;
         overflow: visible !important;
         -webkit-print-color-adjust: exact !important;
@@ -2462,11 +2548,13 @@ def wrap_slide_fragments_as_html(slide_fragments: list[str], *, title: str) -> s
       }}
       .slide {{
         display: flex !important;
-        width: 100vw !important;
-        height: 56.25vw !important;
+        width: 338.7mm !important;
+        height: 190.5mm !important;
         aspect-ratio: 16 / 9 !important;
+        margin: 0 !important;
         box-shadow: none !important;
         border-radius: 0 !important;
+        border: 0 !important;
         break-after: page;
         page-break-after: always;
       }}
