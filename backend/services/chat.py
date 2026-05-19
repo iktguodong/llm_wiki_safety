@@ -5,6 +5,7 @@
 
 import json
 import html as html_lib
+import logging
 import re
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -18,6 +19,8 @@ from backend.services.llm import llm_service
 from backend.services.presentation.project_store import load_upload_metadata
 from backend.services.text_extraction import extract_document_text
 
+
+logger = logging.getLogger(__name__)
 
 _QUESTION_STOPWORDS = {
     "什么", "怎么", "如何", "哪些", "是否", "是不是", "谁", "哪", "哪个", "哪种",
@@ -371,10 +374,18 @@ class ChatService:
                 try:
                     resp = await client.get("https://html.duckduckgo.com/html/", params={"q": search_question})
                     resp.raise_for_status()
-                except Exception:
+                except Exception as exc:
+                    logger.warning(
+                        "chat web search failed",
+                        extra={"event": "chat_web_search", "status": "failed", "error": type(exc).__name__},
+                    )
                     continue
 
                 if resp.status_code != 200:
+                    logger.warning(
+                        "chat web search failed",
+                        extra={"event": "chat_web_search", "status": "failed", "error": f"http_{resp.status_code}"},
+                    )
                     continue
 
                 results: List[Dict[str, str]] = []
@@ -395,6 +406,10 @@ class ChatService:
                 if results:
                     return results
 
+        logger.info(
+            "chat web search returned no results",
+            extra={"event": "chat_web_search", "status": "empty"},
+        )
         return []
 
     @staticmethod

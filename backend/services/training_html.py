@@ -2820,6 +2820,7 @@ async def _generate_html_with_continuation(
 
 class TrainingHtmlService:
     async def generate_material(self, request: TrainingHtmlGenerateRequest) -> dict[str, Any]:
+        started_at = time.perf_counter()
         title = request.title.strip()
         if not title:
             raise ValueError("本次材料标题不能为空")
@@ -2835,16 +2836,40 @@ class TrainingHtmlService:
             source_context=source_context,
         )
         model_id = _html_role_model_id()
-        raw = await _generate_html_with_continuation(
-            [
-                {
-                    "role": "system",
-                    "content": "你只输出完整单文件 HTML 代码，不输出解释、Markdown 或代码块标记。",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            model_id=model_id,
+        logger.info(
+            "training html generation started",
+            extra={
+                "event": "training_html_generation",
+                "job_id": request.job_id,
+                "model_id": model_id,
+                "status": "started",
+            },
         )
+        try:
+            raw = await _generate_html_with_continuation(
+                [
+                    {
+                        "role": "system",
+                        "content": "你只输出完整单文件 HTML 代码，不输出解释、Markdown 或代码块标记。",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                model_id=model_id,
+            )
+        except ValueError as exc:
+            logger.warning(
+                "training html generation failed",
+                extra={
+                    "event": "training_html_generation",
+                    "job_id": request.job_id,
+                    "model_id": model_id,
+                    "duration_ms": int((time.perf_counter() - started_at) * 1000),
+                    "status": "failed",
+                    "error": str(exc)[:160],
+                },
+            )
+            raise
+
         try:
             html = extract_html_from_model_output(raw)
         except ValueError:
@@ -2857,6 +2882,17 @@ class TrainingHtmlService:
                 except ValueError as exc:
                     failure_file = save_training_html_failure(raw, title=title)
                     preview = re.sub(r"\s+", " ", raw.strip())[:220] or "空输出"
+                    logger.warning(
+                        "training html generation failed",
+                        extra={
+                            "event": "training_html_generation",
+                            "job_id": request.job_id,
+                            "model_id": model_id,
+                            "duration_ms": int((time.perf_counter() - started_at) * 1000),
+                            "status": "failed",
+                            "error": "html_repair_failed",
+                        },
+                    )
                     raise ValueError(
                         "模型返回内容不是完整 HTML，且自动修复失败。"
                         f"失败原文已保存到 output/{failure_file}。模型输出开头：{preview}"
@@ -2881,11 +2917,29 @@ class TrainingHtmlService:
                 "HTML material slide count mismatch: expected %s, got %s",
                 request.page_count,
                 slide_count,
+                extra={
+                    "event": "training_html_generation",
+                    "job_id": request.job_id,
+                    "model_id": model_id,
+                    "duration_ms": int((time.perf_counter() - started_at) * 1000),
+                    "status": "completed_with_warnings",
+                    "error": "slide_count_mismatch",
+                },
             )
         try:
             filename, download_url, preview_url = save_training_html_file(html, title=title, job_id=request.job_id)
         except TypeError:
             filename, download_url, preview_url = save_training_html_file(html)
+        logger.info(
+            "training html generation completed",
+            extra={
+                "event": "training_html_generation",
+                "job_id": request.job_id,
+                "model_id": model_id,
+                "duration_ms": int((time.perf_counter() - started_at) * 1000),
+                "status": "completed",
+            },
+        )
         return {
             "title": title,
             "filename": filename,

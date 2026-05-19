@@ -78,6 +78,7 @@ async def lifespan(app: FastAPI):
         "startup maintenance completed: reset_parse_statuses=%s deleted_uploads=%s",
         reset_count,
         deleted_count,
+        extra={"event": "training_upload_cleanup", "status": "completed", "deleted_count": deleted_count},
     )
     _training_upload_cleanup_task = asyncio.create_task(_periodic_training_upload_cleanup())
     try:
@@ -119,9 +120,15 @@ async def _periodic_training_upload_cleanup(interval_seconds: int = 6 * 60 * 60)
         try:
             deleted_count = cleanup_expired_training_uploads()
             if deleted_count:
-                logger.info("expired training uploads cleaned: deleted_uploads=%s", deleted_count)
+                logger.info(
+                    "expired training uploads cleaned",
+                    extra={"event": "training_upload_cleanup", "status": "completed", "deleted_count": deleted_count},
+                )
         except Exception:
-            logger.exception("failed to clean expired training uploads")
+            logger.exception(
+                "failed to clean expired training uploads",
+                extra={"event": "training_upload_cleanup", "status": "failed", "error": "cleanup_failed"},
+            )
 
 
 # ==================== 配置API ====================
@@ -233,14 +240,26 @@ async def upload_document(kb_id: str, file: UploadFile = File(...)):
     # 检查知识库是否存在
     kb = await kb_service.get(kb_id)
     if not kb:
+        logger.warning(
+            "document upload failed",
+            extra={"event": "document_upload", "kb_id": kb_id, "status": "failed", "error": "knowledge_base_not_found"},
+        )
         raise HTTPException(status_code=404, detail="知识库不存在")
     
     # 检查文件名
     if not file.filename:
+        logger.warning(
+            "document upload failed",
+            extra={"event": "document_upload", "kb_id": kb_id, "status": "failed", "error": "empty_filename"},
+        )
         raise HTTPException(status_code=400, detail="文件名不能为空")
 
     suffix = Path(file.filename).suffix.lower()
     if suffix not in SUPPORTED_TEXT_EXTENSIONS:
+        logger.warning(
+            "document upload failed",
+            extra={"event": "document_upload", "kb_id": kb_id, "status": "failed", "error": "unsupported_file_type"},
+        )
         raise HTTPException(
             status_code=400,
             detail="暂不支持该文件类型，请上传 PDF、Word（.doc/.docx）、TXT 或 Markdown 文件"
@@ -250,7 +269,18 @@ async def upload_document(kb_id: str, file: UploadFile = File(...)):
     content = await file.read()
     
     # 保存文档
-    doc = await doc_service.upload(kb_id, file.filename, content)
+    try:
+        doc = await doc_service.upload(kb_id, file.filename, content)
+    except Exception as exc:
+        logger.exception(
+            "document upload failed",
+            extra={"event": "document_upload", "kb_id": kb_id, "status": "failed", "error": type(exc).__name__},
+        )
+        raise
+    logger.info(
+        "document upload completed",
+        extra={"event": "document_upload", "kb_id": kb_id, "doc_id": doc.id, "status": "completed"},
+    )
     
     # 自动解析（如果配置允许）
     meta = config.get("knowledge_bases", {}).get(kb_id, {})
@@ -584,6 +614,10 @@ async def cancel_training_job(job_id: str):
 async def cleanup_training_uploads():
     """清理过期的临时训练上传文件。"""
     deleted_count = cleanup_expired_training_uploads()
+    logger.info(
+        "expired training uploads cleaned",
+        extra={"event": "training_upload_cleanup", "status": "completed", "deleted_count": deleted_count},
+    )
     return ApiResponse(data={"deleted_count": deleted_count})
 
 

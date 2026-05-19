@@ -9,6 +9,9 @@ from datetime import datetime
 from typing import Any
 
 
+_RESERVED_LOG_RECORD_KEYS = set(logging.makeLogRecord({}).__dict__)
+
+
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
@@ -17,6 +20,9 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+        for key, value in record.__dict__.items():
+            if key not in _RESERVED_LOG_RECORD_KEYS and not key.startswith("_"):
+                payload[key] = value
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=False)

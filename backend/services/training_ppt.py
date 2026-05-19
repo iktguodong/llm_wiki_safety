@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 from backend.models import (
@@ -20,6 +22,9 @@ from backend.services.presentation.project_store import save_content_pack, save_
 from backend.services.presentation.quality_check import check_presentation
 from backend.services.presentation.safety_templates import get_template
 from backend.services.presentation.slide_planner import plan_slides
+
+
+logger = logging.getLogger(__name__)
 
 
 def training_payload_to_request(payload: dict[str, Any]) -> dict[str, Any]:
@@ -52,12 +57,42 @@ def training_payload_to_request(payload: dict[str, Any]) -> dict[str, Any]:
 
 class TrainingPptService:
     async def generate_outline(self, payload: dict[str, Any], *, job_id: str) -> TrainingOutlineResponse:
+        started_at = time.perf_counter()
         request = training_payload_to_request(payload)
-        content_pack = build_content_pack(request, job_id)
-        outline = await build_outline(content_pack, request, llm_service)
+        model_id = payload.get("model_id") or payload.get("modelId")
+        logger.info(
+            "training outline generation started",
+            extra={"event": "training_outline_generation", "job_id": job_id, "model_id": model_id, "status": "started"},
+        )
+        try:
+            content_pack = build_content_pack(request, job_id)
+            outline = await build_outline(content_pack, request, llm_service)
+        except Exception as exc:
+            logger.exception(
+                "training outline generation failed",
+                extra={
+                    "event": "training_outline_generation",
+                    "job_id": job_id,
+                    "model_id": model_id,
+                    "duration_ms": int((time.perf_counter() - started_at) * 1000),
+                    "status": "failed",
+                    "error": type(exc).__name__,
+                },
+            )
+            raise
 
         save_content_pack(job_id, content_pack.model_dump())
         save_outline(job_id, outline.model_dump())
+        logger.info(
+            "training outline generation completed",
+            extra={
+                "event": "training_outline_generation",
+                "job_id": job_id,
+                "model_id": model_id,
+                "duration_ms": int((time.perf_counter() - started_at) * 1000),
+                "status": "completed",
+            },
+        )
 
         return TrainingOutlineResponse(
             job_id=job_id,
@@ -74,27 +109,57 @@ class TrainingPptService:
         )
 
     async def generate_ppt(self, payload: dict[str, Any], *, job_id: str) -> TrainingGenerateResponse:
+        started_at = time.perf_counter()
         request = training_payload_to_request(payload)
-        content_pack = build_content_pack(request, job_id)
-        outline_payload = payload.get("outline")
-        if outline_payload:
-            outline = TrainingOutlineV2(**outline_payload)
-        else:
-            outline = await build_outline(content_pack, request, llm_service)
-        spec = await plan_slides(outline, content_pack, request, llm_service)
-        quality_report = check_presentation(spec, content_pack, request)
-        template = get_template(request.get("template_id") or request.get("style"))
-        render_info = render_presentation(
-            spec,
-            template,
-            job_id,
-            include_speaker_notes=request.get("include_speaker_notes", True),
+        model_id = payload.get("model_id") or payload.get("modelId")
+        logger.info(
+            "training ppt generation started",
+            extra={"event": "training_ppt_generation", "job_id": job_id, "model_id": model_id, "status": "started"},
         )
+        try:
+            content_pack = build_content_pack(request, job_id)
+            outline_payload = payload.get("outline")
+            if outline_payload:
+                outline = TrainingOutlineV2(**outline_payload)
+            else:
+                outline = await build_outline(content_pack, request, llm_service)
+            spec = await plan_slides(outline, content_pack, request, llm_service)
+            quality_report = check_presentation(spec, content_pack, request)
+            template = get_template(request.get("template_id") or request.get("style"))
+            render_info = render_presentation(
+                spec,
+                template,
+                job_id,
+                include_speaker_notes=request.get("include_speaker_notes", True),
+            )
+        except Exception as exc:
+            logger.exception(
+                "training ppt generation failed",
+                extra={
+                    "event": "training_ppt_generation",
+                    "job_id": job_id,
+                    "model_id": model_id,
+                    "duration_ms": int((time.perf_counter() - started_at) * 1000),
+                    "status": "failed",
+                    "error": type(exc).__name__,
+                },
+            )
+            raise
 
         save_content_pack(job_id, content_pack.model_dump())
         save_outline(job_id, outline.model_dump())
         save_spec(job_id, spec.model_dump())
         save_quality_report(job_id, quality_report.model_dump())
+        logger.info(
+            "training ppt generation completed",
+            extra={
+                "event": "training_ppt_generation",
+                "job_id": job_id,
+                "model_id": model_id,
+                "duration_ms": int((time.perf_counter() - started_at) * 1000),
+                "status": "completed" if quality_report.passed else "completed_with_warnings",
+            },
+        )
 
         return TrainingGenerateResponse(
             job_id=job_id,

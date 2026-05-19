@@ -4,7 +4,9 @@ Wiki生成服务
 """
 
 import json
+import logging
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -15,6 +17,9 @@ from backend.config import (
 )
 from backend.services.llm import llm_service
 from backend.services.text_extraction import extract_document_text
+
+
+logger = logging.getLogger(__name__)
 
 
 # 加载AGENTS.md工作流规范
@@ -491,10 +496,37 @@ class WikiService:
         from backend.services.document import doc_service
         from backend.config import config
 
+        started_at = time.perf_counter()
+
+        async def fail_parse(error: str):
+            await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message=error[:500])
+            logger.warning(
+                "document parse failed",
+                extra={
+                    "event": "document_parse",
+                    "kb_id": kb_id,
+                    "doc_id": doc_id,
+                    "model_id": target_model_id if "target_model_id" in locals() else model_id,
+                    "duration_ms": int((time.perf_counter() - started_at) * 1000),
+                    "status": "failed",
+                    "error": error[:160],
+                },
+            )
+
         try:
             # 前置检查：优先使用文档解析角色，其次回退到当前模型。
             model_roles = config.get("models", {}).get("model_roles", {})
             target_model_id = model_id or model_roles.get("doc_parse") or config.get("current_model_id")
+            logger.info(
+                "document parse started",
+                extra={
+                    "event": "document_parse",
+                    "kb_id": kb_id,
+                    "doc_id": doc_id,
+                    "model_id": target_model_id,
+                    "status": "started",
+                },
+            )
             providers = config.get("models", {}).get("providers", [])
             provider_of_model = None
             for p in providers:
@@ -502,16 +534,10 @@ class WikiService:
                     provider_of_model = p
                     break
             if not provider_of_model:
-                await doc_service.update_parse_status(
-                    kb_id, doc_id, "failed",
-                    error_message=f"未找到模型 {target_model_id} 的服务商配置"
-                )
+                await fail_parse(f"未找到模型 {target_model_id} 的服务商配置")
                 return
             if not provider_of_model.get("api_key"):
-                await doc_service.update_parse_status(
-                    kb_id, doc_id, "failed",
-                    error_message=f"服务商 {provider_of_model.get('name', provider_of_model.get('id'))} 的 API Key 未配置，请在「设置」页填写 API Key 后重试。"
-                )
+                await fail_parse(f"服务商 {provider_of_model.get('name', provider_of_model.get('id'))} 的 API Key 未配置")
                 return
 
             # 更新状态为解析中
@@ -524,7 +550,7 @@ class WikiService:
 
             doc_info = track.get("documents", {}).get(doc_id)
             if not doc_info:
-                await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message="文档信息不存在")
+                await fail_parse("文档信息不存在")
                 return
 
             # 提取文本
@@ -532,21 +558,18 @@ class WikiService:
             file_path = raw_path / doc_info["file"]
 
             if not file_path.exists():
-                await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message=f"文件不存在：{doc_info['file']}")
+                await fail_parse(f"文件不存在：{doc_info['file']}")
                 return
 
             text = await WikiService.extract_text(file_path)
 
             if not text.strip():
-                await doc_service.update_parse_status(
-                    kb_id, doc_id, "failed",
-                    error_message="文档未提取到可读文本，请确认文件内容不是空白"
-                )
+                await fail_parse("文档未提取到可读文本，请确认文件内容不是空白")
                 return
 
             if text.startswith("[") and text.endswith("]") and len(text) < 200:
                 # 提取错误（形如 [PDF解析错误: ...]）
-                await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message=text.strip("[]"))
+                await fail_parse(text.strip("[]"))
                 return
 
             system_content = WikiService._build_system_content()
@@ -753,9 +776,21 @@ class WikiService:
                 wiki_pages=wiki_page_names,
                 page_count=len(wiki_page_names)
             )
+            logger.info(
+                "document parse completed",
+                extra={
+                    "event": "document_parse",
+                    "kb_id": kb_id,
+                    "doc_id": doc_id,
+                    "model_id": target_model_id,
+                    "duration_ms": int((time.perf_counter() - started_at) * 1000),
+                    "status": "completed",
+                    "page_count": len(wiki_page_names),
+                },
+            )
             
         except Exception as e:
-            await doc_service.update_parse_status(kb_id, doc_id, "failed", error_message=str(e)[:500])
+            await fail_parse(str(e))
             # 不再 raise，避免在 fire-and-forget 任务里形成未捕获异常警告
     
     @staticmethod
