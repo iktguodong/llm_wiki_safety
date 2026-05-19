@@ -67,11 +67,35 @@ configure_logging()
 logger = logging.getLogger(__name__)
 _training_upload_cleanup_task: asyncio.Task | None = None
 
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage startup maintenance and background cleanup tasks."""
+    global _training_upload_cleanup_task
+    reset_count = await doc_service.reset_stale_parse_statuses()
+    deleted_count = cleanup_expired_training_uploads()
+    logger.info(
+        "startup maintenance completed: reset_parse_statuses=%s deleted_uploads=%s",
+        reset_count,
+        deleted_count,
+    )
+    _training_upload_cleanup_task = asyncio.create_task(_periodic_training_upload_cleanup())
+    try:
+        yield
+    finally:
+        if _training_upload_cleanup_task is not None:
+            _training_upload_cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await _training_upload_cleanup_task
+            _training_upload_cleanup_task = None
+
+
 # 创建FastAPI应用
 app = FastAPI(
     title="安牛API",
     description="企业安全知识库后端服务",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # 添加CORS中间件，支持前端跨域请求
@@ -87,31 +111,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def restore_document_parse_statuses():
-    """将重启后停留在 parsing 的文档恢复到 pending，避免状态卡死。"""
-    global _training_upload_cleanup_task
-    reset_count = await doc_service.reset_stale_parse_statuses()
-    deleted_count = cleanup_expired_training_uploads()
-    logger.info(
-        "startup maintenance completed: reset_parse_statuses=%s deleted_uploads=%s",
-        reset_count,
-        deleted_count,
-    )
-    _training_upload_cleanup_task = asyncio.create_task(_periodic_training_upload_cleanup())
-
-
-@app.on_event("shutdown")
-async def stop_background_tasks():
-    global _training_upload_cleanup_task
-    if _training_upload_cleanup_task is None:
-        return
-    _training_upload_cleanup_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await _training_upload_cleanup_task
-    _training_upload_cleanup_task = None
 
 
 async def _periodic_training_upload_cleanup(interval_seconds: int = 6 * 60 * 60):

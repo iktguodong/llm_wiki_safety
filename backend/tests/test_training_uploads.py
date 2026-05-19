@@ -95,3 +95,14 @@ def test_cleanup_training_uploads_removes_expired_uploads(isolated_training_env)
     assert resp.status_code == 200
     assert resp.json()["data"]["deleted_count"] == 1
     assert not upload_dir.exists()
+
+
+def test_app_lifespan_starts_and_stops_training_cleanup_task(isolated_training_env):
+    assert app_module._training_upload_cleanup_task is None
+
+    with TestClient(app):
+        task = app_module._training_upload_cleanup_task
+        assert task is not None
+        assert not task.done()
+
+    assert app_module._training_upload_cleanup_task is None
