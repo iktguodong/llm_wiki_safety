@@ -94,12 +94,13 @@ def _ensure_default_model_providers(config: dict):
         if not isinstance(provider, dict):
             continue
         if provider.get("id") == "silicon":
-            provider["name"] = "SiliconFlow"
-            provider["base_url"] = "https://api.siliconflow.cn/v1"
-            provider["models"] = deepcopy(DEFAULT_CONFIG["models"]["providers"][1]["models"])
+            provider.setdefault("name", "SiliconFlow")
+            provider.setdefault("base_url", "https://api.siliconflow.cn/v1")
+            if not provider.get("models"):
+                provider["models"] = deepcopy(DEFAULT_CONFIG["models"]["providers"][1]["models"])
         elif provider.get("id") == "bailian":
-            provider["name"] = "阿里云百炼"
-            provider["base_url"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            provider.setdefault("name", "阿里云百炼")
+            provider.setdefault("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 
 
 def ensure_config_dir():

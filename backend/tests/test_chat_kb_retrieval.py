@@ -78,7 +78,7 @@ async def test_ask_with_kb_selected_uses_qa_prompt_even_when_no_related_pages(
     monkeypatch.setattr(ChatService, "_web_search", fake_web_search)
     monkeypatch.setattr(llm_service, "chat_events", fake_chat_events)
 
-    result = await ChatService.ask_sync(
+    result = await ChatService().ask_sync(
         "最近公布的危险化学品安全法",
         ["test-kb"],
         use_web_search=True,

@@ -34,7 +34,7 @@ async def test_chat_service_auto_continues_when_stream_hits_length(monkeypatch):
 
     monkeypatch.setattr(llm_service, "chat_events", fake_chat_events)
 
-    result = await ChatService.ask_sync("请完整回答这个问题", [], model_id="deepseek-v4-flash")
+    result = await ChatService().ask_sync("请完整回答这个问题", [], model_id="deepseek-v4-flash")
 
     assert result == "第一部分，尚未结束。第二部分，完成。"
     assert len(calls) == 2

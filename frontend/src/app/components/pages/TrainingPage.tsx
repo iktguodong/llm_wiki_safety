@@ -541,6 +541,12 @@ export default function TrainingPage() {
     };
   }, []);
 
+  useEffect(() => {
+    void trainingApi.cleanupUploads().catch(() => {
+      // 清理失败不影响页面主流程
+    });
+  }, []);
+
   const isGenerationLocked = htmlGeneration.loading || loadingOutline || loadingPptGenerate;
   const activeGenerationKind: GenerationKind | null = htmlGeneration.loading
     ? 'html'

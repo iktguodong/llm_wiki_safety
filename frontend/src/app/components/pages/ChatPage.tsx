@@ -22,6 +22,11 @@ import {
   renderAssistantBubble,
   shouldExpandMessageLayout,
 } from '../../lib/chat-render';
+import {
+  buildDocxExportName,
+  downloadBlob,
+  dropTrailingAssistantMessage,
+} from '../../lib/chat-utils';
 import { MessageActionBar } from '../MessageActionBar';
 import LogoMark from '../LogoMark';
 import type { KnowledgeBase, TemporaryTrainingUploadResponse } from '../../../lib/types';
@@ -115,29 +120,6 @@ function hasContextResetMessage(messages: ChatMessage[]) {
 function buildMessageExportName(role: ChatMessage['role'], index: number, format: 'md' | 'txt' | 'docx') {
   const prefix = role === 'assistant' ? '安牛助手回答' : '我的提问';
   return `${prefix}-${index + 1}.${format}`;
-}
-
-function buildDocxExportName(role: ChatMessage['role'], text: string) {
-  const fallback = role === 'assistant' ? '安牛助手回答' : '我的提问';
-  const normalized = normalizeAssistantText(text).replace(/\s+/g, ' ').trim();
-  const lead = normalized.split(/[。！？!?；;\n]/)[0]?.trim() || normalized;
-  const cleaned = lead.replace(/[\\/:*?"<>|\r\n\t]+/g, '_').replace(/\s+/g, ' ').trim();
-  return `${(cleaned || fallback).slice(0, 40)}.docx`;
-}
-
-function dropTrailingAssistantMessage(messages: ChatMessage[]) {
-  const last = messages[messages.length - 1];
-  if (last?.role !== 'assistant') return messages;
-  return messages.slice(0, -1);
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 function createCurrentSessionFallback(modelId: string) {

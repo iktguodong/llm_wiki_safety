@@ -4,6 +4,8 @@ FastAPI + 所有业务API
 """
 
 import asyncio
+import contextlib
+import logging
 import sys
 import uuid
 from pathlib import Path
@@ -21,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from backend.config import config, save_config, get_kb_path
+from backend.logging_config import configure_logging
 from backend.models import (
     ApiResponse, KnowledgeBaseCreate, KnowledgeBase, KnowledgeBaseListResponse,
     DocumentInfo, DocumentListResponse, DocumentDeleteRequest, DocumentDeletePreview,
@@ -29,13 +32,11 @@ from backend.models import (
     MessageDocxExportRequest,
     AssistantPromptOptimizeRequest, AssistantPromptOptimizeResponse,
     SearchRequest, SearchResult,
-    TrainingOutline, TrainingConfig,
+    TrainingConfig,
     ModelValidateRequest, ModelValidateResponse,
     AppConfig,
     TrainingSourceInput,
-    TrainingOutlineRequestV2,
     TrainingOutlineResponse,
-    TrainingGenerateRequestV2,
     TrainingGenerateResponse,
     TemporaryTrainingUploadResponse,
     TrainingOutlineV2,
@@ -60,6 +61,7 @@ from backend.services.presentation.quality_check import check_presentation
 from backend.services.presentation.pptx_renderer import render_presentation
 from backend.services.presentation.project_store import (
     cancel_running_job,
+    cleanup_expired_training_uploads,
     cleanup_training_job,
     create_job,
     get_upload_dir,
@@ -72,8 +74,14 @@ from backend.services.presentation.project_store import (
     register_running_job,
     unregister_running_job,
 )
+from backend.services.presentation.models import utc_now_str
 from backend.services.presentation.safety_templates import get_template
 from backend.services.message_export import build_message_docx_bytes
+from backend.services.training_downloads import resolve_training_html_path
+
+configure_logging()
+logger = logging.getLogger(__name__)
+_training_upload_cleanup_task: asyncio.Task | None = None
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -95,6 +103,42 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def restore_document_parse_statuses():
+    """将重启后停留在 parsing 的文档恢复到 pending，避免状态卡死。"""
+    global _training_upload_cleanup_task
+    reset_count = await doc_service.reset_stale_parse_statuses()
+    deleted_count = cleanup_expired_training_uploads()
+    logger.info(
+        "startup maintenance completed: reset_parse_statuses=%s deleted_uploads=%s",
+        reset_count,
+        deleted_count,
+    )
+    _training_upload_cleanup_task = asyncio.create_task(_periodic_training_upload_cleanup())
+
+
+@app.on_event("shutdown")
+async def stop_background_tasks():
+    global _training_upload_cleanup_task
+    if _training_upload_cleanup_task is None:
+        return
+    _training_upload_cleanup_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await _training_upload_cleanup_task
+    _training_upload_cleanup_task = None
+
+
+async def _periodic_training_upload_cleanup(interval_seconds: int = 6 * 60 * 60):
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            deleted_count = cleanup_expired_training_uploads()
+            if deleted_count:
+                logger.info("expired training uploads cleaned: deleted_uploads=%s", deleted_count)
+        except Exception:
+            logger.exception("failed to clean expired training uploads")
 
 
 # ==================== 配置API ====================
@@ -446,25 +490,6 @@ def _training_payload_to_request(payload: dict[str, Any]) -> dict[str, Any]:
         "job_id": payload.get("job_id") or payload.get("jobId"),
     }
 
-
-def resolve_training_html_path(filename: str) -> Path:
-    if not filename or filename != Path(filename).name or Path(filename).suffix.lower() != ".html":
-        raise ValueError("文件名无效，只允许下载 HTML 文件")
-    file_path = (config_module_output_dir() / filename).resolve()
-    output_root = config_module_output_dir().resolve()
-    if output_root not in file_path.parents and file_path.parent != output_root:
-        raise ValueError("文件名无效")
-    if not file_path.exists() or not file_path.is_file():
-        raise FileNotFoundError("文件不存在")
-    return file_path
-
-
-def config_module_output_dir() -> Path:
-    from backend.config import OUTPUT_DIR
-
-    return OUTPUT_DIR
-
-
 @app.post("/api/training/uploads", response_model=ApiResponse)
 async def upload_training_document(file: UploadFile = File(...)):
     """上传临时训练文档，不进入知识库。"""
@@ -513,6 +538,7 @@ async def upload_training_document(file: UploadFile = File(...)):
         "size": len(content),
         "detected_type": detected_type,
         "path": str(file_path),
+        "created_at": utc_now_str(),
     })
 
     return ApiResponse(data=TemporaryTrainingUploadResponse(
@@ -644,6 +670,13 @@ async def cancel_training_job(job_id: str):
     cancelled = cancel_running_job(job_id)
     cleanup_training_job(job_id)
     return ApiResponse(data={"job_id": job_id, "cancelled": cancelled})
+
+
+@app.post("/api/training/cleanup-uploads")
+async def cleanup_training_uploads():
+    """清理过期的临时训练上传文件。"""
+    deleted_count = cleanup_expired_training_uploads()
+    return ApiResponse(data={"deleted_count": deleted_count})
 
 
 @app.get("/api/training/download/{filename}")

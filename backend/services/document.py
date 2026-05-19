@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import backend.config as config_module
 from backend.config import (
     get_kb_raw_path, get_kb_wiki_path, get_kb_doc_track_path,
     get_kb_meta_path
@@ -102,7 +103,8 @@ class DocumentService:
             "file_size_mb": DocumentService._get_file_size_mb(file_path),
             "page_count": 0,  # 解析后更新
             "wiki_pages": [],
-            "parse_status": "pending"
+            "parse_status": "pending",
+            "parse_started_at": None,
         }
         DocumentService._save_doc_track(kb_id, track)
         
@@ -230,13 +232,17 @@ class DocumentService:
         track = DocumentService._load_doc_track(kb_id)
         if doc_id in track.get("documents", {}):
             track["documents"][doc_id]["parse_status"] = status
+            if status == "parsing":
+                track["documents"][doc_id]["parse_started_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                track["documents"][doc_id].pop("parse_started_at", None)
             if wiki_pages is not None:
                 track["documents"][doc_id]["wiki_pages"] = wiki_pages
             if page_count is not None:
                 track["documents"][doc_id]["page_count"] = page_count
             if error_message is not None:
                 track["documents"][doc_id]["error_message"] = error_message
-            elif status == "parsing" or status == "completed":
+            elif status in {"parsing", "completed", "pending"}:
                 # 成功或重新开始解析时清理之前的错误
                 track["documents"][doc_id].pop("error_message", None)
             DocumentService._save_doc_track(kb_id, track)
@@ -246,6 +252,45 @@ class DocumentService:
             if meta and doc_id in meta.get("documents", {}):
                 meta["documents"][doc_id] = track["documents"][doc_id]
                 DocumentService._save_kb_meta(kb_id, meta)
+
+    @staticmethod
+    async def reset_stale_parse_statuses() -> int:
+        """将重启后卡住的解析状态恢复为 pending。"""
+        reset_count = 0
+        kb_root = config_module.KB_ROOT
+        if not kb_root.exists():
+            return reset_count
+
+        for kb_dir in kb_root.iterdir():
+            if not kb_dir.is_dir():
+                continue
+            kb_id = kb_dir.name
+            track_path = get_kb_doc_track_path(kb_id)
+            if not track_path.exists():
+                continue
+
+            track = DocumentService._load_doc_track(kb_id)
+            changed = False
+            for doc_id, doc_info in track.get("documents", {}).items():
+                if doc_info.get("parse_status") != "parsing":
+                    continue
+                doc_info["parse_status"] = "pending"
+                doc_info.pop("parse_started_at", None)
+                doc_info.pop("error_message", None)
+                changed = True
+                reset_count += 1
+
+            if changed:
+                DocumentService._save_doc_track(kb_id, track)
+                meta = DocumentService._load_kb_meta(kb_id)
+                if meta:
+                    meta_docs = meta.get("documents", {})
+                    for doc_id, doc_info in track.get("documents", {}).items():
+                        if doc_id in meta_docs:
+                            meta_docs[doc_id] = doc_info
+                    DocumentService._save_kb_meta(kb_id, meta)
+
+        return reset_count
 
 
 # 服务实例

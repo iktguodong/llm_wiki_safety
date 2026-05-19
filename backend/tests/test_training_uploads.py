@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 
 import backend.app as app_module
 from backend.app import app
 from backend.config import get_kb_wiki_path
-from backend.services.presentation.project_store import get_job_paths
+from backend.services.presentation.project_store import get_job_paths, get_upload_dir, save_upload_metadata
 
 
 def test_training_upload_and_download_and_legacy_outline(isolated_training_env, monkeypatch):
@@ -71,3 +72,26 @@ def test_training_upload_rejects_unreadable_pdf(isolated_training_env, monkeypat
     )
     assert upload_resp.status_code == 400
     assert "OCR" in upload_resp.json()["detail"]
+
+
+def test_cleanup_training_uploads_removes_expired_uploads(isolated_training_env):
+    upload_id = "upload-expired-1"
+    upload_dir = get_upload_dir(upload_id)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    (upload_dir / "old.txt").write_text("old", encoding="utf-8")
+    save_upload_metadata(upload_id, {
+        "upload_id": upload_id,
+        "filename": "old.txt",
+        "original_filename": "old.txt",
+        "size": 3,
+        "detected_type": "txt",
+        "path": str(upload_dir / "old.txt"),
+        "created_at": (datetime.now() - timedelta(hours=48)).strftime("%Y-%m-%d %H:%M:%S"),
+    })
+
+    client = TestClient(app)
+    resp = client.post("/api/training/cleanup-uploads")
+
+    assert resp.status_code == 200
+    assert resp.json()["data"]["deleted_count"] == 1
+    assert not upload_dir.exists()

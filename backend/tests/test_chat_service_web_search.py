@@ -136,7 +136,7 @@ async def test_ask_sync_uses_web_results_in_prompt(monkeypatch):
     monkeypatch.setattr(ChatService, "_web_search", fake_web_search)
     monkeypatch.setattr(llm_service, "chat_events", fake_chat_events)
 
-    result = await ChatService.ask_sync(
+    result = await ChatService().ask_sync(
         "安全生产法第77条是什么内容？",
         [],
         messages=[
@@ -179,7 +179,7 @@ async def test_ask_sync_includes_temporary_upload_context(monkeypatch):
 
     monkeypatch.setattr(llm_service, "chat_events", fake_chat_events)
 
-    result = await ChatService.ask_sync(
+    result = await ChatService().ask_sync(
         "请解读这份文件。",
         [],
         messages=[],

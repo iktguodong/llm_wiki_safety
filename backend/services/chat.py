@@ -8,7 +8,7 @@ import html as html_lib
 import re
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
-from typing import AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
 
@@ -118,6 +118,9 @@ class ChatService:
         "多种",
         "多个",
     )
+
+    def __init__(self, llm_client: Any = llm_service):
+        self.llm_service = llm_client
     
     @staticmethod
     def _read_file(file_path: Path) -> str:
@@ -443,8 +446,8 @@ class ChatService:
             {"role": "user", "content": continuation_user_prompt},
         ]
 
-    @staticmethod
     async def _stream_with_auto_continuation(
+        self,
         messages: List[Dict[str, str]],
         model_id: Optional[str] = None,
         temperature: float = 0.7,
@@ -457,7 +460,7 @@ class ChatService:
             attempt_buffer = []
             finish_reason = None
 
-            async for event in llm_service.chat_events(
+            async for event in self.llm_service.chat_events(
                 current_messages,
                 model_id=model_id,
                 stream=True,
@@ -598,8 +601,8 @@ class ChatService:
         related.sort(key=lambda x: (x["score"], len(x["content"])), reverse=True)
         return related[:max_pages]
     
-    @staticmethod
     async def ask(
+        self,
         question: str,
         knowledge_base_ids: List[str],
         messages: Optional[List[ChatMessage]] = None,
@@ -648,7 +651,7 @@ class ChatService:
                         prompt_messages.append(upload_context_message)
                     prompt_messages.extend(history_messages)
                     prompt_messages.append({"role": "user", "content": prompt})
-                    async for chunk in ChatService._stream_with_auto_continuation(
+                    async for chunk in self._stream_with_auto_continuation(
                         prompt_messages,
                         model_id=model_id,
                     ):
@@ -662,7 +665,7 @@ class ChatService:
             if upload_context_message:
                 prompt_messages.append(upload_context_message)
             prompt_messages.extend(history_messages)
-            async for chunk in ChatService._stream_with_auto_continuation(
+            async for chunk in self._stream_with_auto_continuation(
                 prompt_messages,
                 model_id=model_id,
             ):
@@ -725,7 +728,7 @@ class ChatService:
         prompt_messages.append({"role": "user", "content": prompt})
         
         # 调用LLM生成答案
-        async for chunk in ChatService._stream_with_auto_continuation(
+        async for chunk in self._stream_with_auto_continuation(
             prompt_messages,
             model_id=model_id,
         ):
@@ -733,8 +736,8 @@ class ChatService:
                 continue
             yield chunk
     
-    @staticmethod
     async def ask_sync(
+        self,
         question: str,
         knowledge_base_ids: List[str],
         messages: Optional[List[ChatMessage]] = None,
@@ -745,7 +748,7 @@ class ChatService:
     ) -> str:
         """同步回答问题，返回完整文本"""
         result = []
-        async for chunk in ChatService.ask(
+        async for chunk in self.ask(
             question,
             knowledge_base_ids,
             messages,

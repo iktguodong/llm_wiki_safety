@@ -274,3 +274,16 @@ async def test_parse_document_falls_back_to_source_excerpt(isolated_training_env
 
     assert "第一段内容说明现场作业审批和培训要求。" in content
     assert "第二段内容说明检查、监督与记录保存要求。" in content
+
+
+@pytest.mark.asyncio
+async def test_reset_stale_parse_statuses_resets_parsing_docs(isolated_training_env):
+    kb = await kb_service.create(KnowledgeBaseCreate(name="解析状态重置测试"))
+    doc = await doc_service.upload(kb.id, "stale.txt", "测试".encode("utf-8"))
+    await doc_service.update_parse_status(kb.id, doc.id, "parsing")
+
+    reset_count = await doc_service.reset_stale_parse_statuses()
+    docs = await doc_service.list_documents(kb.id)
+
+    assert reset_count == 1
+    assert docs[0].parse_status == "pending"

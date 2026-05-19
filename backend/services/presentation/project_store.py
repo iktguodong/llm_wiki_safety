@@ -6,6 +6,7 @@ import asyncio
 import json
 import shutil
 import uuid
+from datetime import datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -176,6 +177,53 @@ def save_upload_metadata(upload_id: str, data: Any) -> Path:
 def load_upload_metadata(upload_id: str) -> Optional[dict[str, Any]]:
     data = _json_load(get_upload_dir(upload_id) / "meta.json")
     return data if isinstance(data, dict) else None
+
+
+def _parse_timestamp(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(value.strip(), fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+
+
+def _upload_timestamp(upload_dir: Path) -> Optional[datetime]:
+    meta = load_upload_metadata(upload_dir.name)
+    if meta:
+        for key in ("created_at", "uploaded_at", "createdAt", "timestamp"):
+            ts = _parse_timestamp(meta.get(key))
+            if ts:
+                return ts
+
+    meta_path = upload_dir / "meta.json"
+    if meta_path.exists():
+        return datetime.fromtimestamp(meta_path.stat().st_mtime)
+    if upload_dir.exists():
+        return datetime.fromtimestamp(upload_dir.stat().st_mtime)
+    return None
+
+
+def cleanup_expired_training_uploads(max_age_hours: int = 24) -> int:
+    if not UPLOADS_DIR.exists():
+        return 0
+
+    cutoff = datetime.now() - timedelta(hours=max_age_hours)
+    deleted = 0
+    for upload_dir in UPLOADS_DIR.iterdir():
+        if not upload_dir.is_dir():
+            continue
+        ts = _upload_timestamp(upload_dir)
+        if ts is None or ts > cutoff:
+            continue
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        deleted += 1
+    return deleted
 
 
 def resolve_download_path(filename: str, allowed_suffix: str = ".pptx") -> Path:

@@ -232,12 +232,6 @@ class SearchResult(BaseModel):
 
 # ==================== 培训模型 ====================
 
-class TrainingSource(BaseModel):
-    """培训数据来源"""
-    type: str  # knowledge_base, uploaded_document, new_document
-    ids: List[str] = []
-
-
 class TrainingConfig(BaseModel):
     """培训配置"""
     model_config = ConfigDict(protected_namespaces=())
@@ -249,37 +243,6 @@ class TrainingConfig(BaseModel):
     focus_areas: List[str] = ["理论知识", "操作流程", "案例分析"]
     template: str = "公司标准模板"
     model_id: Optional[str] = None
-
-
-class TrainingOutlineRequest(BaseModel):
-    """生成大纲请求"""
-    source: TrainingSource
-    config: TrainingConfig
-
-
-class TrainingOutline(BaseModel):
-    """PPT大纲"""
-    title: str
-    chapters: List[Dict[str, Any]]
-    total_slides: int
-    estimated_duration: int
-
-
-class TrainingGenerateRequest(BaseModel):
-    """生成PPT请求"""
-    source: TrainingSource
-    config: TrainingConfig
-    outline: TrainingOutline
-
-
-class TrainingJob(BaseModel):
-    """培训生成任务"""
-    job_id: str
-    status: str  # pending, extracting, generating, completed, failed
-    progress: int = 0
-    message: str = ""
-    output_file: Optional[str] = None
-    created_at: str
 
 
 # ==================== 新版 PPT 工作流模型 ====================
