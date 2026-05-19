@@ -44,6 +44,7 @@ from backend.services.wiki import wiki_service
 from backend.services.chat import chat_service
 from backend.services.search import search_service
 from backend.services.training import training_service
+from backend.services.training_html import training_html_service
 from backend.services.training_ppt import training_payload_to_request, training_ppt_service
 from backend.services.llm import llm_service
 from backend.services.assistant_prompt import optimize_prompt as optimize_assistant_prompt
@@ -588,7 +589,7 @@ async def generate_training_html(payload: TrainingHtmlGenerateRequest):
     if task is not None:
         register_running_job(payload.job_id, task)
     try:
-        result = await training_service.generate_html_material(payload)
+        result = await training_html_service.generate_material(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except asyncio.CancelledError:

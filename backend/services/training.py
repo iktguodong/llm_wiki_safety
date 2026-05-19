@@ -12,30 +12,6 @@ from backend.services.presentation.pptx_renderer import render_presentation
 from backend.services.presentation.quality_check import check_presentation
 from backend.services.presentation.slide_planner import plan_slides
 from backend.services.presentation.safety_templates import get_template
-from backend.services import training_html as _training_html
-from backend.services.training_html import (
-    HTML_GENERATION_MAX_CONTINUATIONS,
-    HTML_GENERATION_MAX_TOKENS,
-    MAX_HTML_SOURCE_CONTEXT_CHARS,
-    TRAINING_HTML_PROMPT_TEMPLATE,
-    build_training_html_download_name,
-    build_training_html_prompt,
-    collect_training_html_source_context,
-    count_html_slides,
-    extract_html_from_model_output,
-    inject_training_html_controls,
-    inject_training_html_safety_styles,
-    normalize_training_html_structure,
-    save_training_html_failure,
-    save_training_html_file,
-    training_html_service,
-    wrap_slide_fragments_as_html,
-    _generate_html_with_continuation,
-    _repair_html_output,
-    _repair_html_slide_count,
-    _slide_sections_from_text,
-)
-
 
 def _as_dict(data: Any) -> dict[str, Any]:
     if hasattr(data, "model_dump"):
@@ -188,11 +164,5 @@ class TrainingService:
             "notes_download_url": render_info.get("notes_download_url"),
             "notes_filename": render_info.get("notes_filename"),
         }
-
-    async def generate_html_material(self, request):
-        _training_html.save_training_html_file = save_training_html_file
-        _training_html.save_training_html_failure = save_training_html_failure
-        return await training_html_service.generate_material(request)
-
 
 training_service = TrainingService()

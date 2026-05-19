@@ -6,7 +6,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 import backend.config as backend_config
-import backend.services.training as training_module
+import backend.services.training_html as training_module
 from backend.models import TrainingHtmlGenerateRequest, TrainingSourceInput
 from backend.services.presentation.project_store import save_upload_metadata
 
@@ -28,7 +28,7 @@ async def test_training_html_prompt_receives_page_count_and_user_fields(monkeypa
     monkeypatch.setattr(training_module.llm_service, "chat_events", fake_chat_events)
     monkeypatch.setattr(training_module, "save_training_html_file", lambda html: ("training_html_test.html", "/api/training/download-html/training_html_test.html", "/api/training/download-html/training_html_test.html"))
 
-    result = await training_module.training_service.generate_html_material(
+    result = await training_module.training_html_service.generate_material(
         TrainingHtmlGenerateRequest(
             title="有限空间作业安全培训",
             report_date="2026年5月",
@@ -84,7 +84,7 @@ async def test_training_html_uses_sources_for_temporary_upload(monkeypatch, tmp_
     monkeypatch.setattr(training_module.llm_service, "chat_events", fake_chat_events)
     monkeypatch.setattr(training_module, "save_training_html_file", lambda html: ("training_html_test.html", "/api/training/download-html/training_html_test.html", "/api/training/download-html/training_html_test.html"))
 
-    result = await training_module.training_service.generate_html_material(
+    result = await training_module.training_html_service.generate_material(
         TrainingHtmlGenerateRequest(
             title="测试",
             sources=[TrainingSourceInput(type="temporary_upload", upload_id=upload_id)],
@@ -188,7 +188,7 @@ async def test_training_html_auto_continues_when_model_hits_length(monkeypatch):
     monkeypatch.setattr(training_module.llm_service, "chat_events", fake_chat_events)
     monkeypatch.setattr(training_module, "save_training_html_file", lambda html: ("training_html_test.html", "/api/training/download-html/training_html_test.html", "/api/training/download-html/training_html_test.html"))
 
-    result = await training_module.training_service.generate_html_material(
+    result = await training_module.training_html_service.generate_material(
         TrainingHtmlGenerateRequest(title="测试", document_ids=[], page_count=18)
     )
 
@@ -209,7 +209,7 @@ async def test_training_html_surfaces_llm_api_error(monkeypatch):
     monkeypatch.setattr(training_module.llm_service, "chat_events", fake_chat_events)
 
     with pytest.raises(ValueError, match="max_tokens is too large"):
-        await training_module.training_service.generate_html_material(
+        await training_module.training_html_service.generate_material(
             TrainingHtmlGenerateRequest(title="测试", document_ids=[], page_count=18)
         )
 
@@ -223,7 +223,7 @@ async def test_training_html_wraps_slide_fragments_when_model_omits_shell(monkey
     monkeypatch.setattr(training_module.llm_service, "chat_events", fake_chat_events)
     monkeypatch.setattr(training_module, "save_training_html_file", lambda html: ("training_html_test.html", "/api/training/download-html/training_html_test.html", "/api/training/download-html/training_html_test.html"))
 
-    result = await training_module.training_service.generate_html_material(
+    result = await training_module.training_html_service.generate_material(
         TrainingHtmlGenerateRequest(title="测试", document_ids=[], page_count=5)
     )
 
@@ -256,7 +256,7 @@ async def test_training_html_repairs_plain_non_html_output(monkeypatch):
     monkeypatch.setattr(training_module.llm_service, "chat_events", fake_chat_events)
     monkeypatch.setattr(training_module, "save_training_html_file", lambda html: ("training_html_test.html", "/api/training/download-html/training_html_test.html", "/api/training/download-html/training_html_test.html"))
 
-    result = await training_module.training_service.generate_html_material(
+    result = await training_module.training_html_service.generate_material(
         TrainingHtmlGenerateRequest(title="测试", document_ids=[], page_count=5)
     )
 
@@ -292,7 +292,7 @@ async def test_training_html_repairs_slide_count_mismatch(monkeypatch):
     monkeypatch.setattr(training_module.llm_service, "chat_events", fake_chat_events)
     monkeypatch.setattr(training_module, "save_training_html_file", lambda html: ("training_html_test.html", "/api/training/download-html/training_html_test.html", "/api/training/download-html/training_html_test.html"))
 
-    result = await training_module.training_service.generate_html_material(
+    result = await training_module.training_html_service.generate_material(
         TrainingHtmlGenerateRequest(title="测试", document_ids=[], page_count=15)
     )
 
@@ -317,7 +317,7 @@ async def test_training_html_saves_failed_raw_when_repair_fails(monkeypatch):
     monkeypatch.setattr(training_module, "save_training_html_failure", fake_save_failure)
 
     with pytest.raises(ValueError, match="training_html_failed_test.txt"):
-        await training_module.training_service.generate_html_material(
+        await training_module.training_html_service.generate_material(
             TrainingHtmlGenerateRequest(title="测试", document_ids=[], page_count=5)
         )
 
