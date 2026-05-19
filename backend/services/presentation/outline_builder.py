@@ -6,7 +6,6 @@ import asyncio
 import json
 import re
 import uuid
-from typing import Any
 
 from backend.config import config
 from backend.services.llm import llm_service
@@ -450,6 +449,8 @@ async def generate_outline(content_pack: ContentPack, settings: Any, llm_client=
                 break
 
     if model_available:
+        # 在发起 LLM 调用前让出控制权，使 task.cancel() 能及时生效
+        await asyncio.sleep(0)
         try:
             prompt = _build_prompt(content_pack, settings_dict)
             messages = [

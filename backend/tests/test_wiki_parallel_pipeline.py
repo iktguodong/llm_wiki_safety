@@ -73,7 +73,7 @@ async def test_extract_chunk_card_accepts_json_array(monkeypatch):
         chunk_text="chunk",
         chunk_index=1,
         chunk_total=1,
-        model_id="mock-doc-parse",
+        model_id="deepseek-v4-flash",
     )
 
     assert card["chunk_summary"] == "分块摘要"
@@ -84,21 +84,21 @@ async def test_extract_chunk_card_accepts_json_array(monkeypatch):
 async def test_parallel_parse_document_generates_pages(isolated_training_env, monkeypatch):
     config_module.config["models"]["providers"] = [
         {
-            "id": "mock",
-            "name": "Mock Provider",
-            "base_url": "https://mock.invalid",
+            "id": "deepseek",
+            "name": "DeepSeek",
+            "base_url": "https://api.deepseek.com",
             "api_key": "test-key",
             "models": [
-                {"id": "mock-doc-parse", "name": "Mock Doc Parse", "type": "chat"},
+                {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "type": "chat"},
             ],
         }
     ]
     config_module.config["models"]["model_roles"] = {
-        "doc_parse": "mock-doc-parse",
-        "qa_chat": "mock-doc-parse",
-        "ppt_gen": "mock-doc-parse",
+        "doc_parse": "deepseek-v4-flash",
+        "qa_chat": "deepseek-v4-flash",
+        "ppt_gen": "deepseek-v4-flash",
     }
-    config_module.config["current_model_id"] = "mock-doc-parse"
+    config_module.config["current_model_id"] = "deepseek-v4-flash"
 
     kb = await kb_service.create(KnowledgeBaseCreate(name="并行解析测试"))
 
@@ -196,7 +196,7 @@ async def test_parallel_parse_document_generates_pages(isolated_training_env, mo
     monkeypatch.setattr(WikiService, "_extract_chunk_card", staticmethod(fake_extract_chunk_card))
     monkeypatch.setattr(WikiService, "_render_page_markdown", staticmethod(fake_render_page_markdown))
 
-    await wiki_service.parse_document(kb.id, doc.id, model_id="mock-doc-parse")
+    await wiki_service.parse_document(kb.id, doc.id, model_id="deepseek-v4-flash")
 
     docs = await doc_service.list_documents(kb.id)
     assert docs[0].parse_status == "completed"
@@ -215,21 +215,21 @@ async def test_parallel_parse_document_generates_pages(isolated_training_env, mo
 async def test_parse_document_falls_back_to_source_excerpt(isolated_training_env, monkeypatch):
     config_module.config["models"]["providers"] = [
         {
-            "id": "mock",
-            "name": "Mock Provider",
-            "base_url": "https://mock.invalid",
+            "id": "deepseek",
+            "name": "DeepSeek",
+            "base_url": "https://api.deepseek.com",
             "api_key": "test-key",
             "models": [
-                {"id": "mock-doc-parse", "name": "Mock Doc Parse", "type": "chat"},
+                {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "type": "chat"},
             ],
         }
     ]
     config_module.config["models"]["model_roles"] = {
-        "doc_parse": "mock-doc-parse",
-        "qa_chat": "mock-doc-parse",
-        "ppt_gen": "mock-doc-parse",
+        "doc_parse": "deepseek-v4-flash",
+        "qa_chat": "deepseek-v4-flash",
+        "ppt_gen": "deepseek-v4-flash",
     }
-    config_module.config["current_model_id"] = "mock-doc-parse"
+    config_module.config["current_model_id"] = "deepseek-v4-flash"
 
     kb = await kb_service.create(KnowledgeBaseCreate(name="兜底摘要测试"))
     source_text = (
@@ -262,7 +262,7 @@ async def test_parse_document_falls_back_to_source_excerpt(isolated_training_env
     monkeypatch.setattr(WikiService, "_extract_chunk_card", staticmethod(fake_extract_chunk_card))
     monkeypatch.setattr(WikiService, "_render_page_markdown", staticmethod(fake_render_page_markdown))
 
-    await wiki_service.parse_document(kb.id, doc.id, model_id="mock-doc-parse")
+    await wiki_service.parse_document(kb.id, doc.id, model_id="deepseek-v4-flash")
 
     docs = await doc_service.list_documents(kb.id)
     assert docs[0].parse_status == "completed"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -2913,7 +2914,7 @@ class TrainingHtmlService:
         if not title:
             raise ValueError("本次材料标题不能为空")
 
-        source_context = collect_training_html_source_context(request)
+        source_context = await asyncio.to_thread(collect_training_html_source_context, request)
         prompt = build_training_html_prompt(
             title=title,
             report_date=request.report_date,

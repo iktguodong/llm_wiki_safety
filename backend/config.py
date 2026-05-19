@@ -18,12 +18,15 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 KB_ROOT = Path(__file__).parent.parent / "knowledge-bases"
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
+DEFAULT_MODEL_ID = "deepseek-v4-flash"
+
+
 # 默认配置
 DEFAULT_CONFIG = {
     "version": "1.0.0",
     "app_name": "安牛",
     "current_kb_id": None,
-    "current_model_id": "deepseek-v4-flash",
+    "current_model_id": DEFAULT_MODEL_ID,
     "models": {
         "providers": [
             {
@@ -62,9 +65,9 @@ DEFAULT_CONFIG = {
             }
         ],
         "model_roles": {
-            "doc_parse": "deepseek-v4-flash",
-            "qa_chat": "deepseek-v4-flash",
-            "ppt_gen": "deepseek-v4-flash"
+            "doc_parse": DEFAULT_MODEL_ID,
+            "qa_chat": DEFAULT_MODEL_ID,
+            "ppt_gen": DEFAULT_MODEL_ID
         }
     },
     "knowledge_bases": {},
@@ -76,31 +79,75 @@ DEFAULT_CONFIG = {
 }
 
 
-def _ensure_default_model_providers(config: dict):
-    """确保默认模型服务商始终存在，避免老配置缺少新预设。"""
+def _ensure_default_model_providers(config: dict) -> bool:
+    """确保三个默认模型服务商存在，避免老配置缺少新预设。"""
+    changed = False
     models = config.setdefault("models", {})
     providers = models.setdefault("providers", [])
 
     if not isinstance(providers, list):
         models["providers"] = deepcopy(DEFAULT_CONFIG["models"]["providers"])
-        return
+        providers = models["providers"]
+        changed = True
 
     existing_ids = {provider.get("id") for provider in providers if isinstance(provider, dict)}
     for default_provider in DEFAULT_CONFIG["models"]["providers"]:
         if default_provider["id"] not in existing_ids:
             providers.append(deepcopy(default_provider))
+            changed = True
+
+    default_providers = {provider["id"]: provider for provider in DEFAULT_CONFIG["models"]["providers"]}
+    allowed_ids = set(default_providers)
+    provider_by_id = {
+        provider.get("id"): provider
+        for provider in providers
+        if isinstance(provider, dict) and provider.get("id") in allowed_ids
+    }
+    ordered_providers = [
+        provider_by_id[default_provider["id"]]
+        for default_provider in DEFAULT_CONFIG["models"]["providers"]
+        if default_provider["id"] in provider_by_id
+    ]
+    if ordered_providers != providers:
+        models["providers"] = ordered_providers
+        providers = ordered_providers
+        changed = True
 
     for provider in providers:
-        if not isinstance(provider, dict):
+        default_provider = default_providers.get(provider.get("id"))
+        if not default_provider:
             continue
-        if provider.get("id") == "silicon":
-            provider.setdefault("name", "SiliconFlow")
-            provider.setdefault("base_url", "https://api.siliconflow.cn/v1")
-            if not provider.get("models"):
-                provider["models"] = deepcopy(DEFAULT_CONFIG["models"]["providers"][1]["models"])
-        elif provider.get("id") == "bailian":
-            provider.setdefault("name", "阿里云百炼")
-            provider.setdefault("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        if not provider.get("name"):
+            provider["name"] = default_provider["name"]
+            changed = True
+        if not provider.get("base_url"):
+            provider["base_url"] = default_provider["base_url"]
+            changed = True
+        if not provider.get("models"):
+            provider["models"] = deepcopy(default_provider["models"])
+            changed = True
+
+    return changed
+
+
+def normalize_default_model_selection(config: dict) -> bool:
+    """把全局默认和功能默认模型固定为 DeepSeek V4 Flash。"""
+    changed = _ensure_default_model_providers(config)
+    models = config.setdefault("models", {})
+    normalized_roles = {
+        "doc_parse": DEFAULT_MODEL_ID,
+        "qa_chat": DEFAULT_MODEL_ID,
+        "ppt_gen": DEFAULT_MODEL_ID,
+    }
+    if models.get("model_roles") != normalized_roles:
+        models["model_roles"] = normalized_roles
+        changed = True
+
+    if config.get("current_model_id") != DEFAULT_MODEL_ID:
+        config["current_model_id"] = DEFAULT_MODEL_ID
+        changed = True
+
+    return changed
 
 
 def ensure_config_dir():
@@ -128,11 +175,7 @@ def load_config() -> dict:
             else:
                 config[key] = value
 
-    _ensure_default_model_providers(config)
-
-    model_roles = config.get("models", {}).get("model_roles", {})
-    if model_roles.get("ppt_gen") == "deepseek-v4-pro":
-        model_roles["ppt_gen"] = "deepseek-v4-flash"
+    if normalize_default_model_selection(config):
         save_config(config)
 
     return config
@@ -141,6 +184,7 @@ def load_config() -> dict:
 def save_config(config: dict):
     """保存配置"""
     ensure_config_dir()
+    normalize_default_model_selection(config)
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
 

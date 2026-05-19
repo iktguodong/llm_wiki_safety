@@ -1,8 +1,8 @@
-"""
-LLM调用服务
+"""LLM调用服务
 封装OpenAI兼容API的调用，支持多模型切换
 """
 
+import asyncio
 import json
 import httpx
 from typing import AsyncGenerator, Dict, List, Optional, Any
@@ -207,6 +207,8 @@ class LLMService:
                         finish_reason = maybe_finish_reason
 
             yield {"type": "done", "finish_reason": finish_reason}
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             yield {"type": "error", "message": self._format_request_exception(e, provider, model)}
 

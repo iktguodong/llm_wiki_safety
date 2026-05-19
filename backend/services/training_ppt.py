@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -65,7 +66,7 @@ class TrainingPptService:
             extra={"event": "training_outline_generation", "job_id": job_id, "model_id": model_id, "status": "started"},
         )
         try:
-            content_pack = build_content_pack(request, job_id)
+            content_pack = await asyncio.to_thread(build_content_pack, request, job_id)
             outline = await build_outline(content_pack, request, llm_service)
         except Exception as exc:
             logger.exception(
@@ -117,7 +118,7 @@ class TrainingPptService:
             extra={"event": "training_ppt_generation", "job_id": job_id, "model_id": model_id, "status": "started"},
         )
         try:
-            content_pack = build_content_pack(request, job_id)
+            content_pack = await asyncio.to_thread(build_content_pack, request, job_id)
             outline_payload = payload.get("outline")
             if outline_payload:
                 outline = TrainingOutlineV2(**outline_payload)
