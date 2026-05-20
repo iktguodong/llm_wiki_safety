@@ -99,6 +99,53 @@ async def test_training_html_uses_sources_for_temporary_upload(monkeypatch, tmp_
     assert result["slide_count"] == 1
 
 
+@pytest.mark.asyncio
+async def test_training_html_reports_progress(monkeypatch):
+    progress_calls: list[str] = []
+    received_job_ids: list[str | None] = []
+
+    async def fake_chat_events(messages, model_id=None, stream=False, temperature=0.7, max_tokens=None):
+        yield {
+            "type": "chunk",
+            "content": """<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><style>.slide{}</style></head>
+<body><section class="slide">1</section><script></script></body></html>""",
+        }
+        yield {"type": "done", "finish_reason": "stop"}
+
+    def fake_update_job_progress(job_id, message):
+        if job_id:
+            progress_calls.append(message)
+
+    def fake_collect_training_html_source_context(request, job_id=None):
+        received_job_ids.append(job_id)
+        return "资料内容"
+
+    monkeypatch.setattr(training_module, "update_job_progress", fake_update_job_progress)
+    monkeypatch.setattr(training_module, "collect_training_html_source_context", fake_collect_training_html_source_context)
+    monkeypatch.setattr(training_module.llm_service, "chat_events", fake_chat_events)
+    monkeypatch.setattr(training_module, "count_html_slides", lambda html: 5)
+    monkeypatch.setattr(training_module, "save_training_html_file", lambda html: ("training_html_test.html", "/api/training/download-html/training_html_test.html", "/api/training/download-html/training_html_test.html"))
+
+    result = await training_module.training_html_service.generate_material(
+        TrainingHtmlGenerateRequest(
+            title="测试",
+            document_ids=[],
+            page_count=5,
+            job_id="html-job-1",
+        )
+    )
+
+    assert received_job_ids == ["html-job-1"]
+    assert progress_calls[0] == "正在解析文档/输入..."
+    assert "正在生成网页..." in progress_calls
+    assert any(msg.startswith("正在生成网页（第 1/3 轮）") for msg in progress_calls)
+    assert "正在修复网页结构..." in progress_calls
+    assert "正在检查网页页数..." in progress_calls
+    assert "正在保存网页文件..." in progress_calls
+    assert result["slide_count"] == 5
+
+
 def test_training_html_download_name_uses_title(monkeypatch, tmp_path):
     monkeypatch.setattr(backend_config, "OUTPUT_DIR", tmp_path)
 

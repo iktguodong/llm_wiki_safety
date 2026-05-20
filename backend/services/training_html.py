@@ -16,12 +16,18 @@ from backend.config import config
 from backend.models import TrainingHtmlGenerateRequest, TrainingSourceInput
 from backend.services.llm import llm_service
 from backend.services.presentation.content_pack import build_content_pack
+from backend.services.presentation.project_store import update_job_progress
 
 logger = logging.getLogger(__name__)
 
 MAX_HTML_SOURCE_CONTEXT_CHARS = 18000
 HTML_GENERATION_MAX_TOKENS = 16384
 HTML_GENERATION_MAX_CONTINUATIONS = 2
+
+
+def _set_html_progress(job_id: str | None, message: str) -> None:
+    if job_id:
+        update_job_progress(job_id, message)
 
 TRAINING_HTML_PROMPT_TEMPLATE = """你是“企业安全生产培训与汇报展示 HTML 材料生成专家”。
 
@@ -472,7 +478,10 @@ def build_training_html_prompt(
     )
 
 
-def collect_training_html_source_context(request: TrainingHtmlGenerateRequest) -> str:
+def collect_training_html_source_context(
+    request: TrainingHtmlGenerateRequest,
+    job_id: str | None = None,
+) -> str:
     sources = [
         source if isinstance(source, TrainingSourceInput) else TrainingSourceInput(**source.model_dump() if hasattr(source, "model_dump") else dict(source))
         for source in request.sources
@@ -498,7 +507,8 @@ def collect_training_html_source_context(request: TrainingHtmlGenerateRequest) -
             "topic": request.title,
             "audience": request.audience or "",
             "prefer_wiki_pages": True,
-        }
+        },
+        job_id,
     )
     parts: list[str] = []
     for index, chunk in enumerate(pack.chunks, start=1):
@@ -2846,12 +2856,15 @@ async def _generate_html_with_continuation(
     messages: list[dict[str, str]],
     *,
     model_id: str | None,
+    job_id: str | None = None,
 ) -> str:
     """Generate long HTML and continue when the model stops because of length."""
     current_messages = list(messages)
     output_parts: list[str] = []
+    total_rounds = HTML_GENERATION_MAX_CONTINUATIONS + 1
 
     for attempt in range(HTML_GENERATION_MAX_CONTINUATIONS + 1):
+        _set_html_progress(job_id, f"正在生成网页（第 {attempt + 1}/{total_rounds} 轮）...")
         part_parts: list[str] = []
         finish_reason: str | None = None
         async for event in llm_service.chat_events(
@@ -2881,6 +2894,7 @@ async def _generate_html_with_continuation(
             raise ValueError("模型输出达到长度上限，自动续写后仍未完成 HTML。请减少页数或精简文档内容后重试。")
 
         current_output = "".join(output_parts)
+        _set_html_progress(job_id, "正在续写网页内容...")
         # 只回传最后一个已闭合 </section> 之后的尾部，减少接下来的输入 token 占用
         last_closed = current_output.rfind("</section>")
         if last_closed >= 0:
@@ -2914,7 +2928,8 @@ class TrainingHtmlService:
         if not title:
             raise ValueError("本次材料标题不能为空")
 
-        source_context = await asyncio.to_thread(collect_training_html_source_context, request)
+        _set_html_progress(request.job_id, "正在解析文档/输入...")
+        source_context = await asyncio.to_thread(collect_training_html_source_context, request, request.job_id)
         prompt = build_training_html_prompt(
             title=title,
             report_date=request.report_date,
@@ -2935,6 +2950,7 @@ class TrainingHtmlService:
             },
         )
         try:
+            _set_html_progress(request.job_id, "正在生成网页...")
             raw = await _generate_html_with_continuation(
                 [
                     {
@@ -2944,6 +2960,7 @@ class TrainingHtmlService:
                     {"role": "user", "content": prompt},
                 ],
                 model_id=model_id,
+                job_id=request.job_id,
             )
         except ValueError as exc:
             logger.warning(
@@ -2960,6 +2977,7 @@ class TrainingHtmlService:
             raise
 
         try:
+            _set_html_progress(request.job_id, "正在修复网页结构...")
             html = extract_html_from_model_output(raw)
         except ValueError:
             fragments = _slide_sections_from_text(raw)
@@ -2987,9 +3005,11 @@ class TrainingHtmlService:
                         f"失败原文已保存到 output/{failure_file}。模型输出开头：{preview}"
                     ) from exc
         html = inject_training_html_safety_styles(html)
+        _set_html_progress(request.job_id, "正在检查网页页数...")
         slide_count = count_html_slides(html)
         if slide_count != request.page_count:
             try:
+                _set_html_progress(request.job_id, "正在调整网页页数...")
                 repaired_html = await _repair_html_slide_count(
                     html,
                     title=title,
@@ -3016,6 +3036,7 @@ class TrainingHtmlService:
                 },
             )
         try:
+            _set_html_progress(request.job_id, "正在保存网页文件...")
             filename, download_url, preview_url = save_training_html_file(html, title=title, job_id=request.job_id)
         except TypeError:
             filename, download_url, preview_url = save_training_html_file(html)
