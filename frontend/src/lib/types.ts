@@ -240,11 +240,20 @@ export interface TrainingOutlinePoint {
   description: string;
 }
 
+export interface TrainingSlideSection {
+  id: string;
+  subtitle: string;
+  paragraphs: string[];
+  notes?: string | null;
+  source_refs: TrainingSourceRef[];
+}
+
 export interface TrainingOutlineSlide {
   id: string;
   slide_no: number;
   title: string;
   subtitle?: string | null;
+  sections: TrainingSlideSection[];
   points: TrainingOutlinePoint[];
   body_paragraphs: string[];
   key_points: string[];
@@ -286,6 +295,7 @@ export interface SlideSpec {
   title: string;
   subtitle?: string | null;
   key_message?: string | null;
+  sections: TrainingSlideSection[];
   bullets: string[];
   body_paragraphs: string[];
   notes?: string | null;

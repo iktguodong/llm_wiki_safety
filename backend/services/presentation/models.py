@@ -67,11 +67,20 @@ class TrainingOutlinePoint(BaseModel):
     description: str = ""
 
 
+class TrainingSlideSection(BaseModel):
+    id: str
+    subtitle: str
+    paragraphs: list[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+    source_refs: list[SourceRef] = Field(default_factory=list)
+
+
 class TrainingOutlineSlide(BaseModel):
     id: str
     slide_no: int
     title: str
     subtitle: Optional[str] = None
+    sections: list[TrainingSlideSection] = Field(default_factory=list)
     points: list[TrainingOutlinePoint] = Field(default_factory=list)
     body_paragraphs: list[str] = Field(default_factory=list)
     key_points: list[str] = Field(default_factory=list)
@@ -128,6 +137,7 @@ class SlideSpec(BaseModel):
     title: str
     subtitle: Optional[str] = None
     key_message: Optional[str] = None
+    sections: list[TrainingSlideSection] = Field(default_factory=list)
     bullets: list[str] = Field(default_factory=list)
     body_paragraphs: list[str] = Field(default_factory=list)
     notes: Optional[str] = None

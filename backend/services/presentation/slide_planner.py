@@ -13,6 +13,7 @@ from backend.models import (
     SlideSpec,
     TrainingOutline,
     TrainingOutlineSlide,
+    TrainingSlideSection,
     TrainingSourceRef,
 )
 from backend.services.presentation.content_pack import ContentPack
@@ -46,9 +47,55 @@ def _point_lines(slide: TrainingOutlineSlide) -> list[str]:
     return [re.sub(r"\s+", " ", k).strip()[:48] for k in slide.key_points[:5]]
 
 
-def _body_paragraphs(slide: TrainingOutlineSlide) -> list[str]:
+def _normalize_section_paragraphs(paragraphs: list[str]) -> list[str]:
+    return [re.sub(r"\s+", " ", p).strip() for p in paragraphs if str(p).strip()][:4]
+
+
+def _normalize_sections(slide: TrainingOutlineSlide) -> list[TrainingSlideSection]:
+    sections = list(getattr(slide, "sections", []) or [])
+    if sections:
+        normalized: list[TrainingSlideSection] = []
+        for idx, section in enumerate(sections, start=1):
+            subtitle = re.sub(r"\s+", " ", section.subtitle).strip()
+            if not subtitle:
+                subtitle = f"小节{idx}"
+            normalized.append(TrainingSlideSection(
+                id=section.id or f"section-{idx}",
+                subtitle=subtitle[:48],
+                paragraphs=_normalize_section_paragraphs(list(getattr(section, "paragraphs", []) or [])),
+                notes=section.notes,
+                source_refs=_normalize_refs(list(section.source_refs)),
+            ))
+        return normalized
+
     paragraphs = [re.sub(r"\s+", " ", p).strip() for p in getattr(slide, "body_paragraphs", []) if str(p).strip()]
-    return paragraphs[:4]
+    if paragraphs:
+        return [TrainingSlideSection(
+            id=f"section-{slide.id[:8]}-1",
+            subtitle=(slide.subtitle or slide.title)[:48],
+            paragraphs=paragraphs[:4],
+        )]
+
+    lines = _point_lines(slide)
+    if lines:
+        return [TrainingSlideSection(
+            id=f"section-{slide.id[:8]}-1",
+            subtitle=(slide.subtitle or slide.title)[:48],
+            paragraphs=lines[:4],
+        )]
+    return []
+
+
+def _body_paragraphs(slide: TrainingOutlineSlide) -> list[str]:
+    sections = _normalize_sections(slide)
+    if sections:
+        flattened = []
+        for section in sections:
+            flattened.extend(section.paragraphs[:4])
+        if flattened:
+            return flattened[:10]
+    paragraphs = [re.sub(r"\s+", " ", p).strip() for p in getattr(slide, "body_paragraphs", []) if str(p).strip()]
+    return paragraphs[:10]
 
 
 def _slide_type(st: str) -> str:
@@ -74,8 +121,9 @@ def _safety_level(st: str) -> str:
 def _convert_slide(slide: TrainingOutlineSlide) -> SlideSpec:
     st = _slide_type(slide.slide_type)
     subtitle = slide.subtitle or slide.layout_hint
+    sections = _normalize_sections(slide)
     body_paragraphs = _body_paragraphs(slide)
-    bullets = body_paragraphs or _point_lines(slide)
+    bullets = _point_lines(slide)
     key_message = subtitle or ""
     if not key_message and bullets:
         key_message = "；".join(bullets[:2])
@@ -87,8 +135,8 @@ def _convert_slide(slide: TrainingOutlineSlide) -> SlideSpec:
         id=slide.id, slide_no=slide.slide_no, slide_type=st,
         title=slide.title, subtitle=subtitle,
         key_message=key_message[:96] if key_message else slide.title,
-        bullets=bullets, body_paragraphs=body_paragraphs, source_refs=_normalize_refs(slide.source_refs),
-        visual_type="text" if body_paragraphs else _visual_type(st), safety_level=_safety_level(st),
+        sections=sections, bullets=bullets, body_paragraphs=body_paragraphs, source_refs=_normalize_refs(slide.source_refs),
+        visual_type="text" if (sections or body_paragraphs) else _visual_type(st), safety_level=_safety_level(st),
     )
 
 

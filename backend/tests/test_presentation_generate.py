@@ -51,7 +51,7 @@ def test_outline_to_pptx_full_chain(isolated_training_env, monkeypatch):
 
     class MockLLM:
         async def chat_sync(self, messages, model_id=None, temperature=0.7, max_tokens=None):
-            return '{"slides":[{"title":"危化品仓库风险","points":[{"title":"主要风险","description":"识别关键风险点"}]},{"title":"应急处置流程","points":[{"title":"报警","description":"第一时间报警"}]},{"title":"总结","points":[{"title":"行动项","description":"落实整改"}]}]}'
+            return '{"slides":[{"title":"危化品仓库风险","sections":[{"subtitle":"主要风险"}]},{"title":"应急处置流程","sections":[{"subtitle":"报警"},{"subtitle":"处置"}]},{"title":"总结","sections":[{"subtitle":"行动项"}]}]}'
 
     req = PromptReq()
     pack = build_content_pack(req)

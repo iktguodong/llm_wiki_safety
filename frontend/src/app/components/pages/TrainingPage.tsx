@@ -6,14 +6,12 @@ import { docApi, trainingApi } from '../../../lib/api';
 import type {
   DocumentInfo,
   KnowledgeBase,
-  PresentationSpec,
-  QualityReport,
   TrainingGenerateResponse,
   TrainingHtmlGenerateResponse,
   TrainingOutline,
-  TrainingOutlinePoint,
   TrainingOutlineResponse,
   TrainingOutlineSlide,
+  TrainingSlideSection,
   TrainingSourceInput,
   TrainingStyle,
 } from '../../../lib/types';
@@ -317,24 +315,35 @@ function buildSlideCount(choice: SlideCountChoice, customSlideCount: number) {
   return Number(choice);
 }
 
-function pointLabel(point: TrainingOutlinePoint) {
-  const title = point.title.trim();
-  const description = point.description.trim();
-  if (title && description) return `${title}：${description}`;
-  return title || description;
-}
-
-function slideEditablePoints(slide: TrainingOutlineSlide): TrainingOutlinePoint[] {
-  if (slide.points && slide.points.length > 0) {
-    return slide.points;
+function slideEditableSections(slide: TrainingOutlineSlide): TrainingSlideSection[] {
+  if (slide.sections && slide.sections.length > 0) {
+    return slide.sections;
   }
-  return (slide.key_points || []).map((item) => {
-    const [title, ...rest] = item.split(/[：:]/);
-    return {
-      title: (title || item).trim(),
-      description: rest.join('：').trim(),
-    };
-  });
+  if (slide.points && slide.points.length > 0) {
+    return slide.points.map((point, index) => ({
+      id: `${slide.id}-section-${index}`,
+      subtitle: (point.title || point.description || `小节${index + 1}`).trim(),
+      paragraphs: point.description ? [point.description] : [],
+      notes: null,
+      source_refs: [],
+    }));
+  }
+  if (slide.body_paragraphs && slide.body_paragraphs.length > 0) {
+    return [{
+      id: `${slide.id}-section-1`,
+      subtitle: slide.subtitle || slide.title,
+      paragraphs: slide.body_paragraphs,
+      notes: null,
+      source_refs: [],
+    }];
+  }
+  return [{
+    id: `${slide.id}-section-1`,
+    subtitle: slide.subtitle || slide.title,
+    paragraphs: ['内容待补充'],
+    notes: null,
+    source_refs: [],
+  }];
 }
 
 function OutlineSlideCard({
@@ -354,18 +363,26 @@ function OutlineSlideCard({
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
-  const points = slideEditablePoints(slide);
-  const updatePoints = (nextPoints: TrainingOutlinePoint[]) => {
-    const normalized = nextPoints
-      .map((point) => ({
-        title: point.title,
-        description: point.description,
+  const sections = slideEditableSections(slide);
+  const updateSections = (nextSections: TrainingSlideSection[]) => {
+    const normalized = nextSections
+      .map((section) => ({
+        id: section.id || `section-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        subtitle: section.subtitle,
+        paragraphs: (section.paragraphs || []).map((item) => String(item).trim()).filter(Boolean),
+        notes: section.notes ?? null,
+        source_refs: section.source_refs || [],
       }))
-      .filter((point) => point.title.trim() || point.description.trim());
+      .filter((section) => section.subtitle.trim() || section.paragraphs.length > 0);
     onChange({
       ...slide,
-      points: normalized,
-      key_points: normalized.map(pointLabel).filter(Boolean),
+      sections: normalized,
+      points: normalized.map((section) => ({
+        title: section.subtitle.trim() || '小节',
+        description: section.paragraphs[0] || section.notes || '',
+      })),
+      key_points: normalized.map((section) => section.subtitle.trim()).filter(Boolean),
+      body_paragraphs: normalized.flatMap((section) => section.paragraphs),
     });
   };
 
@@ -405,51 +422,114 @@ function OutlineSlideCard({
         </div>
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
-            <Label>页面要点</Label>
+            <Label>页面小节</Label>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => updatePoints([...points, { title: '新增要点', description: '补充要点说明' }])}
+              onClick={() =>
+                updateSections([
+                  ...sections,
+                  { id: `section-${Date.now()}`, subtitle: '新增小节', paragraphs: ['补充正文段落'], notes: null, source_refs: [] },
+                ])
+              }
             >
               <Plus className="mr-2 h-3.5 w-3.5" />
-              新增要点
+              新增小节
             </Button>
           </div>
-          {points.map((point, pointIndex) => (
-            <div key={`${slide.id}-point-${pointIndex}`} className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_auto]">
-              <Input
-                value={point.title}
-                onChange={(e) => {
-                  const next = [...points];
-                  next[pointIndex] = { ...point, title: e.target.value };
-                  updatePoints(next);
-                }}
-                placeholder="要点标题"
-                className={strongFieldClassName}
-              />
-              <Input
-                value={point.description}
-                onChange={(e) => {
-                  const next = [...points];
-                  next[pointIndex] = { ...point, description: e.target.value };
-                  updatePoints(next);
-                }}
-                placeholder="要点简述"
-                className={strongFieldClassName}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => updatePoints(points.filter((_, idx) => idx !== pointIndex))}
-                disabled={points.length <= 1}
-                aria-label="删除要点"
-              >
-                <Trash2 className="h-4 w-4 text-rose-500" />
-              </Button>
-            </div>
-          ))}
+          <div className="space-y-4">
+            {sections.map((section, sectionIndex) => (
+              <div key={`${slide.id}-section-${sectionIndex}`} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 space-y-1">
+                    <Label>小节标题</Label>
+                    <Input
+                      value={section.subtitle}
+                      onChange={(e) => {
+                        const next = [...sections];
+                        next[sectionIndex] = { ...section, subtitle: e.target.value };
+                        updateSections(next);
+                      }}
+                      placeholder="例如：风险识别与防控"
+                      className={strongFieldClassName}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => updateSections(sections.filter((_, idx) => idx !== sectionIndex))}
+                    disabled={sections.length <= 1}
+                    aria-label="删除小节"
+                  >
+                    <Trash2 className="h-4 w-4 text-rose-500" />
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label>paragraphs</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const next = [...sections];
+                        const current = next[sectionIndex];
+                        next[sectionIndex] = {
+                          ...current,
+                          paragraphs: [...(current.paragraphs || []), '补充正文段落'],
+                        };
+                        updateSections(next);
+                      }}
+                    >
+                      <Plus className="mr-2 h-3.5 w-3.5" />
+                      新增段落
+                    </Button>
+                  </div>
+                  {(section.paragraphs || []).map((paragraph, paragraphIndex) => (
+                    <div key={`${slide.id}-section-${sectionIndex}-paragraph-${paragraphIndex}`} className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <Label className="text-xs text-slate-500">段落 {paragraphIndex + 1}</Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            const next = [...sections];
+                            const current = next[sectionIndex];
+                            next[sectionIndex] = {
+                              ...current,
+                              paragraphs: current.paragraphs.filter((_, idx) => idx !== paragraphIndex),
+                            };
+                            updateSections(next);
+                          }}
+                          disabled={(section.paragraphs || []).length <= 1}
+                          aria-label="删除段落"
+                        >
+                          <Trash2 className="h-4 w-4 text-rose-500" />
+                        </Button>
+                      </div>
+                      <Textarea
+                        value={paragraph}
+                        onChange={(e) => {
+                          const next = [...sections];
+                          const current = next[sectionIndex];
+                          const paragraphs = [...(current.paragraphs || [])];
+                          paragraphs[paragraphIndex] = e.target.value;
+                          next[sectionIndex] = { ...current, paragraphs };
+                          updateSections(next);
+                        }}
+                        placeholder="这一段正文会直接出现在 PPT 中"
+                        className={strongTextareaClassName}
+                        rows={4}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -527,8 +607,6 @@ export default function TrainingPage() {
   const [selectedSources, setSelectedSources] = useState<TrainingSourceInput[]>(() => persistedDraft?.selectedSources || []);
   const [kbResources, setKbResources] = useState<Record<string, KbResources>>({});
   const [outline, setOutline] = useState<TrainingOutline | null>(null);
-  const [presentation, setPresentation] = useState<PresentationSpec | null>(null);
-  const [qualityReport, setQualityReport] = useState<QualityReport | null>(null);
   const [pptDownloadUrl, setPptDownloadUrl] = useState<string>('');
   const [pptFilename, setPptFilename] = useState<string>('');
   const [jobId, setJobId] = useState<string>('');
@@ -588,8 +666,6 @@ export default function TrainingPage() {
     }
     setPptDownloadUrl('');
     setPptFilename('');
-    setPresentation(null);
-    setQualityReport(null);
     if (kind === 'outline') {
       setOutline(null);
     }
@@ -781,8 +857,6 @@ export default function TrainingPage() {
     setHtmlRequirements('');
     setSelectedSources([]);
     setOutline(null);
-    setPresentation(null);
-    setQualityReport(null);
     setPptDownloadUrl('');
     setPptFilename('');
     resetHtmlGeneration();
@@ -813,7 +887,7 @@ export default function TrainingPage() {
           const next = [
             ...prev,
             {
-              type: 'temporary_upload',
+              type: 'temporary_upload' as const,
               upload_id: res.upload_id,
               title: res.filename,
               metadata: { detected_type: res.detected_type },
@@ -897,8 +971,6 @@ export default function TrainingPage() {
     const nextJobId = jobId || createJobId();
     const controller = setActiveGeneration('outline', nextJobId);
     setJobId(nextJobId);
-    setPresentation(null);
-    setQualityReport(null);
     setPptDownloadUrl('');
     setPptFilename('');
     setLoadingOutline(true);
@@ -967,16 +1039,21 @@ export default function TrainingPage() {
           id: `slide-manual-${Date.now()}`,
           slide_no: prev.slides.length + 1,
           title: '新增页面',
-          points: [
-            { title: '关键点1', description: '补充要点说明' },
-            { title: '关键点2', description: '补充要点说明' },
+          sections: [
+            { id: `section-${Date.now()}-1`, subtitle: '小节1', paragraphs: ['补充正文段落'], notes: null, source_refs: [] },
+            { id: `section-${Date.now()}-2`, subtitle: '小节2', paragraphs: ['补充正文段落'], notes: null, source_refs: [] },
           ],
-          key_points: ['关键点1：补充要点说明', '关键点2：补充要点说明'],
+          points: [
+            { title: '小节1', description: '补充正文段落' },
+            { title: '小节2', description: '补充正文段落' },
+          ],
+          key_points: ['小节1', '小节2'],
+          body_paragraphs: ['补充正文段落', '补充正文段落'],
           notes: null,
           layout_hint: '正文页',
           slide_type: 'content',
           source_refs: [],
-          visual_type: 'two_column',
+          visual_type: 'text',
           safety_level: 'normal',
         } as TrainingOutlineSlide,
       ];
@@ -1022,8 +1099,6 @@ export default function TrainingPage() {
       }, controller.signal);
       if (isMountedRef.current) {
         setJobId(res.job_id);
-        setPresentation(res.presentation);
-        setQualityReport(res.quality_report);
         setPptDownloadUrl(trainingApi.download(res.filename));
         setPptFilename(res.filename);
         appendTrainingHistory({
@@ -1063,11 +1138,8 @@ export default function TrainingPage() {
     setError(null);
     resetHtmlGeneration();
     updateHtmlGeneration({ loading: true, error: null });
-    setPresentation(null);
-    setQualityReport(null);
+    setProgressMessage('正在解析文档/输入...');
     setOutline(null);
-    setNotesDownloadUrl('');
-    setNotesFilename('');
     try {
       const res: TrainingHtmlGenerateResponse = await trainingApi.generateTrainingHtml({
         kb_id: setupDraft.kbId || currentKbId || null,
@@ -1104,10 +1176,7 @@ export default function TrainingPage() {
         filename: res.filename,
       });
       if (isMountedRef.current) {
-        setPresentation(null);
-        setQualityReport(null);
-        setNotesDownloadUrl('');
-        setNotesFilename('');
+        // no-op: HTML/PPT preview state is reset above when generation starts
       }
     } catch (err) {
       if (controller.signal.aborted) {
@@ -1420,6 +1489,12 @@ export default function TrainingPage() {
                     </Button>
                   </div>
                 </div>
+                {htmlGeneration.loading && (
+                  <div className="flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>{progressMessage || '正在生成网页...'}</span>
+                  </div>
+                )}
 
                 <div className="grid gap-3 xl:grid-cols-2">
                   <div className="space-y-2.5 rounded-2xl border border-slate-200 bg-slate-50 p-3.5">

@@ -166,6 +166,12 @@ def _card_badge_text(title: str, idx: int) -> str:
     return f"点{idx}"
 
 
+def _section_attr(section, key: str, default=None):
+    if isinstance(section, dict):
+        return section.get(key, default)
+    return getattr(section, key, default)
+
+
 def _wrap_display_text(text: str, *, line_width: int = 22, max_lines: int = 3) -> str:
     cleaned = re.sub(r"\s+", " ", str(text or "")).strip()
     cleaned = cleaned.replace("…", "").replace("...", "")
@@ -283,6 +289,89 @@ def _bullet_card(
         valign=MSO_ANCHOR.TOP,
     )
     return card
+
+
+def _render_section_page(slide, tmpl: SafetyTemplate, ss: SlideSpec):
+    _draw_frame(slide, tmpl)
+    title_box = slide.shapes.add_textbox(Inches(0.82), Inches(0.56), Inches(10.7), Inches(0.58))
+    _set_text(
+        title_box,
+        ss.title,
+        cn=tmpl.font_family_cn,
+        en=tmpl.font_family_en,
+        size=tmpl.title_size,
+        color=tmpl.theme_colors["title"],
+        bold=True,
+        valign=MSO_ANCHOR.MIDDLE,
+    )
+    if ss.slide_type and ss.slide_type != "content":
+        _badge(slide, ss.slide_type.replace("_", " "), 10.98, 0.6, 1.42, "#EEF2FF", tmpl.theme_colors["primary"], tmpl)
+
+    sections = [section for section in (ss.sections or []) if str(_section_attr(section, "subtitle", "")).strip() or any(str(p).strip() for p in _section_attr(section, "paragraphs", []))]
+    if not sections:
+        base_paragraphs = [p for p in (ss.body_paragraphs or ss.bullets) if str(p).strip()]
+        if not base_paragraphs:
+            base_paragraphs = ["内容待补充"]
+        sections = [{
+            "id": f"section-{ss.id}-1",
+            "subtitle": ss.subtitle or ss.key_message or ss.title,
+            "paragraphs": base_paragraphs,
+        }]
+
+    available_top = 1.5
+    available_height = 5.45
+    count = max(1, len(sections))
+    gap = 0.12
+    card_height = min(1.88, max(1.2, (available_height - gap * (count - 1)) / count))
+
+    for idx, section in enumerate(sections[:5]):
+        top = available_top + idx * (card_height + gap)
+        accent = ACCENT_PALETTE[idx % len(ACCENT_PALETTE)]
+        card = slide.shapes.add_shape(
+            MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE,
+            Inches(0.82),
+            Inches(top),
+            Inches(11.72),
+            Inches(card_height),
+        )
+        card.fill.solid()
+        card.fill.fore_color.rgb = _rgb("#FFFFFF")
+        card.line.color.rgb = _rgb(tmpl.theme_colors["border"])
+        bar = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(0.82), Inches(top), Inches(0.12), Inches(card_height))
+        bar.fill.solid()
+        bar.fill.fore_color.rgb = _rgb(accent)
+        bar.line.fill.background()
+
+        subtitle = str(_section_attr(section, "subtitle", "") or "").strip() or f"小节{idx + 1}"
+        subtitle_box = slide.shapes.add_textbox(Inches(1.1), Inches(top + 0.12), Inches(11.0), Inches(0.3))
+        _set_text(
+            subtitle_box,
+            subtitle,
+            cn=tmpl.font_family_cn,
+            en=tmpl.font_family_en,
+            size=max(16, tmpl.body_size + 2),
+            color=tmpl.theme_colors["title"],
+            bold=True,
+            valign=MSO_ANCHOR.MIDDLE,
+        )
+
+        paragraphs = [str(p).strip() for p in _section_attr(section, "paragraphs", []) if str(p).strip()]
+        if not paragraphs:
+            paragraphs = ["内容待补充"]
+        paragraph_box = slide.shapes.add_textbox(Inches(1.1), Inches(top + 0.46), Inches(11.0), Inches(card_height - 0.55))
+        paragraph_box.text_frame.auto_size = None
+        _set_paragraphs(
+            paragraph_box,
+            paragraphs[:4],
+            cn=tmpl.font_family_cn,
+            en=tmpl.font_family_en,
+            size=max(14, tmpl.body_size),
+            color=tmpl.theme_colors["body"],
+            valign=MSO_ANCHOR.TOP,
+            spacing_after=8,
+        )
+
+    _footer(slide, ss.slide_no, tmpl)
 
 
 def _render_text_page(slide, tmpl: SafetyTemplate, ss: SlideSpec):
@@ -435,6 +524,9 @@ def _render_cover(slide, spec: PresentationSpec, tmpl: SafetyTemplate, ss: Slide
 
 
 def _render_content(slide, tmpl: SafetyTemplate, ss: SlideSpec):
+    if ss.sections:
+        _render_section_page(slide, tmpl, ss)
+        return
     if ss.visual_type == "text":
         _render_text_page(slide, tmpl, ss)
         _footer(slide, ss.slide_no, tmpl)
