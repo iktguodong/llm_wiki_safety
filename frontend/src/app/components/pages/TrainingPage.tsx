@@ -1466,35 +1466,31 @@ export default function TrainingPage() {
                     <div className="text-sm font-medium text-slate-700">生成网页</div>
                     <div className="text-xs text-slate-500">先补齐来源后即可生成，按钮会保持在首屏可见。</div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {(htmlGeneration.html || htmlGeneration.downloadUrl) && !htmlGeneration.loading && (
-                      <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
-                        <CheckCircle2 className="h-4 w-4" />
-                        已生成网页
-                      </span>
+                  <div className="flex flex-col items-end gap-1.5">
+                    {(htmlGeneration.html || htmlGeneration.downloadUrl) && !htmlGeneration.loading ? (
+                      <Button disabled className="h-10 shrink-0 rounded-xl bg-emerald-600 px-5 text-white hover:bg-emerald-700">
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        网页已生成(可在下方查看)
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={generateHtml}
+                        disabled={htmlGeneration.loading || !htmlTitle.trim()}
+                        className="h-10 shrink-0 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700"
+                      >
+                        {htmlGeneration.loading ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Globe className="mr-2 h-4 w-4" />
+                        )}
+                        {htmlGeneration.loading ? '正在生成网页' : '生成网页'}
+                      </Button>
                     )}
-                    <Button
-                      onClick={generateHtml}
-                      disabled={htmlGeneration.loading || !htmlTitle.trim()}
-                      className="h-10 shrink-0 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700"
-                    >
-                      {htmlGeneration.loading ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (htmlGeneration.html || htmlGeneration.downloadUrl) ? (
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                      ) : (
-                        <Globe className="mr-2 h-4 w-4" />
-                      )}
-                      {(htmlGeneration.html || htmlGeneration.downloadUrl) && !htmlGeneration.loading ? '重新生成' : '生成网页'}
-                    </Button>
+                    {htmlGeneration.loading && (
+                      <span className="text-xs text-slate-500">{progressMessage || '正在生成网页...'}</span>
+                    )}
                   </div>
                 </div>
-                {htmlGeneration.loading && (
-                  <div className="flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>{progressMessage || '正在生成网页...'}</span>
-                  </div>
-                )}
 
                 <div className="grid gap-3 xl:grid-cols-2">
                   <div className="space-y-2.5 rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
