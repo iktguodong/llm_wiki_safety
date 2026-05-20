@@ -147,13 +147,6 @@ def _build_llm_prompt(pack: ContentPack, settings: dict[str, Any]) -> str:
     audience = settings.get("audience") or pack.audience or "相关岗位人员"
     req = settings.get("requirements") or settings.get("requirement") or ""
     focus_areas = settings.get("focus_areas") or []
-    style = settings.get("style", "standard_training")
-    style_desc = {"standard_training": "标准安全培训", "management_briefing": "管理层简报", "frontline_shift_training": "一线班前会"}.get(style, style)
-    style_guidance = {
-        "standard_training": "语言均衡、条理清楚、偏培训讲解，适合安全培训与知识传达。",
-        "management_briefing": "语言更凝练，必须先给判断和结论，再给风险、影响与闭环动作；每页优先用结论型标题和管理语言，避免教学口吻和过多过程描述，适合管理层快速决策。",
-        "frontline_shift_training": "语言更直接、口语化、动作导向，强调怎么做、错了会怎样、现场要注意什么；页面标题和要点尽量像班前会口播，不要写成书面汇报稿，适合班组和一线人员。",
-    }.get(style, "语言清晰、贴合受众。")
     return f"""你是一位专业的安全生产培训课程设计专家。请根据以下输入材料生成培训PPT的逐页内容大纲。
 
 ## 核心要求
@@ -161,11 +154,9 @@ def _build_llm_prompt(pack: ContentPack, settings: dict[str, Any]) -> str:
 1. **基于材料，不编造**：严格遵守输入材料中的事实和数据，不得编造企业制度条款、事故案例、法规条文、公司名称、品牌口号、页脚文案或岗位职责。如果材料信息不足，可以概括通用安全知识，但必须标注「通用知识」。
 2. **逻辑连贯**：整体大纲应从导入→主体→总结形成完整的叙事逻辑，页面之间有递进关系。
 3. **针对性强**：内容要贴合「{audience}」的岗位特点和认知水平，重点突出与受众相关的实操内容。
-4. **风格适配**：采用「{style_desc}」风格来组织语言和内容深度。
-   - 风格要求：{style_guidance}
-5. **要点可落地**：每个页面的要点（points）应是具体、可执行的知识点或行动项，避免空泛口号。每个点都要带一点解释性文字，而不是只写一个名词。
-6. **避免重复**：不要在标题和要点里重复同一句话，不要把同一条内容在一页里写两遍，不要输出模板化品牌词。
-7. **不要编号化表达**：不要把页面标题写成“1/2/3/4”或“第一、第二、第三”这种纯序号式表达；每页标题要有明确语义，点题即可。
+4. **要点可落地**：每个页面的要点（points）应是具体、可执行的知识点或行动项，避免空泛口号。每个点都要带一点解释性文字，而不是只写一个名词。
+5. **避免重复**：不要在标题和要点里重复同一句话，不要把同一条内容在一页里写两遍，不要输出模板化品牌词。
+6. **不要编号化表达**：不要把页面标题写成“1/2/3/4”或“第一、第二、第三”这种纯序号式表达；每页标题要有明确语义，点题即可。
 
 ## 输出格式要求
 
@@ -174,14 +165,13 @@ def _build_llm_prompt(pack: ContentPack, settings: dict[str, Any]) -> str:
 - 不要封面页（封面页由系统自动生成）
 - 每个 slide 包含 title 和 points 字段
 - points 是数组，每项包含 title（要点标题）和 description（一句话说明）
-- 每页 3-5 个 points，description 控制在 24-40 字之间；管理层简报可更偏结论和影响，一线班组可更偏动作和注意事项
+- 每页 3-5 个 points，description 控制在 24-40 字之间
 - 不要输出 "安牛工作汇报"、"安牛安全汇报" 之类的系统品牌字样
 
 ## 输入信息
 
 培训主题：{title}
 目标受众：{audience}
-培训风格：{style_desc}
 内容页数：{content_count}
 {"重点领域：" + "、".join(focus_areas) if focus_areas else ""}
 {"额外要求：" + req if req else ""}

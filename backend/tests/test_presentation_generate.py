@@ -11,7 +11,7 @@ from pptx import Presentation
 
 import backend.config as config_module
 from backend.services.presentation.content_pack import build_content_pack
-from backend.services.presentation.outline_builder import generate_outline
+from backend.services.presentation.outline_builder import _build_llm_prompt, generate_outline
 from backend.services.presentation.slide_planner import plan_slides
 from backend.services.presentation.quality_check import check_presentation
 from backend.services.presentation.pptx_renderer import render_presentation
@@ -30,6 +30,16 @@ class PromptReq:
     focus_areas = ["应急处置", "报警流程"]
     include_quiz = True
     template_id = "standard_training"
+
+
+def test_outline_prompt_does_not_include_style_field(isolated_training_env):
+    pack = build_content_pack(PromptReq())
+    prompt = _build_llm_prompt(pack, {"title": "材料标题", "audience": "公司管理层", "style": "management_briefing", "slide_count": 6})
+
+    assert "培训风格" not in prompt
+    assert "管理层简报" not in prompt
+    assert "一线班组" not in prompt
+    assert "公司管理层" in prompt
 
 
 def test_outline_to_pptx_full_chain(isolated_training_env, monkeypatch):
