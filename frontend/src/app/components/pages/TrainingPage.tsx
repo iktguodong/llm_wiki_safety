@@ -234,6 +234,7 @@ function InlineField({
   min,
   max,
   className = '',
+  stacked = false,
 }: {
   label: ReactNode;
   value: string | number;
@@ -244,6 +245,7 @@ function InlineField({
   min?: number;
   max?: number;
   className?: string;
+  stacked?: boolean;
 }) {
   const [draftValue, setDraftValue] = useState(String(value));
 
@@ -276,8 +278,8 @@ function InlineField({
 
   return (
     <div className="min-w-0 space-y-1">
-      <div className="flex items-center gap-3">
-        <Label className="shrink-0 whitespace-nowrap text-sm font-medium text-slate-800">{label}</Label>
+      <div className={stacked ? 'space-y-2' : 'flex items-center gap-3'}>
+        <Label className={`${stacked ? 'block' : 'shrink-0 whitespace-nowrap'} text-sm font-medium text-slate-800`}>{label}</Label>
         <Input
           value={type === 'number' ? draftValue : value}
           onChange={(e) => {
@@ -304,7 +306,7 @@ function InlineField({
           min={min}
           max={max}
           inputMode={type === 'number' ? 'numeric' : undefined}
-          className={`h-10 flex-1 min-w-0 ${className}`}
+          className={`${stacked ? 'h-10 w-full' : 'h-10 flex-1 min-w-0'} ${className}`}
         />
       </div>
       {helper && <p className="truncate text-xs text-slate-500">{helper}</p>}
@@ -1273,11 +1275,11 @@ export default function TrainingPage() {
           <div className="space-y-4">
             <Card className="border-slate-200 shadow-sm">
               <CardContent className="space-y-4 p-3.5 lg:p-4">
-                <div className="grid gap-3 lg:grid-cols-2">
+                <div className="grid gap-3 xl:grid-cols-3">
                   <InlineField
                     label={(
                       <>
-                        本次材料标题 <span className="text-rose-500">*</span>
+                        材料标题 <span className="text-rose-500">*</span>
                       </>
                     )}
                     value={htmlTitle}
@@ -1285,6 +1287,7 @@ export default function TrainingPage() {
                     placeholder="请输入本次培训/汇报/展示材料标题"
                     helper="将展示在第一页封面，并作为整份材料的主题。"
                     className={strongFieldClassName}
+                    stacked
                   />
                   <InlineField
                     label="汇报时间"
@@ -1293,25 +1296,7 @@ export default function TrainingPage() {
                     placeholder="例如：2026年5月 / 2026年5月12日"
                     helper="选填，将展示在第一页。"
                     className={strongFieldClassName}
-                  />
-                </div>
-
-                <div className="grid gap-3 xl:grid-cols-[1fr_1fr_240px]">
-                  <InlineField
-                    label="汇报人"
-                    value={htmlPresenter}
-                    onChange={setHtmlPresenter}
-                    placeholder="例如：安全管理部 / 张三"
-                    helper="选填，将展示在第一页。"
-                    className={strongFieldClassName}
-                  />
-                  <InlineField
-                    label="汇报对象"
-                    value={htmlAudience}
-                    onChange={setHtmlAudience}
-                    placeholder="例如：一线作业人员、班组长、企业主要负责人、监管检查组"
-                    helper="用于调整内容深度、语气和展示方式。"
-                    className={strongFieldClassName}
+                    stacked
                   />
                   <InlineField
                     label="输入页数"
@@ -1329,7 +1314,29 @@ export default function TrainingPage() {
                     max={30}
                     placeholder="5 到 30"
                     helper="请输入 5 到 30。"
-                    className={strongSelectTriggerClassName}
+                    className={strongFieldClassName}
+                    stacked
+                  />
+                </div>
+
+                <div className="grid gap-3 xl:grid-cols-3">
+                  <InlineField
+                    label="汇报人"
+                    value={htmlPresenter}
+                    onChange={setHtmlPresenter}
+                    placeholder="例如：安全管理部 / 张三"
+                    helper="选填，将展示在第一页。"
+                    className={strongFieldClassName}
+                    stacked
+                  />
+                  <InlineField
+                    label="汇报对象"
+                    value={htmlAudience}
+                    onChange={setHtmlAudience}
+                    placeholder="例如：一线作业人员、班组长、企业主要负责人、监管检查组"
+                    helper="用于调整内容深度、语气和展示方式。"
+                    className={strongFieldClassName}
+                    stacked
                   />
                 </div>
 
