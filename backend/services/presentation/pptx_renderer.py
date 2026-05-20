@@ -89,10 +89,13 @@ def _set_paragraphs(
     align=PP_ALIGN.LEFT,
     valign=MSO_ANCHOR.TOP,
     spacing_after: int = 6,
+    auto_fit: bool = False,
 ):
     tf = shape.text_frame
     tf.clear()
     tf.word_wrap = True
+    if auto_fit:
+        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
     tf.margin_left = Pt(2)
     tf.margin_right = Pt(2)
     tf.margin_top = Pt(2)
@@ -181,6 +184,32 @@ def _wrap_display_text(text: str, *, line_width: int = 22, max_lines: int = 3) -
     if not lines:
         return cleaned
     return "\n".join(lines)
+
+
+def _compact_line(text: str, limit: int = 34) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "")).strip(" -•\t")
+    cleaned = re.sub(r"^[0-9一二三四五六七八九十]+[.、)）]\s*", "", cleaned)
+    return cleaned if cleaned else ""
+
+
+def _section_paragraph_lines(paragraphs: list[str], *, limit: int = 3) -> list[str]:
+    lines: list[str] = []
+    for paragraph in paragraphs:
+        text = re.sub(r"\s+", " ", str(paragraph)).strip(" -•\t")
+        if not text:
+            continue
+        parts = [part.strip(" -•\t") for part in re.split(r"[。\n；;!?！？]+", text) if part.strip(" -•\t")]
+        if not parts:
+            parts = [text]
+        for part in parts:
+            compact = _compact_line(part)
+            if compact and compact not in lines:
+                lines.append(compact)
+            if len(lines) >= limit:
+                return [f"{idx + 1}. {line}" for idx, line in enumerate(lines[:limit])]
+    if not lines:
+        lines = ["内容待补充"]
+    return [f"{idx + 1}. {line}" for idx, line in enumerate(lines[:limit])]
 
 
 def _draw_frame(slide, tmpl: SafetyTemplate):
@@ -323,6 +352,8 @@ def _render_section_page(slide, tmpl: SafetyTemplate, ss: SlideSpec):
     count = max(1, len(sections))
     gap = 0.12
     card_height = min(1.88, max(1.2, (available_height - gap * (count - 1)) / count))
+    body_size = max(11, tmpl.body_size - (2 if count >= 4 else 1 if count >= 3 else 0))
+    subtitle_size = max(15, tmpl.body_size + (1 if count <= 2 else 0))
 
     for idx, section in enumerate(sections[:5]):
         top = available_top + idx * (card_height + gap)
@@ -349,26 +380,27 @@ def _render_section_page(slide, tmpl: SafetyTemplate, ss: SlideSpec):
             subtitle,
             cn=tmpl.font_family_cn,
             en=tmpl.font_family_en,
-            size=max(16, tmpl.body_size + 2),
+            size=subtitle_size,
             color=tmpl.theme_colors["title"],
             bold=True,
             valign=MSO_ANCHOR.MIDDLE,
         )
 
-        paragraphs = [str(p).strip() for p in _section_attr(section, "paragraphs", []) if str(p).strip()]
+        paragraphs = _section_paragraph_lines([str(p).strip() for p in _section_attr(section, "paragraphs", []) if str(p).strip()])
         if not paragraphs:
-            paragraphs = ["内容待补充"]
+            paragraphs = ["1. 内容待补充"]
         paragraph_box = slide.shapes.add_textbox(Inches(1.1), Inches(top + 0.46), Inches(11.0), Inches(card_height - 0.55))
         paragraph_box.text_frame.auto_size = None
         _set_paragraphs(
             paragraph_box,
-            paragraphs[:4],
+            paragraphs[:3],
             cn=tmpl.font_family_cn,
             en=tmpl.font_family_en,
-            size=max(14, tmpl.body_size),
+            size=body_size,
             color=tmpl.theme_colors["body"],
             valign=MSO_ANCHOR.TOP,
-            spacing_after=8,
+            spacing_after=2,
+            auto_fit=True,
         )
 
     _footer(slide, ss.slide_no, tmpl)
@@ -430,11 +462,12 @@ def _render_text_page(slide, tmpl: SafetyTemplate, ss: SlideSpec):
         body_paragraphs,
         cn=tmpl.font_family_cn,
         en=tmpl.font_family_en,
-        size=max(14, tmpl.body_size - 1),
+        size=max(11, tmpl.body_size - 2),
         color=tmpl.theme_colors["body"],
         bold=False,
         valign=MSO_ANCHOR.TOP,
-        spacing_after=8,
+        spacing_after=2,
+        auto_fit=True,
     )
     return body_card
 

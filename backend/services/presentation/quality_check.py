@@ -7,7 +7,7 @@ import re
 from threading import Event
 from typing import Any
 
-from backend.models import PresentationSpec, QualityIssue, QualityReport, TrainingSourceRef
+from backend.models import PresentationSpec, QualityIssue, QualityReport, TrainingSlideSection, TrainingSourceRef
 from backend.services.presentation.models import ContentPack
 
 
@@ -18,6 +18,30 @@ def _bullet_len(text: str) -> int:
 def _normalize_bullet(text: str) -> str:
     cleaned = re.sub(r"\s+", " ", text).strip()
     return cleaned
+
+
+def _compact_section_line(text: str, limit: int = 42) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "")).strip(" -•\t")
+    cleaned = re.sub(r"^[0-9一二三四五六七八九十]+[.、)）]\s*", "", cleaned)
+    return cleaned if cleaned else ""
+
+
+def _normalize_section_paragraphs(paragraphs: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for paragraph in paragraphs:
+        text = re.sub(r"\s+", " ", str(paragraph)).strip(" -•\t")
+        if not text:
+            continue
+        parts = [part.strip(" -•\t") for part in re.split(r"[。\n；;!?！？]+", text) if part.strip(" -•\t")]
+        if not parts:
+            parts = [text]
+        for part in parts:
+            item = _compact_section_line(part)
+            if item and item not in cleaned:
+                cleaned.append(item)
+            if len(cleaned) >= 3:
+                return cleaned[:3]
+    return cleaned[:3]
 
 
 def _collect_source_refs(content_pack: ContentPack) -> list[TrainingSourceRef]:
@@ -46,6 +70,16 @@ def repair_presentation(
     for slide in repaired.slides:
         slide.title = slide.title.strip() or "未命名页面"
         slide.bullets = [_normalize_bullet(b) for b in slide.bullets[:5] if str(b).strip()]
+        if slide.sections:
+            repaired_sections: list[TrainingSlideSection] = []
+            for idx, section in enumerate(slide.sections[:5], start=1):
+                subtitle = re.sub(r"\s+", " ", str(section.subtitle)).strip() or f"小节{idx}"
+                repaired_sections.append(section.model_copy(update={
+                    "subtitle": subtitle[:48],
+                    "paragraphs": _normalize_section_paragraphs(list(getattr(section, "paragraphs", []) or [])),
+                }))
+            slide.sections = repaired_sections
+            slide.body_paragraphs = _normalize_section_paragraphs(list(getattr(slide, "body_paragraphs", []) or []))
         if slide.slide_type == "quiz" and not slide.notes:
             slide.notes = "参考前后页内容确认答案"
         if not slide.source_refs and shared_refs and slide.slide_type in {"legal_requirement", "workflow", "risk_scene", "control_measures", "case_discussion", "checklist", "content"}:
@@ -83,6 +117,14 @@ def check_presentation(
         for b in slide.bullets:
             if _bullet_len(b) > 90:
                 issues.append(QualityIssue(level="warning", code="bullet_too_long", message="bullet 建议控制在 90 字以内", slide_id=slide.id))
+
+        for section in slide.sections:
+            paragraphs = list(getattr(section, "paragraphs", []) or [])
+            if len(paragraphs) > 3:
+                issues.append(QualityIssue(level="warning", code="section_too_many_paragraphs", message="小节正文建议控制在 1-3 条", slide_id=slide.id))
+            for paragraph in paragraphs:
+                if len(re.sub(r"\s+", "", paragraph)) > 42:
+                    issues.append(QualityIssue(level="warning", code="section_paragraph_too_long", message="小节正文建议控制在一行内", slide_id=slide.id))
 
         has_legal_keywords = any(k in slide.title + " " + " ".join(slide.bullets) for k in ["法规", "制度", "职责", "阈值", "流程"])
         if has_legal_keywords and not slide.source_refs:

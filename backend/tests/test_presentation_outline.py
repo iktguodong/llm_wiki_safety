@@ -117,7 +117,9 @@ def test_outline_body_prompt_requests_paragraphs(isolated_training_env):
     assert "小节标题" in prompt
     assert "paragraphs" in prompt
     assert "页面标题" in prompt
-    assert "第一段正文" in prompt
+    assert "1-3" in prompt
+    assert "一行" in prompt
+    assert "编号" in prompt
 
 
 def test_outline_generation_times_out_raises_error(isolated_training_env, monkeypatch):

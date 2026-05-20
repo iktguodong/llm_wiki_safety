@@ -18,6 +18,9 @@ from backend.models import (
 )
 from backend.services.presentation.content_pack import ContentPack
 
+MAX_SECTION_PARAGRAPHS = 3
+MAX_BODY_PARAGRAPHS = 3
+
 
 def _as_dict(data: Any) -> dict[str, Any]:
     if hasattr(data, "model_dump"):
@@ -48,7 +51,22 @@ def _point_lines(slide: TrainingOutlineSlide) -> list[str]:
 
 
 def _normalize_section_paragraphs(paragraphs: list[str]) -> list[str]:
-    return [re.sub(r"\s+", " ", p).strip() for p in paragraphs if str(p).strip()][:4]
+    cleaned: list[str] = []
+    for paragraph in paragraphs:
+        text = re.sub(r"\s+", " ", str(paragraph)).strip(" -•\t")
+        text = re.sub(r"^[0-9一二三四五六七八九十]+[.、)）]\s*", "", text)
+        if not text:
+            continue
+        parts = [part.strip(" -•\t") for part in re.split(r"[。\n；;!?！？]+", text) if part.strip(" -•\t")]
+        if not parts:
+            parts = [text]
+        for part in parts:
+            item = part
+            if item and item not in cleaned:
+                cleaned.append(item)
+            if len(cleaned) >= MAX_SECTION_PARAGRAPHS:
+                return cleaned[:MAX_SECTION_PARAGRAPHS]
+    return cleaned[:MAX_SECTION_PARAGRAPHS]
 
 
 def _normalize_sections(slide: TrainingOutlineSlide) -> list[TrainingSlideSection]:
@@ -73,7 +91,7 @@ def _normalize_sections(slide: TrainingOutlineSlide) -> list[TrainingSlideSectio
         return [TrainingSlideSection(
             id=f"section-{slide.id[:8]}-1",
             subtitle=(slide.subtitle or slide.title)[:48],
-            paragraphs=paragraphs[:4],
+            paragraphs=_normalize_section_paragraphs(paragraphs),
         )]
 
     lines = _point_lines(slide)
@@ -81,7 +99,7 @@ def _normalize_sections(slide: TrainingOutlineSlide) -> list[TrainingSlideSectio
         return [TrainingSlideSection(
             id=f"section-{slide.id[:8]}-1",
             subtitle=(slide.subtitle or slide.title)[:48],
-            paragraphs=lines[:4],
+            paragraphs=_normalize_section_paragraphs(lines),
         )]
     return []
 
@@ -91,11 +109,11 @@ def _body_paragraphs(slide: TrainingOutlineSlide) -> list[str]:
     if sections:
         flattened = []
         for section in sections:
-            flattened.extend(section.paragraphs[:4])
+            flattened.extend(section.paragraphs[:MAX_SECTION_PARAGRAPHS])
         if flattened:
-            return flattened[:10]
+            return flattened[:MAX_BODY_PARAGRAPHS]
     paragraphs = [re.sub(r"\s+", " ", p).strip() for p in getattr(slide, "body_paragraphs", []) if str(p).strip()]
-    return paragraphs[:10]
+    return _normalize_section_paragraphs(paragraphs)[:MAX_BODY_PARAGRAPHS]
 
 
 def _slide_type(st: str) -> str:
@@ -170,7 +188,7 @@ def plan_slides(
             slides.append(SlideSpec(
                 id=f"slide-{uuid.uuid4().hex[:8]}", slide_no=len(slides)+1, slide_type="content",
                 title=sec.title, subtitle=sec.goal, key_message=sec.goal,
-                bullets=paragraphs, body_paragraphs=paragraphs,
+                bullets=paragraphs, body_paragraphs=_normalize_section_paragraphs(paragraphs),
                 source_refs=_normalize_refs(sec.source_refs),
                 visual_type="text" if paragraphs else "cards",
             ))

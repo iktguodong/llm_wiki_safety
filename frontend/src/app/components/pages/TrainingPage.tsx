@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, CheckCircle2, CircleX, Download, Eye, FileText, Globe, History, Loader2, Plus, RefreshCw, Trash2, Upload, WandSparkles, X } from 'lucide-react';
 import { useApp } from '../../../lib/context';
 import { docApi, trainingApi } from '../../../lib/api';
@@ -125,6 +125,51 @@ const strongSelectTriggerClassName =
   'border-slate-300 bg-white shadow-sm shadow-slate-100/80 focus-visible:border-indigo-500 focus-visible:ring-indigo-200/60';
 const strongTextareaClassName =
   'border-slate-300 bg-white shadow-sm shadow-slate-100/80 focus-visible:border-indigo-500 focus-visible:ring-indigo-200/60';
+
+function splitParagraphText(value: string): string[] {
+  return value
+    .split(/\r?\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function joinParagraphText(paragraphs: string[]): string {
+  return (paragraphs || []).map((item) => String(item).trim()).filter(Boolean).join('\n');
+}
+
+function AutoSizingTextarea({
+  value,
+  onChange,
+  placeholder,
+  className,
+  rows = 3,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+  rows?: number;
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = '0px';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <Textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className={className}
+      rows={rows}
+    />
+  );
+}
 
 function durationFromSlideCount(slideCount: number) {
   if (slideCount <= 5) return 15;
@@ -369,7 +414,7 @@ function OutlineSlideCard({
       .map((section) => ({
         id: section.id || `section-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
         subtitle: section.subtitle,
-        paragraphs: (section.paragraphs || []).map((item) => String(item).trim()).filter(Boolean),
+        paragraphs: splitParagraphText(joinParagraphText(section.paragraphs || [])),
         notes: section.notes ?? null,
         source_refs: section.source_refs || [],
       }))
@@ -466,66 +511,24 @@ function OutlineSlideCard({
                     <Trash2 className="h-4 w-4 text-rose-500" />
                   </Button>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <Label>paragraphs</Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        const next = [...sections];
-                        const current = next[sectionIndex];
-                        next[sectionIndex] = {
-                          ...current,
-                          paragraphs: [...(current.paragraphs || []), '补充正文段落'],
-                        };
-                        updateSections(next);
-                      }}
-                    >
-                      <Plus className="mr-2 h-3.5 w-3.5" />
-                      新增段落
-                    </Button>
-                  </div>
-                  {(section.paragraphs || []).map((paragraph, paragraphIndex) => (
-                    <div key={`${slide.id}-section-${sectionIndex}-paragraph-${paragraphIndex}`} className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <Label className="text-xs text-slate-500">段落 {paragraphIndex + 1}</Label>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            const next = [...sections];
-                            const current = next[sectionIndex];
-                            next[sectionIndex] = {
-                              ...current,
-                              paragraphs: current.paragraphs.filter((_, idx) => idx !== paragraphIndex),
-                            };
-                            updateSections(next);
-                          }}
-                          disabled={(section.paragraphs || []).length <= 1}
-                          aria-label="删除段落"
-                        >
-                          <Trash2 className="h-4 w-4 text-rose-500" />
-                        </Button>
-                      </div>
-                      <Textarea
-                        value={paragraph}
-                        onChange={(e) => {
-                          const next = [...sections];
-                          const current = next[sectionIndex];
-                          const paragraphs = [...(current.paragraphs || [])];
-                          paragraphs[paragraphIndex] = e.target.value;
-                          next[sectionIndex] = { ...current, paragraphs };
-                          updateSections(next);
-                        }}
-                        placeholder="这一段正文会直接出现在 PPT 中"
-                        className={strongTextareaClassName}
-                        rows={4}
-                      />
-                    </div>
-                  ))}
+                <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+                  <Label className="text-xs text-slate-500">段落</Label>
+                  <AutoSizingTextarea
+                    value={joinParagraphText(section.paragraphs || [])}
+                    onChange={(e) => {
+                      const next = [...sections];
+                      const current = next[sectionIndex];
+                      const paragraphs = splitParagraphText(e);
+                      next[sectionIndex] = {
+                        ...current,
+                        paragraphs: paragraphs.length > 0 ? paragraphs : ['内容待补充'],
+                      };
+                      updateSections(next);
+                    }}
+                    placeholder="每行写一条短句，系统会合并到一个框中展示"
+                    className={`resize-y overflow-hidden ${strongTextareaClassName}`}
+                    rows={2}
+                  />
                 </div>
               </div>
             ))}

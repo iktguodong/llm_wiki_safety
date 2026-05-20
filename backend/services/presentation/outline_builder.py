@@ -36,6 +36,8 @@ OUTLINE_TIMEOUT_SECONDS = 60.0
 OUTLINE_BODY_TIMEOUT_SECONDS = 30.0
 MAX_PARALLEL_OUTLINE_CALLS = 3
 ALLOWED_STYLES = {"standard_training", "management_briefing", "frontline_shift_training"}
+MAX_SECTION_PARAGRAPHS = 3
+MAX_SECTION_PARAGRAPH_CHARS = 42
 
 
 def _coerce_style(value: str) -> str:
@@ -52,6 +54,20 @@ def _as_dict(data: Any) -> dict[str, Any]:
 
 def _shorten(text: str, limit: int = 180) -> str:
     return re.sub(r"\s+", " ", text).strip()[:limit]
+
+
+def _compact_line(text: str, limit: int = MAX_SECTION_PARAGRAPH_CHARS) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "")).strip(" -•\t")
+    cleaned = re.sub(r"^[0-9一二三四五六七八九十]+[.、)）]\s*", "", cleaned)
+    return cleaned if cleaned else ""
+
+
+def _split_sentence_fragments(text: str) -> list[str]:
+    cleaned = re.sub(r"\s+", " ", str(text or "")).strip(" -•\t")
+    if not cleaned:
+        return []
+    fragments = [part.strip(" -•\t") for part in re.split(r"[。\n；;!?！？]+", cleaned) if part.strip(" -•\t")]
+    return fragments or [cleaned]
 
 
 def _cover_slide(settings: dict[str, Any], pack: ContentPack) -> TrainingOutlineSlide:
@@ -110,15 +126,13 @@ def _paragraphs_from_value(value: Any) -> list[str]:
 
     paragraphs: list[str] = []
     for chunk in chunks:
-        cleaned = re.sub(r"\s+", " ", str(chunk)).strip(" -•\t")
-        if not cleaned:
-            continue
-        if "\n" in chunk:
-            pieces = [re.sub(r"\s+", " ", part).strip(" -•\t") for part in re.split(r"\n{1,2}", chunk) if part.strip()]
-            paragraphs.extend([piece for piece in pieces if piece])
-        else:
-            paragraphs.append(cleaned)
-    return paragraphs[:4]
+        for fragment in _split_sentence_fragments(chunk):
+            cleaned = _compact_line(fragment)
+            if cleaned and cleaned not in paragraphs:
+                paragraphs.append(cleaned)
+            if len(paragraphs) >= MAX_SECTION_PARAGRAPHS:
+                return paragraphs[:MAX_SECTION_PARAGRAPHS]
+    return paragraphs[:MAX_SECTION_PARAGRAPHS]
 
 
 def _points_from_texts(items: list[str]) -> list[TrainingOutlinePoint]:
@@ -157,10 +171,13 @@ def _normalize_body_paragraphs(value: Any) -> list[str]:
         items = []
     paragraphs: list[str] = []
     for item in items:
-        cleaned = re.sub(r"\s+", " ", str(item)).strip(" -•\t")
-        if cleaned:
-            paragraphs.append(cleaned)
-    return paragraphs[:5]
+        for fragment in _split_sentence_fragments(item):
+            cleaned = _compact_line(fragment)
+            if cleaned and cleaned not in paragraphs:
+                paragraphs.append(cleaned)
+            if len(paragraphs) >= MAX_SECTION_PARAGRAPHS:
+                return paragraphs[:MAX_SECTION_PARAGRAPHS]
+    return paragraphs[:MAX_SECTION_PARAGRAPHS]
 
 
 def _normalize_section_paragraphs(value: Any) -> list[str]:
@@ -172,10 +189,13 @@ def _normalize_section_paragraphs(value: Any) -> list[str]:
         items = []
     paragraphs: list[str] = []
     for item in items:
-        cleaned = re.sub(r"\s+", " ", str(item)).strip(" -•\t")
-        if cleaned:
-            paragraphs.append(cleaned)
-    return paragraphs[:4]
+        for fragment in _split_sentence_fragments(item):
+            cleaned = _compact_line(fragment)
+            if cleaned and cleaned not in paragraphs:
+                paragraphs.append(cleaned)
+            if len(paragraphs) >= MAX_SECTION_PARAGRAPHS:
+                return paragraphs[:MAX_SECTION_PARAGRAPHS]
+    return paragraphs[:MAX_SECTION_PARAGRAPHS]
 
 
 def _section_from_point(point: TrainingOutlinePoint, idx: int) -> TrainingSlideSection:
@@ -299,7 +319,7 @@ def _build_llm_prompt(pack: ContentPack, settings: dict[str, Any]) -> str:
 2. **逻辑连贯**：整体内容应从导入→主体→总结形成完整的叙事逻辑，页面之间有递进关系。
 3. **针对性强**：内容要贴合「{audience}」的岗位特点和认知水平，重点突出与受众相关的实操内容、管理要求和落地动作。
 4. **写成 PPT 正文骨架**：每个页面必须包含 `title`、`sections`。每个 section 必须包含 `subtitle`，后续系统会根据这个 `subtitle` 并发扩写对应的 `paragraphs`。
-5. **内容要够充实**：每页保留 2-4 个 sections，必要时可到 5 个；每个 section 的 `subtitle` 要表达一个独立小节主题，方便后续并发扩写成多段正文。
+5. **内容要收得住**：每页保留 2-4 个 sections，必要时可到 5 个；每个 section 的 `paragraphs` 只保留 1-3 条，每条尽量是一行短句，优先写成“1. / 2. / 3.” 这种简写信息。
 6. **结构清晰**：整页 `title` 负责总题目，`sections[].subtitle` 负责小节标题，后续正文会直接显示在 PPT 页面中，不能只是同义改写。
 7. **避免重复**：不要在标题和各个 subtitle 里重复同一句话，不要把同一条内容在一页里写两遍，不要输出模板化品牌词。
 8. **不要编号化表达**：不要把页面标题写成“1/2/3/4”或“第一、第二、第三”这种纯序号式表达；每页标题要有明确语义，点题即可。
@@ -367,9 +387,9 @@ def _build_section_body_prompt(
 1. 只输出一个严格 JSON 对象，不要 Markdown 代码块。
 2. 输出字段必须包含 `subtitle` 和 `paragraphs`。
 3. `subtitle` 可以沿用或优化小节标题，但要保持一句话表达。
-4. `paragraphs` 是数组，建议 2-4 段，每段 50-90 字，必要时可到 5 段。
-5. 每段要写成可直接放进 PPT 的讲稿正文，围绕“是什么 / 为什么 / 怎么做 / 注意什么”展开，不要只写关键词。
-6. 段落之间要有递进，不要重复小节标题的表述。
+4. `paragraphs` 是数组，建议 1-3 段，每段尽量控制在一行内，必要时可以直接写成短句。
+5. 每段要写成可直接放进 PPT 的简短正文，围绕“是什么 / 为什么 / 怎么做 / 注意什么”展开，优先使用编号或圆点式表述，不要写成长段解释。
+6. 段落之间要有递进，不要重复小节标题的表述，更不要把同一句话拆成很多行。
 7. 结合下面的原始素材内容，不要编造。
 
 ## 原始素材内容
@@ -428,7 +448,7 @@ def _parse_llm_slides(data: dict[str, Any], pack: ContentPack, settings: dict[st
                 sections = [TrainingSlideSection(
                     id=f"section-{uuid.uuid4().hex[:8]}",
                     subtitle=str(raw_keys[0]).strip()[:48] or title,
-                    paragraphs=[str(k).strip() for k in raw_keys if str(k).strip()][:4],
+                    paragraphs=_normalize_section_paragraphs([str(k).strip() for k in raw_keys if str(k).strip()]),
                 )]
         if not sections:
             body = " ".join(str(getattr(c, "text", "")) for c in group)
@@ -436,7 +456,7 @@ def _parse_llm_slides(data: dict[str, Any], pack: ContentPack, settings: dict[st
             sections = [TrainingSlideSection(
                 id=f"section-{uuid.uuid4().hex[:8]}",
                 subtitle=fallback_texts[0][:48],
-                paragraphs=fallback_texts[1:4],
+                paragraphs=_normalize_section_paragraphs(fallback_texts[1:4]),
             )]
         points = _sections_to_points(sections)
         body_paragraphs = _flatten_section_paragraphs(sections)
@@ -444,7 +464,7 @@ def _parse_llm_slides(data: dict[str, Any], pack: ContentPack, settings: dict[st
         slides.append(TrainingOutlineSlide(
             id=f"slide-{uuid.uuid4().hex[:8]}", slide_no=len(slides)+1,
             title=title, subtitle=subtitle,
-            sections=sections[:5], points=points[:5], body_paragraphs=body_paragraphs[:10],
+            sections=sections[:5], points=points[:5], body_paragraphs=body_paragraphs[:6],
             key_points=[f"{p.title}：{p.description}" if p.description else p.title for p in points[:5]],
             notes=_shorten(" ".join(str(getattr(c, "text", "")) for c in group), 240),
             slide_type=stype, source_refs=refs,
@@ -474,26 +494,26 @@ def _fallback_section_paragraphs(slide: TrainingOutlineSlide, section: TrainingS
 
     subtitle = re.sub(r"\s+", " ", section.subtitle or slide.subtitle or slide.title).strip(" -•\t")
     if subtitle:
-        paragraphs.append(subtitle if subtitle.endswith(("。", "！", "？")) else f"{subtitle}。")
+        paragraphs.append(_compact_line(subtitle))
 
     if section.notes:
         notes = re.sub(r"\s+", " ", section.notes).strip(" -•\t")
         if notes:
-            paragraphs.append(notes if notes.endswith(("。", "！", "？")) else f"{notes}。")
+            paragraphs.append(_compact_line(notes))
 
     section_texts: list[str] = []
-    for text in section.paragraphs[:4]:
-        cleaned = re.sub(r"\s+", " ", text).strip(" -•\t")
+    for text in section.paragraphs[:MAX_SECTION_PARAGRAPHS]:
+        cleaned = _compact_line(text)
         if cleaned:
             section_texts.append(cleaned)
 
     if section_texts:
-        lead = f"{slide.title}中关于{subtitle}的小节，应当围绕这一主题展开。"
+        lead = f"{slide.title}中关于{subtitle}的小节，围绕核心动作展开。"
         if len(section_texts) > 1:
-            lead = f"{slide.title}中关于{subtitle}的小节，应当围绕这一主题展开，并补充{section_texts[0]}等内容。"
+            lead = f"{slide.title}中关于{subtitle}的小节，补充{section_texts[0]}等要点。"
         paragraphs.append(lead)
-        for item in section_texts[:3]:
-            paragraphs.append(f"同时要明确{item}，确保内容能够直接用于培训或汇报。")
+        for item in section_texts[:MAX_SECTION_PARAGRAPHS]:
+            paragraphs.append(f"要点：{item}")
 
     source_summary = _shorten(
         " ".join(str(getattr(c, "text", "")) for c in group),
@@ -502,12 +522,12 @@ def _fallback_section_paragraphs(slide: TrainingOutlineSlide, section: TrainingS
     if source_summary and len(paragraphs) < 2:
         cleaned = re.sub(r"\s+", " ", source_summary).strip(" -•\t")
         if cleaned:
-            paragraphs.append(cleaned if cleaned.endswith(("。", "！", "？")) else f"{cleaned}。")
+            paragraphs.append(_compact_line(cleaned))
 
     if not paragraphs:
         paragraphs = [f"围绕{slide.title}展开说明。"]
 
-    return _normalize_body_paragraphs(paragraphs)[:4]
+    return _normalize_body_paragraphs(paragraphs)[:MAX_SECTION_PARAGRAPHS]
 
 
 async def _expand_outline_section(
@@ -583,7 +603,7 @@ async def _expand_outline_section(
     if len(body_paragraphs) < 2:
         body_paragraphs = _fallback_section_paragraphs(slide, section, group)
 
-    return section.model_copy(update={"subtitle": subtitle, "paragraphs": body_paragraphs[:4]})
+    return section.model_copy(update={"subtitle": subtitle, "paragraphs": body_paragraphs[:MAX_SECTION_PARAGRAPHS]})
 
 
 async def _expand_outline_sections(
@@ -642,7 +662,7 @@ async def _expand_outline_sections(
         expanded_slides.append(slide.model_copy(update={
             "sections": sections[:5],
             "points": points[:5],
-            "body_paragraphs": body_paragraphs[:12],
+            "body_paragraphs": body_paragraphs[:6],
             "key_points": [f"{p.title}：{p.description}" if p.description else p.title for p in points[:5]],
             "subtitle": slide.subtitle or (sections[0].subtitle if sections else None),
             "visual_type": "text",

@@ -18,7 +18,7 @@ from backend.services.presentation.quality_check import check_presentation, repa
 from backend.services.presentation.pptx_renderer import render_presentation
 from backend.services.presentation.safety_templates import get_template
 from backend.services.presentation.project_store import get_job_paths, resolve_download_path
-from backend.models import PresentationSpec, SlideSpec, TrainingOutline
+from backend.models import PresentationSpec, SlideSpec, TrainingOutline, TrainingSlideSection
 
 
 class PromptReq:
@@ -136,6 +136,135 @@ def test_render_presentation_does_not_show_core_message_block(isolated_training_
     assert "核心说明" not in slide_text
     assert "这是内部备注" not in slide_text
     assert "这里是一段更完整的说明文字" in slide_text
+
+
+def test_repair_presentation_compacts_section_paragraphs(isolated_training_env):
+    spec = PresentationSpec(
+        id="spec-section-compact",
+        title="小节压缩测试",
+        topic="小节压缩测试",
+        audience="管理层",
+        duration_minutes=30,
+        style="standard_training",
+        template_id="standard_training",
+        slides=[
+            SlideSpec(
+                id="slide-section",
+                slide_no=1,
+                slide_type="content",
+                title="应急指挥部核心成员责任",
+                subtitle="总指挥与副总指挥在应急响应中的决策权责",
+                sections=[
+                    TrainingSlideSection(
+                        id="section-1",
+                        subtitle="总指挥职责",
+                        paragraphs=[
+                            "总指挥作为应急响应的最高决策者，负责在事故发生后立即研判事态，依据预案决定是否启动综合预案。",
+                            "并统一指挥资源协调、信息报送及新闻发布等关键环节，确保应急行动有序推进。",
+                            "同时对外部联动和内部处置节奏做最终拍板。",
+                        ],
+                    )
+                ],
+                bullets=[],
+                body_paragraphs=[],
+                source_refs=[],
+                notes="",
+                visual_type="text",
+                safety_level="normal",
+            )
+        ],
+        quality_warnings=[],
+    )
+    pack = build_content_pack(PromptReq())
+
+    repaired = repair_presentation(spec, pack, {})
+    section_paragraphs = repaired.slides[0].sections[0].paragraphs
+
+    assert len(section_paragraphs) == 3
+    assert all("..." not in p and "…" not in p for p in section_paragraphs)
+    assert section_paragraphs[0].startswith("总指挥作为应急响应的最高决策者")
+
+    render_info = render_presentation(repaired, get_template("standard_training"), "job-section-compact")
+    prs = Presentation(render_info["pptx_path"])
+    slide_text = "\n".join(shape.text for shape in prs.slides[0].shapes if hasattr(shape, "text"))
+
+    assert "1." in slide_text
+    assert "2." in slide_text
+    assert "3." in slide_text
+
+
+def test_render_presentation_section_page_keeps_full_text_without_ellipsis(isolated_training_env):
+    spec = PresentationSpec(
+        id="spec-section-full-text",
+        title="小节全文测试",
+        topic="小节全文测试",
+        audience="管理层",
+        duration_minutes=30,
+        style="standard_training",
+        template_id="standard_training",
+        slides=[
+            SlideSpec(
+                id="slide-section-full",
+                slide_no=1,
+                slide_type="content",
+                title="领导层在应急管理中的关键作用",
+                sections=[
+                    TrainingSlideSection(
+                        id="section-1",
+                        subtitle="应急指挥职责",
+                        paragraphs=[
+                            "应急指挥部负责统一决策、资源调度和对外协同，确保事故发生后第一时间形成闭环处置。",
+                            "同时要根据现场情况快速判断是否升级预警等级，并将任务分派到对应工作组。",
+                            "还要保证信息报送、现场控制和外部联动同步推进，避免处置动作分散。",
+                        ],
+                    ),
+                    TrainingSlideSection(
+                        id="section-2",
+                        subtitle="资源保障职责",
+                        paragraphs=[
+                            "领导层要提前落实应急资金、装备和人员配置，避免事故发生时再临时协调。",
+                            "对重点装备和通信保障要定期检查，确保关键时刻能直接投入使用。",
+                            "对救援队伍和联络机制也要同步建设，形成随时可调用的保障能力。",
+                        ],
+                    ),
+                    TrainingSlideSection(
+                        id="section-3",
+                        subtitle="监督落实职责",
+                        paragraphs=[
+                            "要通过检查和演练，持续发现预案中的薄弱点，并及时修订完善。",
+                            "还要把责任落实到岗位和人员，防止预案停留在纸面。",
+                            "每次演练后都应复盘整改，推动形成长期改进机制。",
+                        ],
+                    ),
+                    TrainingSlideSection(
+                        id="section-4",
+                        subtitle="持续改进职责",
+                        paragraphs=[
+                            "领导层要将应急管理纳入日常管理，形成常态化跟踪。",
+                            "结合演练、检查和事故复盘，不断优化预案可执行性。",
+                            "最终让各类岗位都清楚自己要做什么、什么时候做、怎么复核。",
+                        ],
+                    ),
+                ],
+                bullets=[],
+                body_paragraphs=[],
+                source_refs=[],
+                notes="",
+                visual_type="text",
+                safety_level="normal",
+            )
+        ],
+        quality_warnings=[],
+    )
+
+    render_info = render_presentation(spec, get_template("standard_training"), "job-section-full-text")
+    prs = Presentation(render_info["pptx_path"])
+    slide_text = "\n".join(shape.text for shape in prs.slides[0].shapes if hasattr(shape, "text"))
+
+    assert "..." not in slide_text
+    assert "…" not in slide_text
+    assert "应急指挥部负责统一决策、资源调度和对外协同" in slide_text
+    assert "形成长期改进机制" in slide_text
 
 
 def test_render_presentation_renders_text_page_with_subtitle_and_body(isolated_training_env):
