@@ -5,16 +5,27 @@ from __future__ import annotations
 import re
 import uuid
 from pathlib import Path
+from threading import Event
 from typing import Any, Iterable
 
 from backend.config import get_kb_path, get_kb_raw_path, get_kb_wiki_path
 from backend.services.document import doc_service
 from backend.services.text_extraction import extract_document_pages, extract_document_text
 from .models import ContentChunk, ContentPack, SourceInput, SourceRef
-from .project_store import get_job_paths, load_upload_metadata
+from .project_store import get_job_paths, load_upload_metadata, update_job_progress
 
 MAX_CHUNK_CHARS = 1200
 MAX_PACK_CHARS = 12000
+
+
+def _is_cancelled(cancel_event: Event | None) -> bool:
+    return cancel_event is not None and cancel_event.is_set()
+
+
+def _cancel_warn_early_terminate(pack: ContentPack) -> None:
+    msg = "任务已取消，内容解析提前终止"
+    if msg not in pack.warnings:
+        pack.warnings.append(msg)
 
 
 def _as_dict(request: Any) -> dict[str, Any]:
@@ -228,7 +239,12 @@ def _read_wiki_page(page_path: Path, kb_id: str, page_name: str | None = None) -
     return title, cleaned or text
 
 
-def _load_wiki_sources(kb_id: str, page_name: str | None, pack: ContentPack) -> None:
+def _load_wiki_sources(
+    kb_id: str,
+    page_name: str | None,
+    pack: ContentPack,
+    cancel_event: Event | None = None,
+) -> None:
     wiki_path = get_kb_wiki_path(kb_id)
     if not wiki_path.exists():
         pack.warnings.append(f"知识库 {kb_id} 暂无可用内容")
@@ -244,11 +260,18 @@ def _load_wiki_sources(kb_id: str, page_name: str | None, pack: ContentPack) -> 
         pages = [p for p in sorted(wiki_path.glob("*.md")) if p.name not in {"index.md", "log.md"}]
         index_file = wiki_path / "index.md"
         if index_file.exists():
+            if _is_cancelled(cancel_event):
+                _cancel_warn_early_terminate(pack)
+                return
             title, text = _read_wiki_page(index_file, kb_id, "index.md")
             ref = _make_ref("wiki_page", source_id="index.md", kb_id=kb_id, page_name="index.md", title=title, locator="index.md", excerpt=_short_excerpt(text), confidence=0.8)
             _append_chunks(pack.chunks, title=title, chunk_type="wiki", text=text[:MAX_PACK_CHARS], refs=[ref])
 
     for page_file in pages:
+        if _is_cancelled(cancel_event):
+            _cancel_warn_early_terminate(pack)
+            return
+        update_job_progress(pack.job_id, f"正在解析知识库页面：{page_file.stem}")
         title, text = _read_wiki_page(page_file, kb_id, page_file.name)
         ref = _make_ref("wiki_page", source_id=page_file.name, kb_id=kb_id, page_name=page_file.name, title=title, locator=page_file.name, excerpt=_short_excerpt(text), confidence=0.85)
         _append_chunks(pack.chunks, title=title, chunk_type="wiki", text=text[:MAX_PACK_CHARS], refs=[ref])
@@ -260,6 +283,7 @@ def _load_document_sources(
     pack: ContentPack,
     *,
     prefer_wiki_pages: bool = False,
+    cancel_event: Event | None = None,
 ) -> None:
     track = doc_service._load_doc_track(kb_id)
     docs = track.get("documents", {})
@@ -269,7 +293,18 @@ def _load_document_sources(
         targets = list(docs.items())
 
     raw_path = get_kb_raw_path(kb_id)
-    for doc_id, doc_info in targets:
+    total = len(targets)
+    for idx, (doc_id, doc_info) in enumerate(targets, start=1):
+        if _is_cancelled(cancel_event):
+            _cancel_warn_early_terminate(pack)
+            return
+        update_job_progress(
+            pack.job_id,
+            f"正在解析知识库文档 {idx}/{total}：{doc_info.get('file', doc_id) if doc_info else doc_id}",
+        )
+        if _is_cancelled(cancel_event):
+            _cancel_warn_early_terminate(pack)
+            return
         if not doc_info:
             if document_id:
                 raise ValueError(f"知识库 {kb_id} 未找到文档 {doc_id}")
@@ -290,15 +325,25 @@ def _load_document_sources(
             ]
             if wiki_pages:
                 for page_name in wiki_pages:
-                    _load_wiki_sources(kb_id, page_name, pack)
+                    if _is_cancelled(cancel_event):
+                        _cancel_warn_early_terminate(pack)
+                        return
+                    _load_wiki_sources(kb_id, page_name, pack, cancel_event)
                 continue
 
+        if _is_cancelled(cancel_event):
+            _cancel_warn_early_terminate(pack)
+            return
+        update_job_progress(pack.job_id, f"正在提取文档文本 {idx}/{total}：{file_path.name}")
         pages = extract_document_pages(file_path)
         if len(pages) == 1 and isinstance(pages[0].get("text"), str):
             text = str(pages[0]["text"])
             if text.startswith("[PDF扫描版:") or text.startswith("[PDF解析错误:") or text.startswith("[Word解析错误:") or text.startswith("[文本读取错误:"):
                 raise ValueError(f"文档 {file_path.name} 无法提取可读文本：{text.strip('[]')}")
 
+        if _is_cancelled(cancel_event):
+            _cancel_warn_early_terminate(pack)
+            return
         ref_base = _make_ref(
             "kb_document",
             source_id=doc_id,
@@ -310,7 +355,11 @@ def _load_document_sources(
             confidence=0.9,
         )
         page_texts = []
+        total_pages = len(pages)
         for page in pages:
+            if _is_cancelled(cancel_event):
+                _cancel_warn_early_terminate(pack)
+                return
             page_no = int(page.get("page", 1))
             text = str(page.get("text", "")).strip()
             if not text:
@@ -318,12 +367,21 @@ def _load_document_sources(
             page_texts.append((page_no, text))
         if not page_texts:
             raise ValueError(f"文档 {file_path.name} 未提取到可读文本，不支持 OCR")
-        for page_no, text in page_texts:
+        for page_idx, (page_no, text) in enumerate(page_texts, start=1):
+            if _is_cancelled(cancel_event):
+                _cancel_warn_early_terminate(pack)
+                return
+            update_job_progress(pack.job_id, f"正在整理文档分页 {page_idx}/{total_pages}：{file_path.name}")
             page_ref = ref_base.model_copy(update={"locator": f"page {page_no}", "excerpt": _short_excerpt(text)})
             _append_chunks(pack.chunks, title=file_path.name, chunk_type="raw_document", text=text[:MAX_PACK_CHARS], refs=[page_ref])
 
 
-def _load_temporary_upload(upload_id: str, pack: ContentPack, job_id: str | None) -> None:
+def _load_temporary_upload(
+    upload_id: str,
+    pack: ContentPack,
+    job_id: str | None,
+    cancel_event: Event | None = None,
+) -> None:
     meta = load_upload_metadata(upload_id)
     if not meta:
         raise ValueError(f"临时上传 {upload_id} 不存在")
@@ -340,6 +398,10 @@ def _load_temporary_upload(upload_id: str, pack: ContentPack, job_id: str | None
     if not source_path or not source_path.exists():
         raise ValueError(f"临时上传文件不存在：{filename or upload_id}")
 
+    if _is_cancelled(cancel_event):
+        _cancel_warn_early_terminate(pack)
+        return
+    update_job_progress(pack.job_id, f"正在提取上传文件文本：{filename}")
     pages = extract_document_pages(source_path)
     if len(pages) == 1 and isinstance(pages[0].get("text"), str):
         text = str(pages[0]["text"])
@@ -359,10 +421,15 @@ def _load_temporary_upload(upload_id: str, pack: ContentPack, job_id: str | None
         excerpt=_short_excerpt("\n\n".join(texts)),
         confidence=0.85,
     )
-    for page in pages:
+    total_pages = len(pages)
+    for page_idx, page in enumerate(pages, start=1):
+        if _is_cancelled(cancel_event):
+            _cancel_warn_early_terminate(pack)
+            return
         text = str(page.get("text", "")).strip()
         if not text:
             continue
+        update_job_progress(pack.job_id, f"正在整理上传文档分页 {page_idx}/{total_pages}：{filename}")
         locator = f"page {int(page.get('page', 1))}"
         page_ref = ref.model_copy(update={"locator": locator, "excerpt": _short_excerpt(text)})
         _append_chunks(pack.chunks, title=filename, chunk_type="temporary_upload", text=text[:MAX_PACK_CHARS], refs=[page_ref])
@@ -416,13 +483,14 @@ def normalize_sources(payload: dict[str, Any]) -> list[SourceInput]:
     return normalized
 
 
-def build_content_pack(request: Any, job_id: str | None = None) -> ContentPack:
+def build_content_pack(request: Any, job_id: str | None = None, cancel_event: Event | None = None) -> ContentPack:
     payload = _as_dict(request)
     sources = normalize_sources(payload)
     topic = str(payload.get("topic") or payload.get("prompt") or "安全生产培训")
     title = _derive_title(topic)
     audience = _derive_audience(payload.get("audience"), topic)
     duration_minutes = int(payload.get("duration_minutes") or payload.get("duration") or 60)
+    # PPT 生成始终使用原始文档；HTML 训练可能偏好 wiki 页面
     prefer_wiki_pages = bool(payload.get("prefer_wiki_pages"))
     pack = ContentPack(
         id=f"cp-{uuid.uuid4().hex[:10]}",
@@ -431,33 +499,60 @@ def build_content_pack(request: Any, job_id: str | None = None) -> ContentPack:
         audience=audience,
         duration_minutes=duration_minutes,
         sources=sources,
+        job_id=job_id or "",
     )
 
     if not sources:
-        _add_prompt_source(topic, pack)
+        update_job_progress(job_id, "正在解析用户输入...")
+        content_text = topic
+        requirements = (payload.get("requirements") or "").strip()
+        if requirements and len(requirements) > len(topic):
+            content_text = requirements
+        update_job_progress(job_id, "正在解析用户输入...")
+        _add_prompt_source(content_text, pack)
         return pack
 
     for source in sources:
+        if _is_cancelled(cancel_event):
+            _cancel_warn_early_terminate(pack)
+            break
         if source.type == "knowledge_base":
             if not source.kb_id:
                 pack.warnings.append("知识库内容来源缺少 kb_id")
                 continue
-            _load_wiki_sources(source.kb_id, None, pack)
+            update_job_progress(job_id, "正在解析知识库文档...")
+            _load_document_sources(
+                source.kb_id, None, pack,
+                prefer_wiki_pages=False, cancel_event=cancel_event,
+            )
         elif source.type == "wiki_page":
             if not source.kb_id or not source.page_name:
                 pack.warnings.append("知识库内容来源缺少 kb_id 或内容标识")
                 continue
-            _load_wiki_sources(source.kb_id, source.page_name, pack)
+            update_job_progress(job_id, "正在解析知识库文档...")
+            _load_document_sources(
+                source.kb_id, None, pack,
+                prefer_wiki_pages=False, cancel_event=cancel_event,
+            )
         elif source.type == "kb_document":
             if not source.kb_id:
                 pack.warnings.append("知识库文档来源缺少 kb_id")
                 continue
-            _load_document_sources(source.kb_id, source.document_id, pack, prefer_wiki_pages=prefer_wiki_pages)
+            update_job_progress(job_id, "正在解析知识库文档...")
+            _load_document_sources(
+                source.kb_id, source.document_id, pack,
+                prefer_wiki_pages=prefer_wiki_pages, cancel_event=cancel_event,
+            )
         elif source.type == "temporary_upload":
             if not source.upload_id:
                 raise ValueError("temporary_upload 来源缺少 upload_id")
-            _load_temporary_upload(source.upload_id, pack, job_id)
+            update_job_progress(job_id, "正在解析上传文档...")
+            _load_temporary_upload(source.upload_id, pack, job_id, cancel_event)
         elif source.type == "prompt":
+            update_job_progress(job_id, "正在解析用户输入...")
+            if _is_cancelled(cancel_event):
+                _cancel_warn_early_terminate(pack)
+                return pack
             _add_prompt_source(source.prompt or topic, pack)
 
     if not pack.chunks:

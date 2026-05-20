@@ -4,20 +4,21 @@
 
 import asyncio
 import json
+import logging
+import time
 import httpx
 from typing import AsyncGenerator, Dict, List, Optional, Any
 from backend.config import config
+
+logger = logging.getLogger(__name__)
 
 
 class LLMService:
     """LLM服务"""
     
     def __init__(self):
-        # 将超时拆分为连接/读取/写入/连接池四类：
-        # - connect: 快速发现服务商不可达。
-        # - read: 设为 600s，避免长输出（如 HTML 生成）在非流式下被 120s read 超时提前终止；
-        #   流式下每个 chunk 都会刷新 read 计时器，该值是“两个 chunk 之间”的最大间隔。
-        # - write/pool: 常规值即可。
+        # 超时：connect 快速发现不可达；read 保留 600s 给 HTML 长输出；
+        # 各调用方自己用 asyncio.wait_for 控制业务超时（如大纲 60s）。
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=10.0, read=600.0, write=60.0, pool=10.0)
         )
@@ -147,6 +148,7 @@ class LLMService:
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
 
+        _start = time.monotonic()
         try:
             if not stream:
                 response = await self.client.post(
@@ -155,18 +157,33 @@ class LLMService:
                     json=payload
                 )
                 if response.status_code != 200:
+                    elapsed = int((time.monotonic() - _start) * 1000)
+                    logger.warning("llm_api_error", extra={
+                        "event": "llm_call", "model": model["id"],
+                        "duration_ms": elapsed, "status": response.status_code,
+                    })
                     yield {"type": "error", "message": f"API错误 ({response.status_code}): {response.text}"}
                     return
 
                 try:
                     data = response.json()
                 except json.JSONDecodeError:
+                    elapsed = int((time.monotonic() - _start) * 1000)
+                    logger.warning("llm_parse_error", extra={
+                        "event": "llm_call", "model": model["id"], "duration_ms": elapsed,
+                    })
                     yield {"type": "error", "message": f"API错误：无法解析返回内容：{response.text[:500]}"}
                     return
 
                 choice = data.get("choices", [{}])[0]
                 content = choice.get("message", {}).get("content", "")
                 finish_reason = choice.get("finish_reason")
+                elapsed = int((time.monotonic() - _start) * 1000)
+                logger.info("llm_call_ok", extra={
+                    "event": "llm_call", "model": model["id"],
+                    "duration_ms": elapsed, "finish_reason": finish_reason,
+                    "stream": False, "content_length": len(content),
+                })
                 if content:
                     yield {"type": "chunk", "content": content}
                 yield {"type": "done", "finish_reason": finish_reason}
@@ -180,6 +197,11 @@ class LLMService:
                 json=payload
             ) as response:
                 if response.status_code != 200:
+                    elapsed = int((time.monotonic() - _start) * 1000)
+                    logger.warning("llm_api_error", extra={
+                        "event": "llm_call", "model": model["id"],
+                        "duration_ms": elapsed, "status": response.status_code,
+                    })
                     error_text = await response.aread()
                     yield {"type": "error", "message": f"API错误 ({response.status_code}): {error_text.decode()}"}
                     return
@@ -206,10 +228,25 @@ class LLMService:
                     if maybe_finish_reason:
                         finish_reason = maybe_finish_reason
 
+            elapsed = int((time.monotonic() - _start) * 1000)
+            logger.info("llm_call_ok", extra={
+                "event": "llm_call", "model": model["id"],
+                "duration_ms": elapsed, "finish_reason": finish_reason,
+                "stream": True,
+            })
             yield {"type": "done", "finish_reason": finish_reason}
         except asyncio.CancelledError:
+            elapsed = int((time.monotonic() - _start) * 1000)
+            logger.warning("llm_call_cancelled", extra={
+                "event": "llm_call", "model": model["id"], "duration_ms": elapsed,
+            })
             raise
         except Exception as e:
+            elapsed = int((time.monotonic() - _start) * 1000)
+            logger.error("llm_call_error", extra={
+                "event": "llm_call", "model": model["id"],
+                "duration_ms": elapsed, "error": str(e)[:200],
+            })
             yield {"type": "error", "message": self._format_request_exception(e, provider, model)}
 
     async def chat(

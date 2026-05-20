@@ -50,6 +50,7 @@ class ContentPack(BaseModel):
     sources: list[SourceInput] = Field(default_factory=list)
     chunks: list[ContentChunk] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    job_id: str = ""
 
 
 class TrainingOutlineSection(BaseModel):

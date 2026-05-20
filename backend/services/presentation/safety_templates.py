@@ -1,9 +1,8 @@
-"""内置安全生产 PPT 模板。"""
+"""PPT 主题模板定义。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -16,8 +15,6 @@ class SafetyTemplate:
     title_size: int
     body_size: int
     footer_style: str
-    slide_layout_rules: dict[str, str]
-    warning_colors: dict[str, str]
 
 
 TEMPLATES: dict[str, SafetyTemplate] = {
@@ -39,8 +36,6 @@ TEMPLATES: dict[str, SafetyTemplate] = {
         title_size=28,
         body_size=16,
         footer_style="由安牛生成",
-        slide_layout_rules={"density": "medium", "emphasis": "clear", "tone": "professional"},
-        warning_colors={"normal": "#1D4ED8", "attention": "#F97316", "warning": "#DC2626", "critical": "#991B1B"},
     ),
     "management_briefing": SafetyTemplate(
         template_id="management_briefing",
@@ -60,8 +55,6 @@ TEMPLATES: dict[str, SafetyTemplate] = {
         title_size=30,
         body_size=15,
         footer_style="安牛安全汇报",
-        slide_layout_rules={"density": "low", "emphasis": "conclusion_cards", "tone": "executive"},
-        warning_colors={"normal": "#2563EB", "attention": "#D97706", "warning": "#B91C1C", "critical": "#7F1D1D"},
     ),
     "frontline_shift_training": SafetyTemplate(
         template_id="frontline_shift_training",
@@ -81,8 +74,6 @@ TEMPLATES: dict[str, SafetyTemplate] = {
         title_size=32,
         body_size=18,
         footer_style="安牛班组培训",
-        slide_layout_rules={"density": "low", "emphasis": "one_action_per_slide", "tone": "actionable"},
-        warning_colors={"normal": "#1D4ED8", "attention": "#EA580C", "warning": "#DC2626", "critical": "#991B1B"},
     ),
 }
 

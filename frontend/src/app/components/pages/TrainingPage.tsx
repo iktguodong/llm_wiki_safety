@@ -534,6 +534,8 @@ export default function TrainingPage() {
   const [jobId, setJobId] = useState<string>('');
   const [loadingOutline, setLoadingOutline] = useState(false);
   const [loadingPptGenerate, setLoadingPptGenerate] = useState(false);
+  const [stoppingGeneration, setStoppingGeneration] = useState(false);
+  const [progressMessage, setProgressMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [kbDocumentPickerOpen, setKbDocumentPickerOpen] = useState(false);
   const [pendingKbDocumentIds, setPendingKbDocumentIds] = useState<string[]>([]);
@@ -545,6 +547,7 @@ export default function TrainingPage() {
   const generationRef = useRef<{ kind: GenerationKind; jobId: string; controller: AbortController } | null>(null);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
     };
@@ -593,18 +596,23 @@ export default function TrainingPage() {
     setJobId('');
   };
 
-  const stopCurrentGeneration = () => {
+  const stopCurrentGeneration = async () => {
     const current = generationRef.current;
-    if (!current) return;
+    if (!current || stoppingGeneration) return;
+    setStoppingGeneration(true);
+    setProgressMessage('正在停止...');
+    setError(null);
+    // 先立即中止本地 HTTP 请求（让前端快速响应）
     current.controller.abort();
+    // 异步通知后端取消，无需等待
+    trainingApi.cancelJob(current.jobId).catch(() => {});
+    // 立即清理前端状态
     discardGeneratedOutputs(current.kind);
     setLoadingOutline(false);
     setLoadingPptGenerate(false);
-    setError(null);
+    setProgressMessage(null);
     clearActiveGeneration();
-    void trainingApi.cancelJob(current.jobId).catch(() => {
-      // ignore cancellation failures; UI already reset locally
-    });
+    setStoppingGeneration(false);
   };
 
   const slideCount = buildSlideCount('custom', setupDraft.customSlideCount);
@@ -736,6 +744,31 @@ export default function TrainingPage() {
     setKbDocumentPickerOpen(false);
   }, [isGenerationLocked]);
 
+  // 轮询后端进度
+  useEffect(() => {
+    if (!isGenerationLocked || !jobId) {
+      setProgressMessage(null);
+      return;
+    }
+    const controller = new AbortController();
+    const poll = async () => {
+      while (!controller.signal.aborted) {
+        try {
+          const msg = await trainingApi.getProgress(jobId, controller.signal);
+          if (msg && !controller.signal.aborted) {
+            setProgressMessage(msg);
+          }
+        } catch {
+          // 轮询出错不中断流程
+        }
+        if (controller.signal.aborted) break;
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    };
+    void poll();
+    return () => controller.abort();
+  }, [isGenerationLocked, jobId]);
+
   const resetWorkflow = (nextMode: MainMode = 'ppt') => {
     generationRef.current?.controller.abort();
     clearActiveGeneration();
@@ -756,6 +789,8 @@ export default function TrainingPage() {
     setJobId('');
     setLoadingOutline(false);
     setLoadingPptGenerate(false);
+    setStoppingGeneration(false);
+    setProgressMessage(null);
     setError(null);
     setKbDocumentPickerOpen(false);
     setPendingKbDocumentIds([]);
@@ -897,9 +932,7 @@ export default function TrainingPage() {
       if (generationRef.current?.jobId === nextJobId) {
         clearActiveGeneration();
       }
-      if (isMountedRef.current) {
-        setLoadingOutline(false);
-      }
+      setLoadingOutline(false);
     }
   };
 
@@ -1012,9 +1045,7 @@ export default function TrainingPage() {
       if (generationRef.current?.jobId === nextJobId) {
         clearActiveGeneration();
       }
-      if (isMountedRef.current) {
-        setLoadingPptGenerate(false);
-      }
+      setLoadingPptGenerate(false);
     }
   };
 
@@ -1113,11 +1144,12 @@ export default function TrainingPage() {
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-slate-900">培训材料生成</h1>
           <div className="flex items-center gap-2">
-            {activeGenerationKind && (
+            {(activeGenerationKind || stoppingGeneration) && (
               <Button
                 type="button"
                 variant="destructive"
                 className="relative z-30 pointer-events-auto"
+                disabled={stoppingGeneration}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -1128,8 +1160,8 @@ export default function TrainingPage() {
                   void stopCurrentGeneration();
                 }}
               >
-                <CircleX className="mr-2 h-4 w-4" />
-                停止生成
+                {stoppingGeneration ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CircleX className="mr-2 h-4 w-4" />}
+                {stoppingGeneration ? '正在停止' : '停止生成'}
               </Button>
             )}
             <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
@@ -1691,10 +1723,15 @@ export default function TrainingPage() {
                   <div className="text-sm font-medium text-slate-700">生成大纲</div>
                   <div className="text-xs text-slate-500">可选择文档来源，也可以直接填写生成要求后生成。</div>
                 </div>
-                  <Button onClick={generateOutline} disabled={loadingOutline || !htmlTitle.trim() || !canGenerateOutline()} className="bg-indigo-600 hover:bg-indigo-700">
-                    {loadingOutline ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
-                    生成大纲
-                  </Button>
+                  <div className="flex flex-col items-end gap-1.5">
+                    <Button onClick={generateOutline} disabled={loadingOutline || !htmlTitle.trim() || !canGenerateOutline()} className="bg-indigo-600 hover:bg-indigo-700">
+                      {loadingOutline ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
+                      生成大纲
+                    </Button>
+                    {loadingOutline && progressMessage && (
+                      <span className="text-xs text-slate-500">{progressMessage}</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid gap-3 xl:grid-cols-2">
@@ -1893,12 +1930,24 @@ export default function TrainingPage() {
                   <Separator />
 
                   <div className="flex flex-wrap items-center gap-3">
-                    <Button onClick={generatePpt} disabled={loadingPptGenerate || outline.slides.length === 0} className="bg-indigo-600 hover:bg-indigo-700">
-                      {loadingPptGenerate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                      生成PPT
-                    </Button>
+                    <div className="flex flex-col items-start gap-1.5">
+                      {pptDownloadUrl ? (
+                        <Button disabled className="bg-emerald-600 text-white hover:bg-emerald-700 cursor-default">
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                          已生成PPT
+                        </Button>
+                      ) : (
+                        <Button onClick={generatePpt} disabled={loadingPptGenerate || outline.slides.length === 0} className="bg-indigo-600 hover:bg-indigo-700">
+                          {loadingPptGenerate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                          生成PPT
+                        </Button>
+                      )}
+                      {loadingPptGenerate && progressMessage && (
+                        <span className="text-xs text-slate-500">{progressMessage}</span>
+                      )}
+                    </div>
                     {pptDownloadUrl && (
-                      <Button asChild variant="outline">
+                      <Button asChild className="bg-emerald-600 hover:bg-emerald-700 text-white">
                         <a href={pptDownloadUrl} target="_blank" rel="noreferrer">
                           <Download className="mr-2 h-4 w-4" />
                           下载PPT {pptFilename ? `(${pptFilename})` : ''}

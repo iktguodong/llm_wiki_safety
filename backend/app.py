@@ -43,7 +43,6 @@ from backend.services.document import doc_service
 from backend.services.wiki import wiki_service
 from backend.services.chat import chat_service
 from backend.services.search import search_service
-from backend.services.training import training_service
 from backend.services.training_html import training_html_service
 from backend.services.training_ppt import training_payload_to_request, training_ppt_service
 from backend.services.llm import llm_service
@@ -53,7 +52,8 @@ from backend.services.presentation.project_store import (
     cancel_running_job,
     cleanup_expired_training_uploads,
     cleanup_training_job,
-    create_job,
+    get_job_progress,
+    get_running_job_entry,
     get_upload_dir,
     resolve_download_path,
     save_upload_metadata,
@@ -540,43 +540,41 @@ async def upload_training_document(file: UploadFile = File(...)):
 
 @app.post("/api/training/outline", response_model=ApiResponse)
 async def generate_training_outline(payload: dict = Body(...)):
-    """生成培训大纲。支持新旧两种请求格式。"""
+    """生成培训大纲。"""
     request = training_payload_to_request(payload)
-    job = create_job("outline", job_id=request.get("job_id"))
     task = asyncio.current_task()
     if task is not None:
-        register_running_job(job.job_id, task)
+        register_running_job(request["job_id"], task)
     try:
-        response = await training_ppt_service.generate_outline(payload, job_id=job.job_id)
+        response = await training_ppt_service.generate_outline(payload, job_id=request["job_id"])
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except asyncio.CancelledError:
-        cleanup_training_job(job.job_id)
+        cleanup_training_job(request["job_id"])
         raise
     finally:
         if task is not None:
-            unregister_running_job(job.job_id, task)
+            unregister_running_job(request["job_id"], task)
     return ApiResponse(data=response)
 
 
 @app.post("/api/training/generate", response_model=ApiResponse)
 async def generate_training_ppt(payload: dict = Body(...)):
-    """生成培训PPT。支持确认后的大纲继续生成。"""
+    """生成培训 PPT。"""
     request = training_payload_to_request(payload)
-    job = create_job("generate", job_id=request.get("job_id"))
     task = asyncio.current_task()
     if task is not None:
-        register_running_job(job.job_id, task)
+        register_running_job(request["job_id"], task)
     try:
-        response = await training_ppt_service.generate_ppt(payload, job_id=job.job_id)
+        response = await training_ppt_service.generate_ppt(payload, job_id=request["job_id"])
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except asyncio.CancelledError:
-        cleanup_training_job(job.job_id)
+        cleanup_training_job(request["job_id"])
         raise
     finally:
         if task is not None:
-            unregister_running_job(job.job_id, task)
+            unregister_running_job(request["job_id"], task)
     return ApiResponse(data=response)
 
 
@@ -603,10 +601,24 @@ async def generate_training_html(payload: TrainingHtmlGenerateRequest):
     return ApiResponse(data=response)
 
 
+@app.get("/api/training/progress/{job_id}")
+async def get_training_progress(job_id: str):
+    """获取培训生成任务的进度信息。"""
+    message = get_job_progress(job_id)
+    return ApiResponse(data={"job_id": job_id, "message": message or ""})
+
+
 @app.post("/api/training/cancel/{job_id}")
 async def cancel_training_job(job_id: str):
     """取消进行中的培训生成任务并清理中间产物。"""
     cancelled = cancel_running_job(job_id)
+    # 等待任务实际取消（超时 5 秒），避免 cleanup 时任务仍在运行
+    entry = get_running_job_entry(job_id)
+    if entry and not entry.task.done():
+        try:
+            await asyncio.wait_for(entry.task, timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
     cleanup_training_job(job_id)
     return ApiResponse(data={"job_id": job_id, "cancelled": cancelled})
 
@@ -666,5 +678,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=True,
-        log_level="info"
+        log_level="info",
+        access_log=False
     )

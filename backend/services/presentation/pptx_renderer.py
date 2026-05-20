@@ -8,146 +8,82 @@ from typing import Any
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import MSO_AUTO_SIZE, PP_ALIGN
+from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 
-from .models import PresentationSpec, SlideSpec
-from .project_store import get_job_paths
-from .safety_templates import SafetyTemplate
+from backend.models import PresentationSpec, SlideSpec
+from backend.services.presentation.project_store import get_job_paths, update_job_progress
+from backend.services.presentation.safety_templates import SafetyTemplate
 
 
 def _rgb(hex_color: str) -> RGBColor:
-    hex_color = hex_color.lstrip("#")
-    return RGBColor(int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16))
+    h = hex_color.lstrip("#")
+    return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
 
-def _set_run_font(run, *, cn: str, en: str, size: int, color: str, bold: bool = False):
+def _run_font(run, *, cn: str, en: str, size: int, color: str, bold: bool = False):
     run.font.name = cn
     run.font.size = Pt(size)
     run.font.bold = bold
     run.font.color.rgb = _rgb(color)
 
 
-def _add_textbox(slide, left, top, width, height, text, *, font_cn, font_en, size, color, bold=False, align=PP_ALIGN.LEFT):
+def _textbox(slide, left, top, width, height, text, *, cn, en, size, color, bold=False, align=PP_ALIGN.LEFT):
     box = slide.shapes.add_textbox(left, top, width, height)
     tf = box.text_frame
     tf.word_wrap = True
-    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
     p = tf.paragraphs[0]
     p.text = text
     p.alignment = align
-    if p.runs:
-        for run in p.runs:
-            _set_run_font(run, cn=font_cn, en=font_en, size=size, color=color, bold=bold)
-    else:
-        run = p.add_run()
-        run.text = text
-        _set_run_font(run, cn=font_cn, en=font_en, size=size, color=color, bold=bold)
+    run = p.add_run()
+    run.text = text
+    _run_font(run, cn=cn, en=en, size=size, color=color, bold=bold)
     return box
 
 
-def _apply_footer(slide, template: SafetyTemplate, slide_no: int, footer_text: str):
-    _add_textbox(
-        slide,
-        Inches(0.45),
-        Inches(7.0),
-        Inches(6.0),
-        Inches(0.3),
-        footer_text,
-        font_cn=template.font_family_cn,
-        font_en=template.font_family_en,
-        size=10,
-        color=template.theme_colors["body"],
-    )
-    _add_textbox(
-        slide,
-        Inches(12.0),
-        Inches(7.0),
-        Inches(0.7),
-        Inches(0.3),
-        str(slide_no),
-        font_cn=template.font_family_cn,
-        font_en=template.font_family_en,
-        size=10,
-        color=template.theme_colors["body"],
-        align=PP_ALIGN.RIGHT,
-    )
-
-
-def _base_slide(prs: Presentation):
-    return prs.slides.add_slide(prs.slide_layouts[6])
-
-
-def _set_bg(slide, color: str):
+def _bg(slide, color: str):
     fill = slide.background.fill
     fill.solid()
     fill.fore_color.rgb = _rgb(color)
 
 
-def _render_cover(slide, spec: PresentationSpec, template: SafetyTemplate, slide_spec: SlideSpec):
-    _set_bg(slide, template.theme_colors["bg"])
-    bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.0), Inches(0.0), Inches(13.33), Inches(0.35))
+def _render_cover(slide, spec: PresentationSpec, tmpl: SafetyTemplate, ss: SlideSpec):
+    _bg(slide, tmpl.theme_colors["bg"])
+    bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.33), Inches(0.35))
     bar.fill.solid()
-    bar.fill.fore_color.rgb = _rgb(template.theme_colors["primary"])
+    bar.fill.fore_color.rgb = _rgb(tmpl.theme_colors["primary"])
     bar.line.fill.background()
-    _add_textbox(slide, Inches(0.7), Inches(1.1), Inches(11.5), Inches(1.0), spec.title, font_cn=template.font_family_cn, font_en=template.font_family_en, size=template.title_size + 6, color=template.theme_colors["title"], bold=True)
-    _add_textbox(slide, Inches(0.75), Inches(2.2), Inches(10.6), Inches(0.6), slide_spec.subtitle or "", font_cn=template.font_family_cn, font_en=template.font_family_en, size=18, color=template.theme_colors["body"])
-    bullets = slide_spec.bullets[:4]
-    top = Inches(3.2)
-    for idx, bullet in enumerate(bullets):
-        _add_textbox(slide, Inches(0.95), top + Inches(idx * 0.45), Inches(7.5), Inches(0.35), f"• {bullet}", font_cn=template.font_family_cn, font_en=template.font_family_en, size=16, color=template.theme_colors["body"])
-    _add_textbox(slide, Inches(0.75), Inches(6.2), Inches(10), Inches(0.35), template.footer_style, font_cn=template.font_family_cn, font_en=template.font_family_en, size=11, color=template.theme_colors["accent"])
+    _textbox(slide, Inches(0.7), Inches(1.1), Inches(11.5), Inches(1.0), spec.title,
+             cn=tmpl.font_family_cn, en=tmpl.font_family_en, size=tmpl.title_size + 6, color=tmpl.theme_colors["title"], bold=True)
+    y = Inches(2.2)
+    for b in ss.bullets[:4]:
+        _textbox(slide, Inches(0.95), y, Inches(7.5), Inches(0.35), f"• {b}",
+                 cn=tmpl.font_family_cn, en=tmpl.font_family_en, size=16, color=tmpl.theme_colors["body"])
+        y += Inches(0.45)
+    _textbox(slide, Inches(0.75), Inches(6.2), Inches(10), Inches(0.35), tmpl.footer_style,
+             cn=tmpl.font_family_cn, en=tmpl.font_family_en, size=11, color=tmpl.theme_colors["accent"])
 
 
-def _render_toc(slide, template: SafetyTemplate, slide_spec: SlideSpec):
-    _set_bg(slide, template.theme_colors["bg"])
-    _add_textbox(slide, Inches(0.7), Inches(0.5), Inches(6), Inches(0.5), slide_spec.title, font_cn=template.font_family_cn, font_en=template.font_family_en, size=template.title_size, color=template.theme_colors["title"], bold=True)
-    for idx, bullet in enumerate(slide_spec.bullets[:6], start=1):
-        _add_textbox(slide, Inches(1.0), Inches(1.5 + (idx - 1) * 0.65), Inches(10.8), Inches(0.45), f"{idx}. {bullet}", font_cn=template.font_family_cn, font_en=template.font_family_en, size=template.body_size, color=template.theme_colors["body"])
+def _render_bullet(slide, tmpl: SafetyTemplate, ss: SlideSpec):
+    _bg(slide, tmpl.theme_colors["bg"])
+    _textbox(slide, Inches(0.7), Inches(0.45), Inches(11.6), Inches(0.6), ss.title,
+             cn=tmpl.font_family_cn, en=tmpl.font_family_en, size=tmpl.title_size, color=tmpl.theme_colors["title"], bold=True)
+    y = Inches(1.65)
+    for b in ss.bullets[:5]:
+        _textbox(slide, Inches(0.95), y, Inches(12), Inches(0.45), f"• {b}",
+                 cn=tmpl.font_family_cn, en=tmpl.font_family_en, size=tmpl.body_size, color=tmpl.theme_colors["body"])
+        y += Inches(0.75)
+    if ss.slide_type == "quiz" and ss.notes:
+        _textbox(slide, Inches(0.95), Inches(5.7), Inches(12), Inches(0.8), f"答案提示：{ss.notes}",
+                 cn=tmpl.font_family_cn, en=tmpl.font_family_en, size=12, color=tmpl.theme_colors["accent"])
 
 
-def _render_divider(slide, template: SafetyTemplate, slide_spec: SlideSpec):
-    _set_bg(slide, template.theme_colors["bg"])
-    bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.0), Inches(0.0), Inches(0.45), Inches(7.5))
-    bar.fill.solid()
-    bar.fill.fore_color.rgb = _rgb(template.theme_colors["accent"])
-    bar.line.fill.background()
-    _add_textbox(slide, Inches(1.1), Inches(2.0), Inches(10.5), Inches(0.8), slide_spec.title, font_cn=template.font_family_cn, font_en=template.font_family_en, size=template.title_size + 6, color=template.theme_colors["title"], bold=True)
-    _add_textbox(slide, Inches(1.1), Inches(3.0), Inches(10.0), Inches(0.6), slide_spec.subtitle or "", font_cn=template.font_family_cn, font_en=template.font_family_en, size=18, color=template.theme_colors["body"])
-
-
-def _render_bullet_slide(slide, template: SafetyTemplate, slide_spec: SlideSpec):
-    _set_bg(slide, template.theme_colors["bg"])
-    _add_textbox(slide, Inches(0.7), Inches(0.45), Inches(11.6), Inches(0.6), slide_spec.title, font_cn=template.font_family_cn, font_en=template.font_family_en, size=template.title_size, color=template.theme_colors["title"], bold=True)
-    if slide_spec.subtitle:
-        _add_textbox(slide, Inches(0.75), Inches(1.1), Inches(11), Inches(0.35), slide_spec.subtitle, font_cn=template.font_family_cn, font_en=template.font_family_en, size=13, color=template.theme_colors["accent"])
-    left = Inches(0.95)
-    top = Inches(1.65)
-    box_w = Inches(12.0)
-    box_h = Inches(4.9)
-    for idx, bullet in enumerate(slide_spec.bullets[:5]):
-        _add_textbox(slide, left, top + Inches(idx * 0.75), box_w, Inches(0.45), f"• {bullet}", font_cn=template.font_family_cn, font_en=template.font_family_en, size=template.body_size, color=template.theme_colors["body"])
-
-
-def _render_process_slide(slide, template: SafetyTemplate, slide_spec: SlideSpec):
-    _render_bullet_slide(slide, template, slide_spec)
-
-
-def _render_checklist_slide(slide, template: SafetyTemplate, slide_spec: SlideSpec):
-    _render_bullet_slide(slide, template, slide_spec)
-
-
-def _render_quiz_slide(slide, template: SafetyTemplate, slide_spec: SlideSpec):
-    _render_bullet_slide(slide, template, slide_spec)
-    if slide_spec.notes:
-        _add_textbox(slide, Inches(0.75), Inches(5.7), Inches(12), Inches(0.8), f"答案提示：{slide_spec.notes}", font_cn=template.font_family_cn, font_en=template.font_family_en, size=12, color=template.theme_colors["accent"])
-
-
-def _render_summary_slide(slide, template: SafetyTemplate, slide_spec: SlideSpec):
-    _render_bullet_slide(slide, template, slide_spec)
-    if slide_spec.key_message:
-        _add_textbox(slide, Inches(0.95), Inches(6.1), Inches(11.5), Inches(0.45), slide_spec.key_message, font_cn=template.font_family_cn, font_en=template.font_family_en, size=14, color=template.theme_colors["success"], bold=True)
+def _footer(slide, tmpl: SafetyTemplate, slide_no: int):
+    _textbox(slide, Inches(0.45), Inches(7.0), Inches(6), Inches(0.3), tmpl.footer_style,
+             cn=tmpl.font_family_cn, en=tmpl.font_family_en, size=10, color=tmpl.theme_colors["body"])
+    _textbox(slide, Inches(12), Inches(7.0), Inches(0.7), Inches(0.3), str(slide_no),
+             cn=tmpl.font_family_cn, en=tmpl.font_family_en, size=10, color=tmpl.theme_colors["body"], align=PP_ALIGN.RIGHT)
 
 
 def render_presentation(
@@ -161,38 +97,28 @@ def render_presentation(
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
 
-    for slide_spec in spec.slides:
+    total = len(spec.slides)
+    for idx, ss in enumerate(spec.slides, start=1):
         if cancel_event is not None and cancel_event.is_set():
             raise asyncio.CancelledError()
-        slide = _base_slide(prs)
-        _set_bg(slide, template.theme_colors["bg"])
 
-        if slide_spec.slide_type == "cover":
-            _render_cover(slide, spec, template, slide_spec)
-        elif slide_spec.slide_type in {"toc", "agenda"}:
-            _render_toc(slide, template, slide_spec)
-        elif slide_spec.slide_type == "section_divider":
-            _render_divider(slide, template, slide_spec)
-        elif slide_spec.slide_type in {"workflow"}:
-            _render_process_slide(slide, template, slide_spec)
-        elif slide_spec.slide_type in {"checklist"}:
-            _render_checklist_slide(slide, template, slide_spec)
-        elif slide_spec.slide_type in {"quiz"}:
-            _render_quiz_slide(slide, template, slide_spec)
-        elif slide_spec.slide_type in {"summary"}:
-            _render_summary_slide(slide, template, slide_spec)
-        elif slide_spec.slide_type in {"risk_scene", "legal_requirement", "control_measures", "case_discussion", "content"}:
-            _render_bullet_slide(slide, template, slide_spec)
+        update_job_progress(job_id, f"正在生成第 {idx}/{total} 页 PPT...")
+
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        _bg(slide, template.theme_colors["bg"])
+
+        if ss.slide_type == "cover":
+            _render_cover(slide, spec, template, ss)
+        elif ss.slide_type in ("quiz",):
+            _render_bullet(slide, template, ss)
         else:
-            _render_bullet_slide(slide, template, slide_spec)
+            _render_bullet(slide, template, ss)
 
-        if cancel_event is not None and cancel_event.is_set():
-            raise asyncio.CancelledError()
-        footer_text = f"{template.footer_style}" if not kb_name else f"{kb_name} · {template.footer_style}"
-        _apply_footer(slide, template, slide_spec.slide_no, footer_text)
+        _footer(slide, template, ss.slide_no)
 
     if cancel_event is not None and cancel_event.is_set():
         raise asyncio.CancelledError()
+
     paths = get_job_paths(job_id)
     paths.pptx_dir.mkdir(parents=True, exist_ok=True)
     filename = "training_deck.pptx"

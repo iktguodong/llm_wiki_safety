@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-import uuid
+import threading
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from threading import Event
@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from backend.config import OUTPUT_DIR
-from .models import PresentationJob, utc_now_str
+from .models import utc_now_str
 
 
 PRESENTATIONS_DIR = OUTPUT_DIR / "presentations"
@@ -27,6 +27,8 @@ class RunningTrainingJob:
 
 
 _RUNNING_TRAINING_JOBS: dict[str, RunningTrainingJob] = {}
+_JOB_PROGRESS: dict[str, str] = {}
+_JOB_PROGRESS_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -74,54 +76,6 @@ def get_job_paths(job_id: str) -> JobPaths:
     )
 
 
-def create_job(source_mode: str, job_id: Optional[str] = None) -> PresentationJob:
-    PRESENTATIONS_DIR.mkdir(parents=True, exist_ok=True)
-    job_id = job_id or f"ppt-{uuid.uuid4().hex[:10]}"
-    paths = get_job_paths(job_id)
-    paths.source_uploads.mkdir(parents=True, exist_ok=True)
-    paths.pptx_dir.mkdir(parents=True, exist_ok=True)
-    paths.html_dir.mkdir(parents=True, exist_ok=True)
-    now = utc_now_str()
-    return PresentationJob(
-        job_id=job_id,
-        status="created",
-        created_at=now,
-        updated_at=now,
-        source_mode=source_mode,
-        content_pack_path=str(paths.content_pack_path),
-        outline_path=str(paths.outline_path),
-        spec_path=str(paths.spec_path),
-        pptx_path=str(paths.pptx_dir / "training_deck.pptx"),
-        html_path=str(paths.html_dir / "index.html"),
-        quality_report_path=str(paths.quality_report_path),
-        download_url=f"/api/training/download/training_deck.pptx",
-    )
-
-
-def save_content_pack(job_id: str, data: Any) -> Path:
-    path = get_job_paths(job_id).content_pack_path
-    _json_dump(path, data)
-    return path
-
-
-def save_outline(job_id: str, data: Any) -> Path:
-    path = get_job_paths(job_id).outline_path
-    _json_dump(path, data)
-    return path
-
-
-def save_spec(job_id: str, data: Any) -> Path:
-    path = get_job_paths(job_id).spec_path
-    _json_dump(path, data)
-    return path
-
-
-def save_quality_report(job_id: str, data: Any) -> Path:
-    path = get_job_paths(job_id).quality_report_path
-    _json_dump(path, data)
-    return path
-
-
 def register_running_job(job_id: str, task: asyncio.Task[Any]) -> None:
     _RUNNING_TRAINING_JOBS[job_id] = RunningTrainingJob(task=task, cancel_event=Event())
 
@@ -143,11 +97,33 @@ def cancel_running_job(job_id: str) -> bool:
     return True
 
 
+def get_running_job_entry(job_id: str) -> RunningTrainingJob | None:
+    return _RUNNING_TRAINING_JOBS.get(job_id)
+
+
 def get_running_job_cancel_event(job_id: str) -> Event | None:
     current = _RUNNING_TRAINING_JOBS.get(job_id)
     if current is None:
         return None
     return current.cancel_event
+
+
+def update_job_progress(job_id: str, message: str) -> None:
+    with _JOB_PROGRESS_LOCK:
+        if message:
+            _JOB_PROGRESS[job_id] = message
+        else:
+            _JOB_PROGRESS.pop(job_id, None)
+
+
+def get_job_progress(job_id: str) -> str | None:
+    with _JOB_PROGRESS_LOCK:
+        return _JOB_PROGRESS.get(job_id)
+
+
+def clear_job_progress(job_id: str) -> None:
+    with _JOB_PROGRESS_LOCK:
+        _JOB_PROGRESS.pop(job_id, None)
 
 
 def cleanup_training_job(job_id: str) -> None:
@@ -159,6 +135,7 @@ def cleanup_training_job(job_id: str) -> None:
             html_file.unlink()
         except OSError:
             pass
+    clear_job_progress(job_id)
 
 
 def get_upload_dir(upload_id: str) -> Path:
@@ -224,30 +201,25 @@ def cleanup_expired_training_uploads(max_age_hours: int = 24) -> int:
 
 
 def resolve_download_path(filename: str, allowed_suffix: str = ".pptx") -> Path:
+    """安全查找生成的 PPTX 文件。"""
     from pathlib import Path as _Path
 
     if not filename or filename != _Path(filename).name or _Path(filename).suffix.lower() != allowed_suffix.lower():
         raise ValueError(f"文件名无效，只允许下载 {allowed_suffix} 文件")
 
-    candidates = [
-        OUTPUT_DIR / filename,
-    ]
-
     if PRESENTATIONS_DIR.exists():
-        candidates.extend(PRESENTATIONS_DIR.rglob(filename))
+        for f in PRESENTATIONS_DIR.rglob(filename):
+            try:
+                resolved = f.resolve()
+                if OUTPUT_DIR.resolve() in resolved.parents and resolved.exists() and resolved.is_file():
+                    return resolved
+            except Exception:
+                continue
 
-    valid = []
-    for candidate in candidates:
-        try:
-            resolved = candidate.resolve()
-            if OUTPUT_DIR.resolve() in resolved.parents or resolved.parent == OUTPUT_DIR.resolve() or resolved == OUTPUT_DIR.resolve():
-                if resolved.exists() and resolved.is_file() and resolved.suffix.lower() == allowed_suffix.lower():
-                    valid.append(resolved)
-        except Exception:
-            continue
+    candidate = OUTPUT_DIR / filename
+    if candidate.exists():
+        return candidate.resolve()
 
-    if not valid:
-        raise FileNotFoundError("文件不存在")
+    raise FileNotFoundError("文件不存在")
 
-    valid.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return valid[0]
+

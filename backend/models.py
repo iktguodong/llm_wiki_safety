@@ -232,21 +232,6 @@ class SearchResult(BaseModel):
 
 # ==================== 培训模型 ====================
 
-class TrainingConfig(BaseModel):
-    """培训配置"""
-    model_config = ConfigDict(protected_namespaces=())
-    
-    topic: str = Field(..., min_length=1, description="培训主题")
-    audience: str = "一线作业人员"
-    duration: int = 60
-    slide_count: int = 20
-    focus_areas: List[str] = ["理论知识", "操作流程", "案例分析"]
-    template: str = "公司标准模板"
-    model_id: Optional[str] = None
-
-
-# ==================== 新版 PPT 工作流模型 ====================
-
 class TrainingSourceInput(BaseModel):
     type: Literal["knowledge_base", "wiki_page", "kb_document", "temporary_upload", "prompt"]
     kb_id: Optional[str] = None
@@ -271,27 +256,30 @@ class TrainingSourceRef(BaseModel):
     confidence: float = 0.0
 
 
-class TrainingContentChunk(BaseModel):
-    id: str
+class TrainingOutlinePoint(BaseModel):
     title: str
-    text: str
+    description: str = ""
+
+
+class TrainingOutlineSlide(BaseModel):
+    id: str
+    slide_no: int
+    title: str
+    points: List[TrainingOutlinePoint] = Field(default_factory=list)
+    key_points: List[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+    layout_hint: Optional[str] = None
+    slide_type: Literal[
+        "cover", "agenda", "content", "workflow", "risk_scene",
+        "legal_requirement", "control_measures", "case_discussion",
+        "checklist", "quiz", "summary",
+    ] = "content"
     source_refs: List[TrainingSourceRef] = Field(default_factory=list)
-    keywords: List[str] = Field(default_factory=list)
-    chunk_type: Literal["wiki", "raw_document", "temporary_upload", "prompt_generated"]
+    visual_type: Optional[Literal["none", "cards", "two_column", "risk_matrix", "process_flow", "checklist", "qa", "table"]] = None
+    safety_level: Optional[Literal["normal", "attention", "warning", "critical"]] = None
 
 
-class TrainingContentPack(BaseModel):
-    id: str
-    title: str
-    topic: str
-    audience: str
-    duration_minutes: int
-    sources: List[TrainingSourceInput] = Field(default_factory=list)
-    chunks: List[TrainingContentChunk] = Field(default_factory=list)
-    warnings: List[str] = Field(default_factory=list)
-
-
-class TrainingOutlineSectionV2(BaseModel):
+class TrainingOutlineSection(BaseModel):
     id: str
     title: str
     goal: str
@@ -300,46 +288,22 @@ class TrainingOutlineSectionV2(BaseModel):
     source_refs: List[TrainingSourceRef] = Field(default_factory=list)
 
 
-class TrainingOutlinePointV2(BaseModel):
-    title: str
-    description: str = ""
-
-
-class TrainingOutlineSlideV2(BaseModel):
-    id: str
-    slide_no: int
-    title: str
-    points: List[TrainingOutlinePointV2] = Field(default_factory=list)
-    key_points: List[str] = Field(default_factory=list)
-    notes: Optional[str] = None
-    layout_hint: Optional[str] = None
-    slide_type: Literal[
-        "cover",
-        "agenda",
-        "content",
-        "workflow",
-        "risk_scene",
-        "legal_requirement",
-        "control_measures",
-        "case_discussion",
-        "checklist",
-        "quiz",
-        "summary",
-    ] = "content"
-    source_refs: List[TrainingSourceRef] = Field(default_factory=list)
-    visual_type: Optional[Literal["none", "cards", "two_column", "risk_matrix", "process_flow", "checklist", "qa", "table"]] = None
-    safety_level: Optional[Literal["normal", "attention", "warning", "critical"]] = None
-
-
-class TrainingOutlineV2(BaseModel):
+class TrainingOutline(BaseModel):
     id: str
     title: str
     topic: str
     audience: str
     duration_minutes: int
     style: Literal["standard_training", "management_briefing", "frontline_shift_training"]
-    slides: List[TrainingOutlineSlideV2] = Field(default_factory=list)
-    sections: List[TrainingOutlineSectionV2] = Field(default_factory=list)
+    slides: List[TrainingOutlineSlide] = Field(default_factory=list)
+    sections: List[TrainingOutlineSection] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class TrainingOutlineResponse(BaseModel):
+    job_id: str
+    outline: TrainingOutline
+    content_pack_summary: Dict[str, Any] = Field(default_factory=dict)
     warnings: List[str] = Field(default_factory=list)
 
 
@@ -347,19 +311,9 @@ class SlideSpec(BaseModel):
     id: str
     slide_no: int
     slide_type: Literal[
-        "cover",
-        "agenda",
-        "toc",
-        "section_divider",
-        "content",
-        "risk_scene",
-        "legal_requirement",
-        "workflow",
-        "control_measures",
-        "case_discussion",
-        "checklist",
-        "quiz",
-        "summary",
+        "cover", "agenda", "toc", "section_divider", "content",
+        "risk_scene", "legal_requirement", "workflow", "control_measures",
+        "case_discussion", "checklist", "quiz", "summary",
     ]
     title: str
     subtitle: Optional[str] = None
@@ -395,70 +349,6 @@ class QualityReport(BaseModel):
     passed: bool
     issues: List[QualityIssue] = Field(default_factory=list)
     summary: str
-
-
-class PresentationJob(BaseModel):
-    job_id: str
-    status: str
-    created_at: str
-    updated_at: str
-    source_mode: str
-    content_pack_path: Optional[str] = None
-    outline_path: Optional[str] = None
-    spec_path: Optional[str] = None
-    pptx_path: Optional[str] = None
-    html_path: Optional[str] = None
-    quality_report_path: Optional[str] = None
-    download_url: Optional[str] = None
-
-
-class TrainingOutlineRequestV2(BaseModel):
-    sources: List[TrainingSourceInput] = Field(default_factory=list)
-    title: Optional[str] = None
-    report_date: Optional[str] = None
-    presenter: Optional[str] = None
-    requirements: Optional[str] = None
-    topic: str = ""
-    audience: str = "一线员工"
-    duration_minutes: int = 60
-    slide_count: int = 12
-    style: Literal["standard_training", "management_briefing", "frontline_shift_training"] = "standard_training"
-    focus_areas: List[str] = Field(default_factory=list)
-    include_quiz: bool = True
-    job_id: Optional[str] = None
-    # legacy compatibility
-    source_type: Optional[str] = None
-    source_ids: List[str] = Field(default_factory=list)
-    config: Optional[TrainingConfig] = None
-
-
-class TrainingOutlineResponse(BaseModel):
-    job_id: str
-    outline: TrainingOutlineV2
-    content_pack_summary: Dict[str, Any] = Field(default_factory=dict)
-    warnings: List[str] = Field(default_factory=list)
-
-
-class TrainingGenerateRequestV2(BaseModel):
-    job_id: Optional[str] = None
-    sources: List[TrainingSourceInput] = Field(default_factory=list)
-    outline: Optional[TrainingOutlineV2] = None
-    template_id: str = "standard_training"
-    include_quiz: bool = True
-    title: Optional[str] = None
-    report_date: Optional[str] = None
-    presenter: Optional[str] = None
-    requirements: Optional[str] = None
-    topic: str = ""
-    audience: str = "一线员工"
-    duration_minutes: int = 60
-    slide_count: int = 12
-    style: Literal["standard_training", "management_briefing", "frontline_shift_training"] = "standard_training"
-    focus_areas: List[str] = Field(default_factory=list)
-    # legacy compatibility
-    source_type: Optional[str] = None
-    source_ids: List[str] = Field(default_factory=list)
-    config: Optional[TrainingConfig] = None
 
 
 class TrainingGenerateResponse(BaseModel):
