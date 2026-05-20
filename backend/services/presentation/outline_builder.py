@@ -9,10 +9,10 @@ import uuid
 
 from backend.config import config
 from backend.services.llm import llm_service
-from .models import ContentPack, SourceRef, TrainingOutline, TrainingOutlineSection, TrainingOutlineSlide
+from .models import ContentPack, SourceRef, TrainingOutline, TrainingOutlinePoint, TrainingOutlineSection, TrainingOutlineSlide
 
 ALLOWED_STYLES = {"standard_training", "management_briefing", "frontline_shift_training"}
-OUTLINE_MAX_TOKENS = 1500
+OUTLINE_MAX_TOKENS = 3000
 OUTLINE_TIMEOUT_SECONDS = 60.0
 
 
@@ -62,6 +62,57 @@ def _split_points(text: str) -> list[str]:
         if item:
             candidates.append(item[:48])
     return candidates[:5]
+
+
+def _point_from_text(text: str) -> TrainingOutlinePoint:
+    cleaned = re.sub(r"\s+", " ", str(text)).strip(" -•\t")
+    if not cleaned:
+        return TrainingOutlinePoint(title="要点", description="")
+    for sep in ("：", ":", " - ", "—", "，", ","):
+        if sep in cleaned:
+            title, description = cleaned.split(sep, 1)
+            title = title.strip()[:28] or cleaned[:28]
+            description = description.strip()[:96]
+            return TrainingOutlinePoint(title=title, description=description)
+    return TrainingOutlinePoint(title=cleaned[:28], description=cleaned[:96] if len(cleaned) > 28 else "")
+
+
+def _points_from_texts(items: list[str]) -> list[TrainingOutlinePoint]:
+    points = [_point_from_text(item) for item in items if str(item).strip()]
+    return points[:5]
+
+
+def _point_label(point: TrainingOutlinePoint) -> str:
+    return f"{point.title}：{point.description}" if point.description else point.title
+
+
+def _cover_slide(settings: dict[str, Any], content_pack: ContentPack) -> TrainingOutlineSlide:
+    title = str(settings.get("title") or settings.get("topic") or content_pack.title or content_pack.topic)
+    report_date = str(settings.get("report_date") or "").strip()
+    presenter = str(settings.get("presenter") or "").strip()
+    audience = str(settings.get("audience") or content_pack.audience or "").strip()
+    points: list[TrainingOutlinePoint] = []
+    if report_date:
+        points.append(TrainingOutlinePoint(title="汇报时间", description=report_date))
+    if presenter:
+        points.append(TrainingOutlinePoint(title="汇报人", description=presenter))
+    if audience:
+        points.append(TrainingOutlinePoint(title="汇报对象", description=audience))
+    if not points:
+        points = [TrainingOutlinePoint(title="材料主题", description=title)]
+    return TrainingOutlineSlide(
+        id=f"slide-{uuid.uuid4().hex[:8]}",
+        slide_no=1,
+        title=title,
+        points=points,
+        key_points=[_point_label(point) for point in points],
+        notes=None,
+        layout_hint="封面",
+        slide_type="cover",
+        source_refs=[],
+        visual_type="cards",
+        safety_level="normal",
+    )
 
 
 def _slide_type_from_text(title: str, body: str) -> str:
@@ -145,9 +196,8 @@ def _slide_from_group(
         points = [title]
     if len(points) > 5:
         points = points[:5]
+    point_models = _points_from_texts(points)
     notes = notes_prefix or (points[0] if points else title)
-    if body_text:
-        notes = f"{notes}\n\n{_shorten(body_text, 240)}"
     refs = source_refs if source_refs is not None else [ref for chunk in group for ref in getattr(chunk, "source_refs", [])][:3]
     if not refs:
         refs = []
@@ -155,7 +205,8 @@ def _slide_from_group(
         id=f"slide-{uuid.uuid4().hex[:8]}",
         slide_no=slide_no,
         title=title,
-        key_points=points,
+        points=point_models,
+        key_points=[_point_label(point) for point in point_models],
         notes=notes,
         layout_hint=layout_hint,
         slide_type=slide_type,  # type: ignore[arg-type]
@@ -178,118 +229,58 @@ def _slide_to_section(slide: TrainingOutlineSlide) -> TrainingOutlineSection:
 
 def _default_outline(content_pack: ContentPack, settings: dict[str, Any]) -> TrainingOutline:
     target_slide_count = max(3, int(settings.get("slide_count") or 8))
-    include_quiz = bool(settings.get("include_quiz", True))
-    content_slide_count = max(1, target_slide_count - 3 - (1 if include_quiz and target_slide_count >= 5 else 0))
+    content_slide_count = max(1, target_slide_count - 1)
 
     groups = _chunk_groups(content_pack, content_slide_count)
-    slides: list[TrainingOutlineSlide] = []
+    slides: list[TrainingOutlineSlide] = [_cover_slide(settings, content_pack)]
 
-    slides.append(
-        TrainingOutlineSlide(
-            id=f"slide-{uuid.uuid4().hex[:8]}",
-            slide_no=1,
-            title=str(settings.get("title") or content_pack.title or settings.get("topic") or content_pack.topic),
-            key_points=[
-                f"受众：{settings.get('audience') or content_pack.audience}",
-                f"时长：{int(settings.get('duration_minutes') or content_pack.duration_minutes or 60)} 分钟",
-                f"风格：{_coerce_style(str(settings.get('style') or 'standard_training'))}",
-            ],
-            notes="封面页，直接说明主题、受众和本次培训定位。",
-            layout_hint="封面",
-            slide_type="cover",
-            source_refs=[],
-            visual_type="cards",
-            safety_level="normal",
-        )
-    )
-
-    agenda_titles = []
-    for idx in range(min(5, content_slide_count)):
-        chunk_group = groups[idx] if idx < len(groups) else []
-        if chunk_group:
-            agenda_titles.append(chunk_group[0].title)
-    if not agenda_titles:
-        agenda_titles = ["背景与目标", "重点风险", "关键流程", "现场措施"]
-    slides.append(
-        TrainingOutlineSlide(
-            id=f"slide-{uuid.uuid4().hex[:8]}",
-            slide_no=2,
-            title="目录",
-            key_points=agenda_titles[:5],
-            notes="先讲背景，再讲风险与要求，最后落到执行动作。",
-            layout_hint="目录",
-            slide_type="agenda",
-            source_refs=[],
-            visual_type="cards",
-            safety_level="normal",
-        )
-    )
-
-    current_no = 3
     for idx, group in enumerate(groups):
         if not group:
-            group_title = f"核心内容 {idx + 1}"
+            if idx == content_slide_count - 1:
+                group_title = "总结与行动清单"
+                fallback_points = ["复盘关键风险点", "确认岗位职责和上报路径", "形成整改清单并闭环"]
+            else:
+                group_title = f"核心内容 {idx + 1}"
+                fallback_points = [group_title]
         else:
             group_title = str(getattr(group[0], "title", f"核心内容 {idx + 1}"))
+            fallback_points = []
         body_text = " ".join(str(getattr(chunk, "text", "")) for chunk in group).strip()
         slide_type = _slide_type_from_text(group_title, body_text)
+        if idx == content_slide_count - 1 and content_slide_count >= 3:
+            slide_type = "summary"
         if slide_type == "content" and idx % 3 == 1:
             slide_type = "workflow"
         elif slide_type == "content" and idx % 3 == 2:
             slide_type = "checklist"
-        slides.append(
-            _slide_from_group(
-                slide_no=current_no,
-                title=group_title[:40],
-                group=group,
-                slide_type=slide_type,
-                layout_hint="正文页",
-                notes_prefix=_shorten(body_text, 140) if body_text else group_title,
+        if group:
+            slides.append(
+                _slide_from_group(
+                    slide_no=len(slides) + 1,
+                    title=group_title[:40],
+                    group=group,
+                    slide_type=slide_type,
+                    layout_hint="正文页",
+                    notes_prefix=_shorten(body_text, 140) if body_text else group_title,
+                )
             )
-        )
-        current_no += 1
-
-    if include_quiz and target_slide_count >= 5:
-        quiz_refs = [ref for chunk in content_pack.chunks for ref in chunk.source_refs][:3]
-        slides.append(
-            TrainingOutlineSlide(
-                id=f"slide-{uuid.uuid4().hex[:8]}",
-                slide_no=current_no,
-                title="测验与复盘",
-                key_points=[
-                    "发现异常后先做什么",
-                    "哪些情况必须立即上报",
-                    "岗位动作如何落实",
-                ],
-                notes="建议把答案写成可口头复述的简短表达，方便现场提问。",
-                layout_hint="测验页",
-                slide_type="quiz",
-                source_refs=quiz_refs,
-                visual_type="qa",
-                safety_level="attention",
+        else:
+            point_models = _points_from_texts(fallback_points)
+            slides.append(
+                TrainingOutlineSlide(
+                    id=f"slide-{uuid.uuid4().hex[:8]}",
+                    slide_no=len(slides) + 1,
+                    title=group_title[:40],
+                    points=point_models,
+                    key_points=[_point_label(point) for point in point_models],
+                    notes=None,
+                    layout_hint="正文页",
+                    slide_type=slide_type,  # type: ignore[arg-type]
+                    source_refs=[],
+                    visual_type=_visual_type_for_slide_type(slide_type),  # type: ignore[arg-type]
+                    safety_level=_safety_level_for_slide_type(slide_type),  # type: ignore[arg-type]
+                )
             )
-        )
-        current_no += 1
-
-    slides.append(
-        TrainingOutlineSlide(
-            id=f"slide-{uuid.uuid4().hex[:8]}",
-            slide_no=current_no,
-            title="总结与行动清单",
-            key_points=[
-                "复盘关键风险点",
-                "确认岗位职责和上报路径",
-                "检查控制措施是否到位",
-                "形成整改清单并闭环",
-            ],
-            notes="总结页，落到可执行的现场动作和后续闭环。",
-            layout_hint="总结页",
-            slide_type="summary",
-            source_refs=[ref for chunk in content_pack.chunks for ref in chunk.source_refs][:4],
-            visual_type="cards",
-            safety_level="normal",
-        )
-    )
 
     # 如目标页数较小，尽量裁剪到目标页数；若较大，保留全部内容页便于后续编辑
     if len(slides) > target_slide_count:
@@ -299,7 +290,7 @@ def _default_outline(content_pack: ContentPack, settings: dict[str, Any]) -> Tra
     for idx, slide in enumerate(slides, start=1):
         slide.slide_no = idx
 
-    sections = [_slide_to_section(slide) for slide in slides if slide.slide_type not in {"cover", "agenda", "summary", "quiz"}]
+    sections = [_slide_to_section(slide) for slide in slides if slide.slide_type not in {"cover", "summary"}]
     warnings = list(content_pack.warnings)
     if not any(ref.source_type != "prompt" for chunk in content_pack.chunks for ref in chunk.source_refs):
         warnings.append("该内容主要由模型生成，未绑定企业原文来源")
@@ -323,39 +314,46 @@ def _build_prompt(content_pack: ContentPack, settings: dict[str, Any]) -> str:
         refs = ", ".join((ref.title or ref.source_id or ref.source_type) for ref in chunk.source_refs[:3])
         chunks_text.append(f"### {chunk.title}\n来源：{refs}\n{chunk.text[:1200]}")
     content_preview = "\n\n".join(chunks_text)[:12000]
+    requested_slide_count = max(3, int(settings.get("slide_count") or 8))
+    content_slide_count = max(1, requested_slide_count - 1)
+    title = str(settings.get("title") or settings.get("topic") or content_pack.title or content_pack.topic)
+    requirements = str(settings.get("requirements") or settings.get("requirement") or settings.get("topic") or "")
     return f"""
-请基于以下输入材料生成安全生产培训PPT逐页大纲，输出严格 JSON，不要 Markdown，不要代码块。
+请基于以下输入材料生成安全生产培训 PPT 的内容页大纲，输出严格 JSON，不要 Markdown，不要代码块。
 
 要求：
 - 只输出一个 JSON 对象
-- slides 必须是一个列表，尽量贴合目标页数
-- 每个 slide 包含 title、key_points、notes、layout_hint、slide_type
+- slides 必须是一个列表，严格生成 {content_slide_count} 个内容页
+- 不要生成封面页；封面页由系统根据用户填写信息自动生成
+- 每个 slide 只包含 title 和 points
+- points 是列表，每项只包含 title 和 description
+- 每页 3 到 5 个 points，description 用一句短句说明
 - 不要编造企业事实、制度条款或来源
 - 适合后续直接转成 PPT
 
 输入设置：
-{json.dumps(settings, ensure_ascii=False, indent=2)}
+{json.dumps({
+    "title": title,
+    "audience": settings.get("audience") or content_pack.audience,
+    "requirements": requirements,
+    "style": settings.get("style") or "standard_training",
+    "total_slide_count": requested_slide_count,
+    "content_slide_count": content_slide_count,
+}, ensure_ascii=False, indent=2)}
 
 输入材料：
 {content_preview}
 
 请输出 JSON 对象，结构示例：
 {{
-  "title": "培训标题",
-  "topic": "主题",
-  "audience": "受众",
-  "duration_minutes": 30,
-  "style": "standard_training",
   "slides": [
     {{
       "title": "页面标题",
-      "key_points": ["要点1", "要点2"],
-      "notes": "讲稿备注",
-      "layout_hint": "布局提示",
-      "slide_type": "content"
+      "points": [
+        {{"title": "要点标题", "description": "要点简述"}}
+      ]
     }}
-  ],
-  "warnings": ["可选警告"]
+  ]
 }}
 """.strip()
 
@@ -365,9 +363,14 @@ def _outline_from_llm(data: dict[str, Any], content_pack: ContentPack, settings:
     if not isinstance(raw_slides, list) or not raw_slides:
         return None
 
-    slides: list[TrainingOutlineSlide] = []
-    chunk_groups = _chunk_groups(content_pack, max(1, len(raw_slides)))
-    for idx, slide in enumerate(raw_slides):
+    content_raw_slides = [
+        slide
+        for slide in raw_slides
+        if not (isinstance(slide, dict) and str(slide.get("slide_type") or "").strip() == "cover")
+    ]
+    slides: list[TrainingOutlineSlide] = [_cover_slide(settings, content_pack)]
+    chunk_groups = _chunk_groups(content_pack, max(1, len(content_raw_slides)))
+    for idx, slide in enumerate(content_raw_slides):
         if not isinstance(slide, dict):
             continue
         group = chunk_groups[idx] if idx < len(chunk_groups) else []
@@ -388,20 +391,34 @@ def _outline_from_llm(data: dict[str, Any], content_pack: ContentPack, settings:
             slide_type = "content"
         title = str(slide.get("title") or f"页面 {idx + 1}")
         body_text = " ".join(str(getattr(chunk, "text", "")) for chunk in group)
-        points = [str(item).strip()[:48] for item in slide.get("key_points", []) if str(item).strip()][:5]
-        if not points:
-            points = _split_points(body_text) or [title]
-        notes = str(slide.get("notes") or "")
-        if not notes and points:
-            notes = points[0]
+        point_models: list[TrainingOutlinePoint] = []
+        raw_points = slide.get("points")
+        if isinstance(raw_points, list):
+            for item in raw_points:
+                if isinstance(item, dict):
+                    point_title = str(item.get("title") or "").strip()
+                    point_description = str(item.get("description") or item.get("desc") or "").strip()
+                    if point_title or point_description:
+                        point_models.append(
+                            TrainingOutlinePoint(
+                                title=(point_title or point_description)[:28],
+                                description=point_description[:96],
+                            )
+                        )
+                elif str(item).strip():
+                    point_models.append(_point_from_text(str(item)))
+        if not point_models:
+            old_points = [str(item).strip() for item in slide.get("key_points", []) if str(item).strip()]
+            point_models = _points_from_texts(old_points or _split_points(body_text) or [title])
         layout_hint = str(slide.get("layout_hint") or "")
         slides.append(
             TrainingOutlineSlide(
                 id=f"slide-{uuid.uuid4().hex[:8]}",
-                slide_no=idx + 1,
+                slide_no=len(slides) + 1,
                 title=title,
-                key_points=points,
-                notes=notes or None,
+                points=point_models[:5],
+                key_points=[_point_label(point) for point in point_models[:5]],
+                notes=None,
                 layout_hint=layout_hint or None,
                 slide_type=slide_type,  # type: ignore[arg-type]
                 source_refs=[ref for chunk in group for ref in chunk.source_refs][:3],
@@ -420,7 +437,7 @@ def _outline_from_llm(data: dict[str, Any], content_pack: ContentPack, settings:
 
     return TrainingOutline(
         id=f"ol-{uuid.uuid4().hex[:10]}",
-        title=str(data.get("title") or settings.get("topic") or content_pack.topic),
+        title=str(data.get("title") or settings.get("title") or settings.get("topic") or content_pack.topic),
         topic=str(data.get("topic") or settings.get("topic") or content_pack.topic),
         audience=str(data.get("audience") or settings.get("audience") or content_pack.audience),
         duration_minutes=int(data.get("duration_minutes") or settings.get("duration_minutes") or content_pack.duration_minutes or 60),
@@ -464,15 +481,42 @@ async def generate_outline(content_pack: ContentPack, settings: Any, llm_client=
                 },
                 {"role": "user", "content": prompt},
             ]
-            response = await asyncio.wait_for(
-                llm_client.chat_sync(
-                    messages,
-                    model_id=model_id,
-                    temperature=0.2,
-                    max_tokens=OUTLINE_MAX_TOKENS,
-                ),
-                timeout=OUTLINE_TIMEOUT_SECONDS,
-            )
+            requested_slide_count = max(3, int(settings_dict.get("slide_count") or 8))
+            max_tokens = max(OUTLINE_MAX_TOKENS, requested_slide_count * 140)
+            response: str | None = None
+            chat_events = getattr(llm_client, "chat_events", None)
+            if callable(chat_events):
+                parts: list[str] = []
+
+                async def _collect_stream() -> str:
+                    async for event in chat_events(
+                        messages,
+                        model_id=model_id,
+                        stream=True,
+                        temperature=0.2,
+                        max_tokens=max_tokens,
+                    ):
+                        event_type = str(event.get("type") or "")
+                        if event_type == "chunk":
+                            content = str(event.get("content") or "")
+                            if content:
+                                parts.append(content)
+                        elif event_type == "error":
+                            message = str(event.get("message") or "请求错误").strip()
+                            raise ValueError(message or "请求错误")
+                    return "".join(parts)
+
+                response = await asyncio.wait_for(_collect_stream(), timeout=OUTLINE_TIMEOUT_SECONDS)
+            else:
+                response = await asyncio.wait_for(
+                    llm_client.chat_sync(
+                        messages,
+                        model_id=model_id,
+                        temperature=0.2,
+                        max_tokens=max_tokens,
+                    ),
+                    timeout=OUTLINE_TIMEOUT_SECONDS,
+                )
             data = _extract_json(response or "")
             if data:
                 outline = _outline_from_llm(data, content_pack, settings_dict)

@@ -11,6 +11,7 @@ import type {
   TrainingGenerateResponse,
   TrainingHtmlGenerateResponse,
   TrainingOutline,
+  TrainingOutlinePoint,
   TrainingOutlineResponse,
   TrainingOutlineSlide,
   TrainingSourceInput,
@@ -44,11 +45,9 @@ type PptSetupDraft = {
   sourceMode: SourceMode;
   kbId: string;
   documentId: string;
-  requirement: string;
   slideCountChoice: SlideCountChoice;
   customSlideCount: number;
   style: TrainingStyle;
-  includeSpeakerNotes: boolean;
 };
 
 type TrainingDraftStorage = {
@@ -71,8 +70,6 @@ type TrainingHistoryItem = {
   downloadUrl: string;
   previewUrl?: string;
   filename: string;
-  notesDownloadUrl?: string;
-  notesFilename?: string;
 };
 
 const TRAINING_HISTORY_KEY = 'anniu-training-history-v1';
@@ -82,11 +79,9 @@ function createDefaultPptSetup(kbId = ''): PptSetupDraft {
     sourceMode: 'kb_document',
     kbId,
     documentId: '',
-    requirement: '请突出应急处置、报警流程和初期火灾扑救',
     slideCountChoice: '15',
     customSlideCount: 12,
     style: 'standard_training',
-    includeSpeakerNotes: true,
   };
 }
 
@@ -138,23 +133,6 @@ function durationFromSlideCount(slideCount: number) {
   if (slideCount <= 15) return 30;
   if (slideCount <= 20) return 45;
   return Math.min(90, Math.max(45, Math.round(slideCount * 2)));
-}
-
-function slideTypeLabel(slideType: TrainingOutlineSlide['slide_type']) {
-  const labels: Record<TrainingOutlineSlide['slide_type'], string> = {
-    cover: '封面',
-    agenda: '目录',
-    content: '正文',
-    workflow: '流程',
-    risk_scene: '风险场景',
-    legal_requirement: '制度要求',
-    control_measures: '控制措施',
-    case_discussion: '案例讨论',
-    checklist: '检查清单',
-    quiz: '测验',
-    summary: '总结',
-  };
-  return labels[slideType] || '正文';
 }
 
 function sourceLabel(source: TrainingSourceInput, knowledgeBases: KnowledgeBase[]) {
@@ -314,6 +292,24 @@ function InlineField({
   );
 }
 
+function InlineSelectField({
+  label,
+  children,
+  helper,
+}: {
+  label: ReactNode;
+  children: ReactNode;
+  helper?: string;
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <Label className="block text-sm font-medium text-slate-800">{label}</Label>
+      <div className="w-full">{children}</div>
+      {helper && <p className="truncate text-xs text-slate-500">{helper}</p>}
+    </div>
+  );
+}
+
 function buildSlideCount(choice: SlideCountChoice, customSlideCount: number) {
   if (choice === 'custom') {
     return Math.min(30, Math.max(5, customSlideCount || 5));
@@ -321,12 +317,24 @@ function buildSlideCount(choice: SlideCountChoice, customSlideCount: number) {
   return Number(choice);
 }
 
-function normalizePoints(text: string) {
-  return text
-    .split('\n')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 6);
+function pointLabel(point: TrainingOutlinePoint) {
+  const title = point.title.trim();
+  const description = point.description.trim();
+  if (title && description) return `${title}：${description}`;
+  return title || description;
+}
+
+function slideEditablePoints(slide: TrainingOutlineSlide): TrainingOutlinePoint[] {
+  if (slide.points && slide.points.length > 0) {
+    return slide.points;
+  }
+  return (slide.key_points || []).map((item) => {
+    const [title, ...rest] = item.split(/[：:]/);
+    return {
+      title: (title || item).trim(),
+      description: rest.join('：').trim(),
+    };
+  });
 }
 
 function OutlineSlideCard({
@@ -346,6 +354,21 @@ function OutlineSlideCard({
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
+  const points = slideEditablePoints(slide);
+  const updatePoints = (nextPoints: TrainingOutlinePoint[]) => {
+    const normalized = nextPoints
+      .map((point) => ({
+        title: point.title,
+        description: point.description,
+      }))
+      .filter((point) => point.title.trim() || point.description.trim());
+    onChange({
+      ...slide,
+      points: normalized,
+      key_points: normalized.map(pointLabel).filter(Boolean),
+    });
+  };
+
   return (
     <Card className="border-slate-200 shadow-sm">
       <CardHeader className="pb-3">
@@ -355,12 +378,8 @@ function OutlineSlideCard({
               <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-indigo-50 text-xs font-semibold text-indigo-700">
                 {slide.slide_no}
               </span>
-              <span>{slideTypeLabel(slide.slide_type)}</span>
+              <span>第 {slide.slide_no} 页</span>
             </CardTitle>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-              {slide.layout_hint && <span>布局：{slide.layout_hint}</span>}
-              {slide.source_refs.length > 0 && <span>来源：{slide.source_refs.length} 条</span>}
-            </div>
           </div>
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" onClick={onMoveUp} disabled={index === 0}>
@@ -376,71 +395,61 @@ function OutlineSlideCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-1">
-            <Label>页面标题</Label>
-            <Input
-              value={slide.title}
-              onChange={(e) => onChange({ ...slide, title: e.target.value })}
-              className={strongFieldClassName}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>页面类型</Label>
-            <Select value={slide.slide_type} onValueChange={(value) => onChange({ ...slide, slide_type: value as TrainingOutlineSlide['slide_type'] })}>
-              <SelectTrigger className={strongSelectTriggerClassName}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[
-                  'cover',
-                  'agenda',
-                  'content',
-                  'workflow',
-                  'risk_scene',
-                  'legal_requirement',
-                  'control_measures',
-                  'case_discussion',
-                  'checklist',
-                  'quiz',
-                  'summary',
-                ].map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {slideTypeLabel(item as TrainingOutlineSlide['slide_type'])}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
         <div className="space-y-1">
-          <Label>关键点</Label>
-          <Textarea
-            rows={4}
-            value={slide.key_points.join('\n')}
-            onChange={(e) => onChange({ ...slide, key_points: normalizePoints(e.target.value) })}
-            placeholder="每行一个要点"
-            className={strongTextareaClassName}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>讲稿备注</Label>
-          <Textarea
-            rows={3}
-            value={slide.notes || ''}
-            onChange={(e) => onChange({ ...slide, notes: e.target.value })}
-            placeholder="用于讲解时的备注"
-            className={strongTextareaClassName}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>版式提示</Label>
+          <Label>页面标题</Label>
           <Input
-            value={slide.layout_hint || ''}
-            onChange={(e) => onChange({ ...slide, layout_hint: e.target.value })}
-            placeholder="例如：两栏 / 时间线 / 卡片"
+            value={slide.title}
+            onChange={(e) => onChange({ ...slide, title: e.target.value })}
             className={strongFieldClassName}
           />
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <Label>页面要点</Label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => updatePoints([...points, { title: '新增要点', description: '补充要点说明' }])}
+            >
+              <Plus className="mr-2 h-3.5 w-3.5" />
+              新增要点
+            </Button>
+          </div>
+          {points.map((point, pointIndex) => (
+            <div key={`${slide.id}-point-${pointIndex}`} className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)_auto]">
+              <Input
+                value={point.title}
+                onChange={(e) => {
+                  const next = [...points];
+                  next[pointIndex] = { ...point, title: e.target.value };
+                  updatePoints(next);
+                }}
+                placeholder="要点标题"
+                className={strongFieldClassName}
+              />
+              <Input
+                value={point.description}
+                onChange={(e) => {
+                  const next = [...points];
+                  next[pointIndex] = { ...point, description: e.target.value };
+                  updatePoints(next);
+                }}
+                placeholder="要点简述"
+                className={strongFieldClassName}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => updatePoints(points.filter((_, idx) => idx !== pointIndex))}
+                disabled={points.length <= 1}
+                aria-label="删除要点"
+              >
+                <Trash2 className="h-4 w-4 text-rose-500" />
+              </Button>
+            </div>
+          ))}
         </div>
       </CardContent>
     </Card>
@@ -522,8 +531,6 @@ export default function TrainingPage() {
   const [qualityReport, setQualityReport] = useState<QualityReport | null>(null);
   const [pptDownloadUrl, setPptDownloadUrl] = useState<string>('');
   const [pptFilename, setPptFilename] = useState<string>('');
-  const [notesDownloadUrl, setNotesDownloadUrl] = useState<string>('');
-  const [notesFilename, setNotesFilename] = useState<string>('');
   const [jobId, setJobId] = useState<string>('');
   const [loadingOutline, setLoadingOutline] = useState(false);
   const [loadingPptGenerate, setLoadingPptGenerate] = useState(false);
@@ -578,8 +585,6 @@ export default function TrainingPage() {
     }
     setPptDownloadUrl('');
     setPptFilename('');
-    setNotesDownloadUrl('');
-    setNotesFilename('');
     setPresentation(null);
     setQualityReport(null);
     if (kind === 'outline') {
@@ -604,13 +609,7 @@ export default function TrainingPage() {
 
   const slideCount = buildSlideCount('custom', setupDraft.customSlideCount);
   const durationMinutes = useMemo(() => durationFromSlideCount(slideCount), [slideCount]);
-  const selectedSourceSummary = useMemo(() => {
-    if (selectedSources.length === 0) return '选择文档';
-    if (selectedSources.length === 1) return sourceLabel(selectedSources[0], knowledgeBases);
-    return `已选 ${selectedSources.length} 个文档`;
-  }, [knowledgeBases, selectedSources]);
   const styleSummary = useMemo(() => styleOptions.find((item) => item.value === setupDraft.style)?.label || '选择风格', [setupDraft.style]);
-  const notesSummary = setupDraft.includeSpeakerNotes ? '有' : '无';
   const selectedHtmlSources = useMemo(() => selectedSources.filter((source) => source.type === 'kb_document' || source.type === 'temporary_upload'), [selectedSources]);
   const selectedUploadSources = useMemo(() => selectedSources.filter((source) => source.type === 'temporary_upload'), [selectedSources]);
   const selectedKbSources = useMemo(() => selectedSources.filter((source) => source.type === 'kb_document'), [selectedSources]);
@@ -754,8 +753,6 @@ export default function TrainingPage() {
     setPptDownloadUrl('');
     setPptFilename('');
     resetHtmlGeneration();
-    setNotesDownloadUrl('');
-    setNotesFilename('');
     setJobId('');
     setLoadingOutline(false);
     setLoadingPptGenerate(false);
@@ -842,14 +839,17 @@ export default function TrainingPage() {
     setPendingKbDocumentIds([]);
   };
 
+  const canGenerateOutline = () => {
+    return selectedSources.length > 0 || htmlRequirements.trim().length > 0;
+  };
+
   const resolveSetupSource = (allowEmpty = false): boolean => {
-    const requirement = setupDraft.requirement.trim();
-    if (!requirement) {
-      setError('请输入主题和需求');
+    if (!htmlTitle.trim()) {
+      setError('请输入材料标题');
       return false;
     }
-    if (!allowEmpty && selectedSources.length === 0) {
-      setError('请至少添加一个文档');
+    if (!allowEmpty && !canGenerateOutline()) {
+      setError('请至少添加一个文档，或者在生成要求中写明内容');
       return false;
     }
     return true;
@@ -867,21 +867,22 @@ export default function TrainingPage() {
     setQualityReport(null);
     setPptDownloadUrl('');
     setPptFilename('');
-    setNotesDownloadUrl('');
-    setNotesFilename('');
     setLoadingOutline(true);
     setError(null);
     try {
       const res: TrainingOutlineResponse = await trainingApi.generateOutline({
         sources: selectedSources,
-        topic: setupDraft.requirement.trim(),
-        audience: '',
+        title: htmlTitle.trim(),
+        report_date: htmlReportDate.trim() || null,
+        presenter: htmlPresenter.trim() || null,
+        requirements: htmlRequirements.trim() || null,
+        topic: htmlTitle.trim(),
+        audience: htmlAudience.trim() || '一线员工',
         duration_minutes: durationMinutes,
         slide_count: slideCount,
         style: setupDraft.style,
         focus_areas: [],
         include_quiz: true,
-        include_speaker_notes: setupDraft.includeSpeakerNotes,
         job_id: nextJobId,
       }, controller.signal);
       if (isMountedRef.current) {
@@ -934,8 +935,12 @@ export default function TrainingPage() {
           id: `slide-manual-${Date.now()}`,
           slide_no: prev.slides.length + 1,
           title: '新增页面',
-          key_points: ['关键点1', '关键点2'],
-          notes: '补充这一页的讲解备注',
+          points: [
+            { title: '关键点1', description: '补充要点说明' },
+            { title: '关键点2', description: '补充要点说明' },
+          ],
+          key_points: ['关键点1：补充要点说明', '关键点2：补充要点说明'],
+          notes: null,
           layout_hint: '正文页',
           slide_type: 'content',
           source_refs: [],
@@ -972,9 +977,12 @@ export default function TrainingPage() {
         outline,
         template_id: setupDraft.style,
         include_quiz: true,
-        include_speaker_notes: setupDraft.includeSpeakerNotes,
+        title: htmlTitle.trim(),
+        report_date: htmlReportDate.trim() || null,
+        presenter: htmlPresenter.trim() || null,
+        requirements: htmlRequirements.trim() || null,
         topic: outline.topic,
-        audience: outline.audience,
+        audience: htmlAudience.trim() || outline.audience,
         duration_minutes: outline.duration_minutes,
         slide_count: outline.slides.length,
         style: setupDraft.style,
@@ -986,8 +994,6 @@ export default function TrainingPage() {
         setQualityReport(res.quality_report);
         setPptDownloadUrl(trainingApi.download(res.filename));
         setPptFilename(res.filename);
-        setNotesDownloadUrl(res.notes_download_url || '');
-        setNotesFilename(res.notes_filename || '');
         appendTrainingHistory({
           id: `${Date.now()}`,
           kind: 'ppt',
@@ -996,8 +1002,6 @@ export default function TrainingPage() {
           pageCount: res.presentation.slides.length,
           downloadUrl: trainingApi.download(res.filename),
           filename: res.filename,
-          notesDownloadUrl: res.notes_download_url ? trainingApi.resolveUrl(res.notes_download_url) : undefined,
-          notesFilename: res.notes_filename || undefined,
         });
       }
     } catch (err) {
@@ -1017,7 +1021,7 @@ export default function TrainingPage() {
   const generateHtml = async () => {
     const title = htmlTitle.trim();
     if (!title) {
-      setError('请输入本次材料标题');
+      setError('请输入材料标题');
       return;
     }
     if (!Number.isFinite(slideCount) || slideCount < 5 || slideCount > 30) {
@@ -1110,7 +1114,20 @@ export default function TrainingPage() {
           <h1 className="text-slate-900">培训材料生成</h1>
           <div className="flex items-center gap-2">
             {activeGenerationKind && (
-              <Button variant="destructive" onClick={() => void stopCurrentGeneration()}>
+              <Button
+                type="button"
+                variant="destructive"
+                className="relative z-30 pointer-events-auto"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void stopCurrentGeneration();
+                }}
+              >
                 <CircleX className="mr-2 h-4 w-4" />
                 停止生成
               </Button>
@@ -1169,14 +1186,6 @@ export default function TrainingPage() {
                                 下载
                               </a>
                             </Button>
-                            {item.notesDownloadUrl && (
-                              <Button asChild size="sm" variant="outline" className="shrink-0 whitespace-nowrap">
-                                <a href={item.notesDownloadUrl} target="_blank" rel="noreferrer" download>
-                                  <Download className="mr-2 h-3.5 w-3.5" />
-                                  讲稿
-                                </a>
-                              </Button>
-                            )}
                             <Button
                               size="sm"
                               variant="outline"
@@ -1586,91 +1595,162 @@ export default function TrainingPage() {
           <div className="space-y-4">
             <Card className="border-slate-200 shadow-sm">
               <CardContent className="space-y-3 p-3.5 lg:p-4">
-                <div className="space-y-1">
-                  <Label className="text-sm font-medium text-slate-800">PPT主题 / 需求</Label>
-                  <p className="truncate text-xs text-slate-500">请说明本次 PPT 的用途、重点、受众、希望强调的内容、是否需要案例/互动题/检查清单等。</p>
-                  <Textarea
-                    rows={3}
-                    value={setupDraft.requirement}
-                    onChange={(e) => setSetupDraft((prev) => ({ ...prev, requirement: e.target.value }))}
-                    placeholder="PPT主题 / 需求"
-                    className={`min-h-[112px] ${strongTextareaClassName}`}
+                <div className="grid gap-3 xl:grid-cols-3">
+                  <InlineField
+                    label={(
+                      <>
+                        材料标题 <span className="text-rose-500">*</span>
+                      </>
+                    )}
+                    value={htmlTitle}
+                    onChange={setHtmlTitle}
+                    placeholder="请输入本次培训/PPT材料标题"
+                    helper="将展示在第一页封面，并作为整份 PPT 的主题。"
+                    className={strongFieldClassName}
+                    stacked
+                  />
+                  <InlineField
+                    label="汇报时间"
+                    value={htmlReportDate}
+                    onChange={setHtmlReportDate}
+                    placeholder="例如：2026年5月 / 2026年5月12日"
+                    helper="选填，将展示在第一页。"
+                    className={strongFieldClassName}
+                    stacked
+                  />
+                  <InlineSelectField label="选择风格" helper="匹配 PPT 的页面节奏和表达方式。">
+                    <Select value={setupDraft.style} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, style: value as TrainingStyle }))}>
+                      <SelectTrigger className={`h-10 w-full rounded-xl px-3 ${strongSelectTriggerClassName}`}>
+                        <SelectValue>{styleSummary}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {styleOptions.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </InlineSelectField>
+                </div>
+
+                <div className="grid gap-3 xl:grid-cols-3">
+                  <InlineField
+                    label="汇报人"
+                    value={htmlPresenter}
+                    onChange={setHtmlPresenter}
+                    placeholder="例如：安全管理部 / 张三"
+                    helper="选填，将展示在第一页。"
+                    className={strongFieldClassName}
+                    stacked
+                  />
+                  <InlineField
+                    label="汇报对象"
+                    value={htmlAudience}
+                    onChange={setHtmlAudience}
+                    placeholder="例如：一线作业人员、管理层"
+                    helper="用于调整内容深度、语气和展示方式。"
+                    className={strongFieldClassName}
+                    stacked
+                  />
+                  <InlineField
+                    label="输入页数"
+                    value={setupDraft.customSlideCount}
+                    onChange={(value) => {
+                      const next = Number(value);
+                      setSetupDraft((prev) => ({
+                        ...prev,
+                        slideCountChoice: 'custom',
+                        customSlideCount: Number.isFinite(next) ? Math.max(5, Math.min(30, next)) : 5,
+                      }));
+                    }}
+                    type="number"
+                    min={5}
+                    max={30}
+                    placeholder="5 到 30"
+                    helper="请输入 5 到 30。"
+                    className={strongFieldClassName}
+                    stacked
                   />
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  {selectedSources.map((source, index) => (
-                    <div
-                      key={`${source.type}-${sourceKey(source)}-${index}`}
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700"
-                    >
-                      <span className="max-w-[260px] truncate">{sourceLabel(source, knowledgeBases)}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeSourceByKey(source)}
-                        className="text-slate-400 transition hover:text-slate-700"
-                        aria-label="移除来源"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium text-slate-800">生成要求 / 内容说明</Label>
+                  <p className="truncate text-xs text-slate-500">请说明本次 PPT 的用途、重点、受众、希望强调的内容、是否需要事故案例/互动题/检查清单等。</p>
+                  <Textarea
+                    rows={3}
+                    value={htmlRequirements}
+                    onChange={(e) => setHtmlRequirements(e.target.value)}
+                    placeholder="例如：请根据应急预案生成一份面向班组长的应急处置培训 PPT，重点突出报警流程、初期处置、岗位职责和常见错误。"
+                    className={`min-h-[96px] max-h-[280px] resize-y overflow-y-auto ${strongTextareaClassName}`}
+                  />
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-700">生成大纲</div>
-                    <div className="text-xs text-slate-500">先选来源和参数，按钮会尽量保持在首屏。</div>
-                  </div>
-                  <Button onClick={generateOutline} disabled={loadingOutline || selectedSources.length === 0} className="bg-indigo-600 hover:bg-indigo-700">
+                  <div className="text-sm font-medium text-slate-700">生成大纲</div>
+                  <div className="text-xs text-slate-500">可选择文档来源，也可以直接填写生成要求后生成。</div>
+                </div>
+                  <Button onClick={generateOutline} disabled={loadingOutline || !htmlTitle.trim() || !canGenerateOutline()} className="bg-indigo-600 hover:bg-indigo-700">
                     {loadingOutline ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
                     生成大纲
                   </Button>
                 </div>
 
-                <div className="flex flex-col gap-3 xl:flex-row xl:items-stretch">
-                  <div className="grid flex-1 min-w-0 gap-3 xl:grid-cols-4">
-                    <div className="h-full min-w-0 space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                      <Label className="text-sm font-medium text-slate-700">选择文档</Label>
+                <div className="grid gap-3 xl:grid-cols-2">
+                  <div className="space-y-2.5 rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <Label className="text-sm font-medium text-slate-700">用户自己上传文档</Label>
+                        <p className="text-xs text-slate-500">支持一次选择多个文件，上传后会自动加入本次 PPT 来源。</p>
+                      </div>
+                      <Button type="button" variant="outline" className="h-10 shrink-0" onClick={() => uploadInputRef.current?.click()}>
+                        <Upload className="mr-2 h-4 w-4" />
+                        上传文档
+                      </Button>
+                    </div>
+                    <input
+                      ref={uploadInputRef}
+                      type="file"
+                      multiple
+                      accept=".pdf,.doc,.docx,.txt,.md,.markdown"
+                      className="hidden"
+                      onChange={(e) => e.target.files && void handleUpload(e.target.files)}
+                    />
+                    <SourceTagList
+                      items={selectedUploadSources}
+                      knowledgeBases={knowledgeBases}
+                      onRemove={removeSourceByKey}
+                    />
+                  </div>
+
+                  <div className="space-y-2.5 rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <Label className="text-sm font-medium text-slate-700">选择现有知识库的文档</Label>
+                        <p className="text-xs text-slate-500">可以一次勾选多个知识库文档加入本次 PPT。</p>
+                      </div>
                       <Popover open={kbDocumentPickerOpen} onOpenChange={setKbDocumentPickerOpen}>
                         <PopoverTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className={`h-10 w-full justify-between rounded-xl px-3 text-slate-900 ${strongSelectTriggerClassName}`}
-                          >
-                            <span className="truncate text-left">{selectedSourceSummary}</span>
-                            <span className="ml-3 shrink-0 text-slate-400">▾</span>
+                          <Button type="button" variant="outline" className="h-10 shrink-0 rounded-xl border-slate-200 bg-white px-3 text-slate-900 shadow-sm">
+                            {selectedKbSources.length > 0 ? `已选 ${selectedKbSources.length} 个文档` : '选择知识库文档'}
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent align="start" className="w-[640px] max-w-[calc(100vw-2rem)] rounded-[24px] border-slate-200 p-4 shadow-2xl">
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setSetupDraft((prev) => ({ ...prev, sourceMode: 'kb_document' }))}
-                              className={`rounded-full border px-3 py-1.5 text-sm transition ${
-                                setupDraft.sourceMode === 'kb_document' ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-white text-slate-700'
-                              }`}
-                            >
-                              来自知识库
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setSetupDraft((prev) => ({ ...prev, sourceMode: 'temporary_upload' }))}
-                              className={`rounded-full border px-3 py-1.5 text-sm transition ${
-                                setupDraft.sourceMode === 'temporary_upload' ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-white text-slate-700'
-                              }`}
-                            >
-                              上传文档
-                            </button>
-                          </div>
-
-                          {setupDraft.sourceMode === 'kb_document' ? (
-                            <div className="mt-4 space-y-3">
-                              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto]">
+                        <PopoverContent align="end" className="w-[720px] max-w-[calc(100vw-2rem)] rounded-[24px] border-slate-200 p-4 shadow-2xl">
+                          {knowledgeBases.length === 0 ? (
+                            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                              当前还没有知识库。可以直接上传文档，或先到知识库页面上传安全制度、应急预案、操作规程等资料。
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <Label className="text-sm font-medium text-slate-700">选择知识库</Label>
                                 <Select
                                   value={setupDraft.kbId}
-                                  onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, kbId: value, documentId: '' }))}
+                                  onValueChange={(value) => {
+                                    setSetupDraft((prev) => ({ ...prev, kbId: value }));
+                                    setPendingKbDocumentIds([]);
+                                  }}
                                 >
                                   <SelectTrigger className={`h-10 min-w-0 ${strongSelectTriggerClassName}`}>
                                     <SelectValue placeholder="选择知识库" />
@@ -1683,95 +1763,74 @@ export default function TrainingPage() {
                                     ))}
                                   </SelectContent>
                                 </Select>
-                                <Select value={setupDraft.documentId} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, documentId: value }))}>
-                                  <SelectTrigger className={`h-10 min-w-0 ${strongSelectTriggerClassName}`}>
-                                    <SelectValue placeholder="选择文档" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {(kbResources[setupDraft.kbId]?.docs || []).map((doc) => (
-                                      <SelectItem key={doc.id} value={doc.id}>
-                                        {doc.file}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <Button type="button" onClick={() => addKbDocumentSources()} className="h-10 shrink-0 whitespace-nowrap bg-indigo-600 hover:bg-indigo-700">
-                                  加入
-                                </Button>
                               </div>
-                            </div>
-                          ) : (
-                            <div className="mt-4">
-                              <Button variant="outline" className="h-10" onClick={() => uploadInputRef.current?.click()}>
-                                <Upload className="mr-2 h-4 w-4" />
-                                上传文档
-                              </Button>
-                              <input
-                                ref={uploadInputRef}
-                                type="file"
-                                multiple
-                                accept=".pdf,.doc,.docx,.txt,.md,.markdown"
-                                className="hidden"
-                                onChange={(e) => e.target.files && void handleUpload(e.target.files)}
-                              />
+
+                              {setupDraft.kbId ? (
+                                <div className="space-y-3">
+                                  <div className="max-h-[320px] space-y-2 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3">
+                                    {kbResources[setupDraft.kbId]?.loading ? (
+                                      <p className="px-1 py-6 text-center text-sm text-slate-500">正在加载当前知识库的文档...</p>
+                                    ) : currentKbDocs.length === 0 ? (
+                                      <p className="px-1 py-6 text-center text-sm text-slate-500">当前知识库暂无可选文档。</p>
+                                    ) : (
+                                      currentKbDocs.map((doc) => {
+                                        const checked = pendingKbDocumentSet.has(doc.id);
+                                        return (
+                                          <label
+                                            key={doc.id}
+                                            className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2 transition ${
+                                              checked ? 'border-indigo-200 bg-indigo-50/60' : 'border-transparent hover:border-slate-200 hover:bg-slate-50'
+                                            }`}
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={checked}
+                                              onChange={(event) => {
+                                                const nextChecked = event.target.checked;
+                                                setPendingKbDocumentIds((prev) => {
+                                                  if (nextChecked) {
+                                                    return prev.includes(doc.id) ? prev : [...prev, doc.id];
+                                                  }
+                                                  return prev.filter((item) => item !== doc.id);
+                                                });
+                                              }}
+                                              className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                            />
+                                            <div className="min-w-0">
+                                              <div className="truncate text-sm font-medium text-slate-900">{doc.file}</div>
+                                              <div className="mt-0.5 text-xs text-slate-500">
+                                                {doc.page_count > 0 ? `${doc.page_count} 页` : '页数未知'}
+                                                {doc.parse_status ? ` · ${doc.parse_status}` : ''}
+                                              </div>
+                                            </div>
+                                          </label>
+                                        );
+                                      })
+                                    )}
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <p className="text-xs text-slate-500">
+                                      已勾选 {pendingKbDocumentIds.length} 个文档，点击加入后会并入本次 PPT 来源。
+                                    </p>
+                                    <Button type="button" onClick={() => addKbDocumentSources()} className="h-10 shrink-0 whitespace-nowrap bg-indigo-600 hover:bg-indigo-700">
+                                      加入所选文档
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-sm text-slate-500">请先选择一个知识库，再勾选其中的文档。</p>
+                              )}
                             </div>
                           )}
                         </PopoverContent>
                       </Popover>
                     </div>
-
-                    <InlineField
-                      label="输入页数"
-                      value={setupDraft.customSlideCount}
-                      onChange={(value) => {
-                        const next = Number(value);
-                        setSetupDraft((prev) => ({
-                          ...prev,
-                          slideCountChoice: 'custom',
-                          customSlideCount: Number.isFinite(next) ? Math.max(5, Math.min(30, next)) : 5,
-                        }));
-                      }}
-                      type="number"
-                      min={5}
-                      max={30}
-                      placeholder="5 到 30"
-                      helper="请输入 5 到 30。"
-                      className={strongFieldClassName}
+                    <SourceTagList
+                      items={selectedKbSources}
+                      knowledgeBases={knowledgeBases}
+                      onRemove={removeSourceByKey}
                     />
-
-                    <div className="h-full min-w-0 space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                      <Label className="text-sm font-medium text-slate-700">选择风格</Label>
-                      <Select value={setupDraft.style} onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, style: value as TrainingStyle }))}>
-                        <SelectTrigger className={`h-10 w-full rounded-xl px-3 ${strongSelectTriggerClassName}`}>
-                          <SelectValue>{styleSummary}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {styleOptions.map((item) => (
-                            <SelectItem key={item.value} value={item.value}>
-                              {item.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="h-full min-w-0 space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                      <Label className="text-sm font-medium text-slate-700">有无备注</Label>
-                      <Select
-                        value={setupDraft.includeSpeakerNotes ? 'yes' : 'no'}
-                        onValueChange={(value) => setSetupDraft((prev) => ({ ...prev, includeSpeakerNotes: value === 'yes' }))}
-                      >
-                        <SelectTrigger className={`h-10 w-full rounded-xl px-3 ${strongSelectTriggerClassName}`}>
-                          <SelectValue>{notesSummary}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="yes">有</SelectItem>
-                          <SelectItem value="no">无</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
                   </div>
-
                 </div>
               </CardContent>
             </Card>
@@ -1843,14 +1902,6 @@ export default function TrainingPage() {
                         <a href={pptDownloadUrl} target="_blank" rel="noreferrer">
                           <Download className="mr-2 h-4 w-4" />
                           下载PPT {pptFilename ? `(${pptFilename})` : ''}
-                        </a>
-                      </Button>
-                    )}
-                    {notesDownloadUrl && setupDraft.includeSpeakerNotes && (
-                      <Button asChild variant="outline">
-                        <a href={notesDownloadUrl} target="_blank" rel="noreferrer">
-                          <FileText className="mr-2 h-4 w-4" />
-                          下载Word备注 {notesFilename ? `(${notesFilename})` : ''}
                         </a>
                       </Button>
                     )}

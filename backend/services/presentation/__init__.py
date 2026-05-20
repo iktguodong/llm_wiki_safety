@@ -11,6 +11,7 @@ from .models import (
     SourceInput,
     SourceRef,
     TrainingOutline,
+    TrainingOutlinePoint,
     TrainingOutlineSection,
     TrainingOutlineSlide,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "SourceInput",
     "SourceRef",
     "TrainingOutline",
+    "TrainingOutlinePoint",
     "TrainingOutlineSection",
     "TrainingOutlineSlide",
 ]

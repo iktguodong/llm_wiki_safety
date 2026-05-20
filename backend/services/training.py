@@ -32,7 +32,6 @@ def _legacy_payload(
     focus_areas: Optional[list[str]] = None,
     style: str = "standard_training",
     include_quiz: bool = True,
-    include_speaker_notes: bool = True,
     job_id: Optional[str] = None,
     template_id: Optional[str] = None,
 ) -> dict[str, Any]:
@@ -49,7 +48,6 @@ def _legacy_payload(
         "focus_areas": focus_areas or [],
         "style": style,
         "include_quiz": include_quiz,
-        "include_speaker_notes": include_speaker_notes,
         "job_id": job_id,
         "template_id": template_id or style,
     }
@@ -70,7 +68,6 @@ class TrainingService:
         sources: Optional[list[dict[str, Any]]] = None,
         style: str = "standard_training",
         include_quiz: bool = True,
-        include_speaker_notes: bool = True,
         job_id: Optional[str] = None,
     ) -> dict[str, Any]:
         payload = _legacy_payload(
@@ -83,7 +80,6 @@ class TrainingService:
             focus_areas=focus_areas,
             style=style,
             include_quiz=include_quiz,
-            include_speaker_notes=include_speaker_notes,
             job_id=job_id,
             template_id=style,
         )
@@ -112,7 +108,6 @@ class TrainingService:
         focus_areas: Optional[list[str]] = None,
         style: str = "standard_training",
         include_quiz: bool = True,
-        include_speaker_notes: bool = True,
         job_id: Optional[str] = None,
         sources: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, Any]:
@@ -126,7 +121,6 @@ class TrainingService:
             focus_areas=focus_areas,
             style=style,
             include_quiz=include_quiz,
-            include_speaker_notes=include_speaker_notes,
             job_id=job_id,
             template_id=template,
         )
@@ -144,12 +138,7 @@ class TrainingService:
             outline_struct = (await build_outline(pack, payload, llm_service)).model_dump()
         spec = await plan_slides(outline_struct, pack, {**payload, "template_id": template}, llm_service)
         report = check_presentation(spec, pack, payload)
-        render_info = render_presentation(
-            spec,
-            get_template(template),
-            job.job_id,
-            include_speaker_notes=include_speaker_notes,
-        )
+        render_info = render_presentation(spec, get_template(template), job.job_id)
         save_content_pack(job.job_id, pack.model_dump())
         save_outline(job.job_id, outline_struct)
         save_spec(job.job_id, spec.model_dump())
@@ -161,8 +150,6 @@ class TrainingService:
             "quality_report": report.model_dump(),
             "download_url": render_info["download_url"],
             "filename": render_info["filename"],
-            "notes_download_url": render_info.get("notes_download_url"),
-            "notes_filename": render_info.get("notes_filename"),
         }
 
 training_service = TrainingService()

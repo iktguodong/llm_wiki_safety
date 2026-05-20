@@ -658,18 +658,6 @@ async def preview_training_html(filename: str):
     return Response(content=file_path.read_text(encoding="utf-8"), media_type="text/html; charset=utf-8")
 
 
-@app.get("/api/training/download-notes/{filename}")
-async def download_training_notes(filename: str):
-    """安全下载生成的讲稿备注 DOCX。"""
-    try:
-        file_path = resolve_download_path(filename, ".docx")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="文件不存在")
-    return FileResponse(str(file_path), filename=file_path.name)
-
-
 # ==================== 启动入口 ====================
 
 if __name__ == "__main__":

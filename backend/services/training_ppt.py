@@ -19,7 +19,7 @@ from backend.services.llm import llm_service
 from backend.services.presentation.content_pack import build_content_pack, normalize_sources
 from backend.services.presentation.outline_builder import generate_outline as build_outline
 from backend.services.presentation.pptx_renderer import render_presentation
-from backend.services.presentation.project_store import save_content_pack, save_outline, save_quality_report, save_spec
+from backend.services.presentation.project_store import get_running_job_cancel_event, save_content_pack, save_outline, save_quality_report, save_spec
 from backend.services.presentation.quality_check import check_presentation
 from backend.services.presentation.safety_templates import get_template
 from backend.services.presentation.slide_planner import plan_slides
@@ -32,17 +32,20 @@ def training_payload_to_request(payload: dict[str, Any]) -> dict[str, Any]:
     config_data = payload.get("config") or {}
     config = TrainingConfig(**config_data) if config_data else None
     sources = payload.get("sources") or normalize_sources(payload)
-    topic = payload.get("topic") or (config.topic if config else "") or payload.get("prompt") or ""
+    topic = payload.get("topic") or payload.get("title") or (config.topic if config else "") or payload.get("prompt") or ""
     audience = payload.get("audience") if "audience" in payload else (config.audience if config else "一线员工")
     duration_minutes = payload.get("duration_minutes") or (config.duration if config else 60)
     slide_count = payload.get("slide_count") or (config.slide_count if config else 12)
     style = payload.get("style") or "standard_training"
     focus_areas = payload.get("focus_areas") or (config.focus_areas if config else [])
     include_quiz = payload.get("include_quiz", True)
-    include_speaker_notes = payload.get("include_speaker_notes", True)
     template_id = payload.get("template_id") or payload.get("template") or (config.template if config else style)
     return {
         "sources": sources,
+        "title": payload.get("title") or topic,
+        "report_date": payload.get("report_date") or payload.get("reportDate"),
+        "presenter": payload.get("presenter"),
+        "requirements": payload.get("requirements") or payload.get("requirement"),
         "topic": topic,
         "audience": audience,
         "duration_minutes": duration_minutes,
@@ -50,7 +53,6 @@ def training_payload_to_request(payload: dict[str, Any]) -> dict[str, Any]:
         "style": style,
         "focus_areas": focus_areas,
         "include_quiz": include_quiz,
-        "include_speaker_notes": include_speaker_notes,
         "template_id": template_id,
         "job_id": payload.get("job_id") or payload.get("jobId"),
     }
@@ -127,11 +129,13 @@ class TrainingPptService:
             spec = await plan_slides(outline, content_pack, request, llm_service)
             quality_report = check_presentation(spec, content_pack, request)
             template = get_template(request.get("template_id") or request.get("style"))
-            render_info = render_presentation(
+            render_info = await asyncio.to_thread(
+                render_presentation,
                 spec,
                 template,
                 job_id,
-                include_speaker_notes=request.get("include_speaker_notes", True),
+                None,
+                get_running_job_cancel_event(job_id),
             )
         except Exception as exc:
             logger.exception(
@@ -169,8 +173,6 @@ class TrainingPptService:
             quality_report=QualityReport(**quality_report.model_dump()),
             download_url=render_info["download_url"],
             filename=render_info["filename"],
-            notes_download_url=render_info.get("notes_download_url"),
-            notes_filename=render_info.get("notes_filename"),
         )
 
 

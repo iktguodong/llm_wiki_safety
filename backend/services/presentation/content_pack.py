@@ -238,8 +238,7 @@ def _load_wiki_sources(kb_id: str, page_name: str | None, pack: ContentPack) -> 
     if page_name:
         page_file = wiki_path / page_name
         if not page_file.exists():
-            pack.warnings.append(f"知识库 {kb_id} 未找到对应内容 {page_name}")
-            return
+            raise ValueError(f"知识库 {kb_id} 未找到对应内容 {page_name}")
         pages = [page_file]
     else:
         pages = [p for p in sorted(wiki_path.glob("*.md")) if p.name not in {"index.md", "log.md"}]
@@ -272,13 +271,14 @@ def _load_document_sources(
     raw_path = get_kb_raw_path(kb_id)
     for doc_id, doc_info in targets:
         if not doc_info:
+            if document_id:
+                raise ValueError(f"知识库 {kb_id} 未找到文档 {doc_id}")
             pack.warnings.append(f"知识库 {kb_id} 未找到文档 {doc_id}")
             continue
 
         file_path = raw_path / doc_info.get("file", "")
         if not file_path.exists():
-            pack.warnings.append(f"文档文件不存在：{file_path.name}")
-            continue
+            raise ValueError(f"文档文件不存在：{file_path.name}")
 
         # HTML 训练页优先使用该文档关联的 wiki 页面，让输出更像已经整理过的讲稿，
         # 避免直接把原始 PDF 段落铺到页面上。

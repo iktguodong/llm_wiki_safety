@@ -8,6 +8,7 @@ import shutil
 import uuid
 from datetime import datetime, timedelta
 from dataclasses import dataclass
+from threading import Event
 from pathlib import Path
 from typing import Any, Optional
 
@@ -19,7 +20,13 @@ PRESENTATIONS_DIR = OUTPUT_DIR / "presentations"
 UPLOADS_DIR = PRESENTATIONS_DIR / "_uploads"
 TRAINING_HTML_PREFIX = "training_html_"
 
-_RUNNING_TRAINING_JOBS: dict[str, asyncio.Task[Any]] = {}
+@dataclass
+class RunningTrainingJob:
+    task: asyncio.Task[Any]
+    cancel_event: Event
+
+
+_RUNNING_TRAINING_JOBS: dict[str, RunningTrainingJob] = {}
 
 
 @dataclass(frozen=True)
@@ -33,8 +40,6 @@ class JobPaths:
     outline_path: Path
     spec_path: Path
     quality_report_path: Path
-    speaker_notes_path: Path
-    speaker_notes_docx_path: Path
 
 
 def _json_dump(path: Path, data: Any) -> None:
@@ -66,8 +71,6 @@ def get_job_paths(job_id: str) -> JobPaths:
         outline_path=root / "outline.json",
         spec_path=root / "spec.json",
         quality_report_path=root / "quality_report.json",
-        speaker_notes_path=root / "speaker_notes.md",
-        speaker_notes_docx_path=root / "speaker_notes.docx",
     )
 
 
@@ -119,38 +122,32 @@ def save_quality_report(job_id: str, data: Any) -> Path:
     return path
 
 
-def save_speaker_notes(job_id: str, text: str) -> Path:
-    path = get_job_paths(job_id).speaker_notes_path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return path
-
-
-def save_speaker_notes_docx(job_id: str, document) -> Path:
-    path = get_job_paths(job_id).speaker_notes_docx_path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    document.save(str(path))
-    return path
-
-
 def register_running_job(job_id: str, task: asyncio.Task[Any]) -> None:
-    _RUNNING_TRAINING_JOBS[job_id] = task
+    _RUNNING_TRAINING_JOBS[job_id] = RunningTrainingJob(task=task, cancel_event=Event())
 
 
 def unregister_running_job(job_id: str, task: asyncio.Task[Any] | None = None) -> None:
     current = _RUNNING_TRAINING_JOBS.get(job_id)
     if current is None:
         return
-    if task is None or current is task:
+    if task is None or current.task is task:
         _RUNNING_TRAINING_JOBS.pop(job_id, None)
 
 
 def cancel_running_job(job_id: str) -> bool:
     task = _RUNNING_TRAINING_JOBS.get(job_id)
-    if task is None or task.done():
+    if task is None or task.task.done():
         return False
-    task.cancel()
+    task.cancel_event.set()
+    task.task.cancel()
     return True
+
+
+def get_running_job_cancel_event(job_id: str) -> Event | None:
+    current = _RUNNING_TRAINING_JOBS.get(job_id)
+    if current is None:
+        return None
+    return current.cancel_event
 
 
 def cleanup_training_job(job_id: str) -> None:

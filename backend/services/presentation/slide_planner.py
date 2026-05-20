@@ -39,6 +39,22 @@ def _normalize_points(points: list[str]) -> list[str]:
     return cleaned[:5]
 
 
+def _point_lines(slide: TrainingOutlineSlide) -> list[str]:
+    if slide.points:
+        lines = []
+        for point in slide.points:
+            title = re.sub(r"\s+", " ", str(point.title)).strip()
+            description = re.sub(r"\s+", " ", str(point.description or "")).strip()
+            if title and description:
+                lines.append(f"{title}：{description}")
+            elif title:
+                lines.append(title)
+            elif description:
+                lines.append(description)
+        return lines[:5]
+    return _normalize_points(slide.key_points or [slide.title])
+
+
 def _slide_type_from_outline(slide: TrainingOutlineSlide) -> str:
     slide_type = slide.slide_type
     if slide_type in {
@@ -173,7 +189,7 @@ def _make_spec_slides(outline: TrainingOutline) -> list[TrainingOutlineSlide]:
 
 def _convert_outline_slide(slide: TrainingOutlineSlide) -> SlideSpec:
     slide_type = _slide_type_from_outline(slide)
-    notes = slide.notes or "请按页面要点讲解。"
+    bullets = _point_lines(slide)
     return SlideSpec(
         id=slide.id,
         slide_no=slide.slide_no,
@@ -181,8 +197,8 @@ def _convert_outline_slide(slide: TrainingOutlineSlide) -> SlideSpec:
         title=slide.title,
         subtitle=slide.layout_hint,
         key_message=slide.notes or slide.title,
-        bullets=_normalize_points(slide.key_points or [slide.title]),
-        notes=notes,
+        bullets=bullets,
+        notes=None,
         visual_type=(slide.visual_type or _visual_type(slide_type)),  # type: ignore[arg-type]
         source_refs=_normalize_source_refs(slide.source_refs),
         safety_level=(slide.safety_level or _safety_level(slide_type)),  # type: ignore[arg-type]
@@ -193,7 +209,6 @@ async def plan_slides(outline: TrainingOutline, content_pack: ContentPack, setti
     settings_dict = _as_dict(settings)
     template_id = str(settings_dict.get("template_id") or settings_dict.get("template") or "standard_training")
     title = outline.title or outline.topic
-    include_speaker_notes = bool(settings_dict.get("include_speaker_notes", True))
 
     model_roles = config.get("models", {}).get("model_roles", {})
     model_id = model_roles.get("ppt_gen") or config.get("current_model_id")
@@ -245,5 +260,5 @@ async def plan_slides(outline: TrainingOutline, content_pack: ContentPack, setti
         style=outline.style,
         template_id=template_id,
         slides=slides,
-        quality_warnings=quality_warnings if include_speaker_notes else quality_warnings,
+        quality_warnings=quality_warnings,
     )

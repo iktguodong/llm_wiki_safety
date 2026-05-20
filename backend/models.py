@@ -300,10 +300,16 @@ class TrainingOutlineSectionV2(BaseModel):
     source_refs: List[TrainingSourceRef] = Field(default_factory=list)
 
 
+class TrainingOutlinePointV2(BaseModel):
+    title: str
+    description: str = ""
+
+
 class TrainingOutlineSlideV2(BaseModel):
     id: str
     slide_no: int
     title: str
+    points: List[TrainingOutlinePointV2] = Field(default_factory=list)
     key_points: List[str] = Field(default_factory=list)
     notes: Optional[str] = None
     layout_hint: Optional[str] = None
@@ -408,6 +414,10 @@ class PresentationJob(BaseModel):
 
 class TrainingOutlineRequestV2(BaseModel):
     sources: List[TrainingSourceInput] = Field(default_factory=list)
+    title: Optional[str] = None
+    report_date: Optional[str] = None
+    presenter: Optional[str] = None
+    requirements: Optional[str] = None
     topic: str = ""
     audience: str = "一线员工"
     duration_minutes: int = 60
@@ -415,7 +425,6 @@ class TrainingOutlineRequestV2(BaseModel):
     style: Literal["standard_training", "management_briefing", "frontline_shift_training"] = "standard_training"
     focus_areas: List[str] = Field(default_factory=list)
     include_quiz: bool = True
-    include_speaker_notes: bool = True
     job_id: Optional[str] = None
     # legacy compatibility
     source_type: Optional[str] = None
@@ -436,7 +445,10 @@ class TrainingGenerateRequestV2(BaseModel):
     outline: Optional[TrainingOutlineV2] = None
     template_id: str = "standard_training"
     include_quiz: bool = True
-    include_speaker_notes: bool = True
+    title: Optional[str] = None
+    report_date: Optional[str] = None
+    presenter: Optional[str] = None
+    requirements: Optional[str] = None
     topic: str = ""
     audience: str = "一线员工"
     duration_minutes: int = 60
@@ -456,8 +468,6 @@ class TrainingGenerateResponse(BaseModel):
     quality_report: QualityReport
     download_url: str
     filename: str
-    notes_download_url: Optional[str] = None
-    notes_filename: Optional[str] = None
 
 
 class TrainingHtmlGenerateRequest(BaseModel):

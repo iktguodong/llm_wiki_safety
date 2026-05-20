@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import pytest
 
 import backend.config as config_module
 from backend.services.presentation.content_pack import build_content_pack
@@ -19,7 +20,6 @@ class PromptReq:
     style = "standard_training"
     focus_areas = ["应急处置", "报警流程"]
     include_quiz = True
-    include_speaker_notes = True
 
 
 def test_prompt_only_outline_falls_back_to_default_sections(isolated_training_env):
@@ -79,6 +79,107 @@ def test_outline_generation_times_out_and_falls_back(isolated_training_env, monk
     assert llm.calls and llm.calls[0]["max_tokens"] == outline_builder.OUTLINE_MAX_TOKENS
 
 
+def test_compact_llm_outline_adds_cover_and_points(isolated_training_env, monkeypatch):
+    class CompactLLM:
+        async def chat_sync(self, messages, model_id=None, temperature=0.7, max_tokens=None):
+            return """
+            {
+              "slides": [
+                {"title": "背景与目标", "points": [{"title": "培训背景", "description": "说明本次培训来源和目的"}]},
+                {"title": "关键流程", "points": [{"title": "先报警", "description": "发现异常后立即报告"}]},
+                {"title": "总结行动", "points": [{"title": "闭环整改", "description": "形成清单并跟踪"}]}
+              ]
+            }
+            """
+
+    monkeypatch.setitem(
+        config_module.config["models"],
+        "providers",
+        [
+            {
+                "id": "deepseek",
+                "name": "DeepSeek",
+                "base_url": "https://api.deepseek.com",
+                "api_key": "sk-test",
+                "models": [
+                    {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "type": "chat"},
+                ],
+            }
+        ],
+    )
+    monkeypatch.setitem(
+        config_module.config["models"],
+        "model_roles",
+        {"ppt_gen": "deepseek-v4-flash"},
+    )
+
+    req = {
+        "sources": [{"type": "prompt", "prompt": "应急处置培训"}],
+        "title": "红杉2026 AI 闭门峰会解读",
+        "topic": "红杉2026 AI 闭门峰会解读",
+        "report_date": "2026年5月21日",
+        "presenter": "刘明超",
+        "audience": "公司管理层",
+        "duration_minutes": 30,
+        "slide_count": 4,
+        "style": "standard_training",
+    }
+    outline = asyncio.run(generate_outline(build_content_pack(req), req, llm_client=CompactLLM()))
+
+    assert len(outline.slides) == 4
+    assert outline.slides[0].slide_type == "cover"
+    assert outline.slides[0].title == "红杉2026 AI 闭门峰会解读"
+    assert outline.slides[1].points[0].title == "培训背景"
+    assert outline.slides[1].points[0].description == "说明本次培训来源和目的"
+
+
+def test_legacy_key_points_output_still_supported(isolated_training_env, monkeypatch):
+    class LegacyLLM:
+        async def chat_sync(self, messages, model_id=None, temperature=0.7, max_tokens=None):
+            return '{"slides":[{"title":"旧格式页","key_points":["要点A：说明A","要点B"]},{"title":"第二页","key_points":["要点C"]}]}'
+
+    monkeypatch.setitem(
+        config_module.config["models"],
+        "providers",
+        [
+            {
+                "id": "deepseek",
+                "name": "DeepSeek",
+                "base_url": "https://api.deepseek.com",
+                "api_key": "sk-test",
+                "models": [
+                    {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "type": "chat"},
+                ],
+            }
+        ],
+    )
+    monkeypatch.setitem(config_module.config["models"], "model_roles", {"ppt_gen": "deepseek-v4-flash"})
+
+    req = {
+        "sources": [{"type": "prompt", "prompt": "旧格式兼容"}],
+        "title": "旧格式兼容",
+        "topic": "旧格式兼容",
+        "slide_count": 3,
+        "style": "standard_training",
+    }
+    outline = asyncio.run(generate_outline(build_content_pack(req), req, llm_client=LegacyLLM()))
+
+    assert len(outline.slides) == 3
+    assert outline.slides[1].points[0].title == "要点A"
+    assert outline.slides[1].points[0].description == "说明A"
+
+
+def test_missing_explicit_document_source_raises(isolated_training_env):
+    req = {
+        "sources": [{"type": "kb_document", "kb_id": "kb-missing", "document_id": "doc-missing"}],
+        "title": "缺失文档",
+        "topic": "缺失文档",
+    }
+
+    with pytest.raises(ValueError, match="未找到文档"):
+        build_content_pack(req)
+
+
 def test_temporary_upload_outline(isolated_training_env):
     from backend.services.presentation.project_store import get_upload_dir, save_upload_metadata
 
@@ -104,7 +205,6 @@ def test_temporary_upload_outline(isolated_training_env):
         "style": "frontline_shift_training",
         "focus_areas": ["异常上报"],
         "include_quiz": False,
-        "include_speaker_notes": True,
     }
     outline = asyncio.run(generate_outline(build_content_pack(req, job_id="job-outline"), req))
     assert outline.slides
@@ -134,7 +234,6 @@ def test_knowledge_base_outline(isolated_training_env):
         "style": "management_briefing",
         "focus_areas": ["职责", "流程"],
         "include_quiz": True,
-        "include_speaker_notes": True,
     }
     outline = asyncio.run(generate_outline(build_content_pack(req), req))
     assert len(outline.slides) >= 4

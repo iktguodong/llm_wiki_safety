@@ -61,10 +61,16 @@ class TrainingOutlineSection(BaseModel):
     source_refs: list[SourceRef] = Field(default_factory=list)
 
 
+class TrainingOutlinePoint(BaseModel):
+    title: str
+    description: str = ""
+
+
 class TrainingOutlineSlide(BaseModel):
     id: str
     slide_no: int
     title: str
+    points: list[TrainingOutlinePoint] = Field(default_factory=list)
     key_points: list[str] = Field(default_factory=list)
     notes: Optional[str] = None
     layout_hint: Optional[str] = None
@@ -165,7 +171,6 @@ class PresentationJob(BaseModel):
     html_path: Optional[str] = None
     quality_report_path: Optional[str] = None
     download_url: Optional[str] = None
-    notes_download_url: Optional[str] = None
 
 
 def utc_now_str() -> str:

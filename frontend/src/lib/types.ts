@@ -235,10 +235,16 @@ export interface TrainingOutlineSection {
   source_refs: TrainingSourceRef[];
 }
 
+export interface TrainingOutlinePoint {
+  title: string;
+  description: string;
+}
+
 export interface TrainingOutlineSlide {
   id: string;
   slide_no: number;
   title: string;
+  points: TrainingOutlinePoint[];
   key_points: string[];
   notes?: string | null;
   layout_hint?: string | null;
@@ -339,8 +345,6 @@ export interface TrainingGenerateResponse {
   quality_report: QualityReport;
   download_url: string;
   filename: string;
-  notes_download_url?: string | null;
-  notes_filename?: string | null;
 }
 
 export interface TrainingHtmlGenerateRequest {
@@ -376,6 +380,10 @@ export interface TemporaryTrainingUploadResponse {
 
 export interface TrainingOutlineRequest {
   sources: TrainingSourceInput[];
+  title?: string | null;
+  report_date?: string | null;
+  presenter?: string | null;
+  requirements?: string | null;
   topic: string;
   audience: string;
   duration_minutes: number;
@@ -383,7 +391,6 @@ export interface TrainingOutlineRequest {
   style: TrainingStyle;
   focus_areas: string[];
   include_quiz: boolean;
-  include_speaker_notes: boolean;
   job_id?: string;
 }
 
@@ -393,7 +400,10 @@ export interface TrainingGenerateRequest {
   outline?: TrainingOutline | null;
   template_id: string;
   include_quiz: boolean;
-  include_speaker_notes: boolean;
+  title?: string | null;
+  report_date?: string | null;
+  presenter?: string | null;
+  requirements?: string | null;
   topic: string;
   audience: string;
   duration_minutes: number;

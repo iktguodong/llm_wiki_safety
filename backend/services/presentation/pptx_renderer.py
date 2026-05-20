@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import asyncio
+from threading import Event
 from typing import Any
 
 from pptx import Presentation
@@ -10,10 +11,9 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_AUTO_SIZE, PP_ALIGN
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
-from docx import Document
 
 from .models import PresentationSpec, SlideSpec
-from .project_store import get_job_paths, save_speaker_notes, save_speaker_notes_docx
+from .project_store import get_job_paths
 from .safety_templates import SafetyTemplate
 
 
@@ -150,42 +150,22 @@ def _render_summary_slide(slide, template: SafetyTemplate, slide_spec: SlideSpec
         _add_textbox(slide, Inches(0.95), Inches(6.1), Inches(11.5), Inches(0.45), slide_spec.key_message, font_cn=template.font_family_cn, font_en=template.font_family_en, size=14, color=template.theme_colors["success"], bold=True)
 
 
-def _save_notes_docx(title: str, entries: list[tuple[int, str, str]], job_id: str) -> Path:
-    document = Document()
-    document.add_heading(title, level=0)
-    for slide_no, slide_title, notes in entries:
-        # keep the notes file readable in Word for users reviewing speaker notes
-        document.add_heading(f"第 {slide_no} 页：{slide_title}", level=1)
-        for paragraph in notes.splitlines() or [notes]:
-            text = paragraph.strip()
-            if text:
-                document.add_paragraph(text)
-    return save_speaker_notes_docx(job_id, document)
-
-
 def render_presentation(
     spec: PresentationSpec,
     template: SafetyTemplate,
     job_id: str,
     kb_name: str | None = None,
-    *,
-    include_speaker_notes: bool = True,
+    cancel_event: Event | None = None,
 ) -> dict[str, Any]:
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
 
-    speaker_notes_lines = [f"# {spec.title}", ""]
-    speaker_notes_entries: list[tuple[int, str, str]] = []
     for slide_spec in spec.slides:
+        if cancel_event is not None and cancel_event.is_set():
+            raise asyncio.CancelledError()
         slide = _base_slide(prs)
         _set_bg(slide, template.theme_colors["bg"])
-        speaker_notes_lines.append(f"## Slide {slide_spec.slide_no}: {slide_spec.title}")
-        note_text = slide_spec.notes or slide_spec.subtitle or slide_spec.key_message or slide_spec.title
-        if note_text:
-            speaker_notes_lines.append(note_text)
-            speaker_notes_entries.append((slide_spec.slide_no, slide_spec.title, note_text))
-        speaker_notes_lines.append("")
 
         if slide_spec.slide_type == "cover":
             _render_cover(slide, spec, template, slide_spec)
@@ -206,26 +186,20 @@ def render_presentation(
         else:
             _render_bullet_slide(slide, template, slide_spec)
 
+        if cancel_event is not None and cancel_event.is_set():
+            raise asyncio.CancelledError()
         footer_text = f"{template.footer_style}" if not kb_name else f"{kb_name} · {template.footer_style}"
         _apply_footer(slide, template, slide_spec.slide_no, footer_text)
 
+    if cancel_event is not None and cancel_event.is_set():
+        raise asyncio.CancelledError()
     paths = get_job_paths(job_id)
     paths.pptx_dir.mkdir(parents=True, exist_ok=True)
     filename = "training_deck.pptx"
     pptx_path = paths.pptx_dir / filename
     prs.save(str(pptx_path))
-    save_speaker_notes(job_id, "\n".join(speaker_notes_lines).strip() + "\n")
-    notes_filename = None
-    notes_download_url = None
-    if include_speaker_notes and speaker_notes_entries:
-        notes_path = _save_notes_docx(spec.title, speaker_notes_entries, job_id)
-        notes_filename = notes_path.name
-        notes_download_url = f"/api/training/download-notes/{notes_filename}"
     return {
         "filename": filename,
         "pptx_path": str(pptx_path),
         "download_url": f"/api/training/download/{filename}",
-        "speaker_notes_path": str(paths.speaker_notes_path),
-        "notes_filename": notes_filename,
-        "notes_download_url": notes_download_url,
     }

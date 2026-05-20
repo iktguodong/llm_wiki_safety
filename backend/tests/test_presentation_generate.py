@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from threading import Event
+
+import pytest
 
 from backend.services.presentation.content_pack import build_content_pack
 from backend.services.presentation.outline_builder import generate_outline
@@ -22,7 +25,6 @@ class PromptReq:
     style = "standard_training"
     focus_areas = ["应急处置", "报警流程"]
     include_quiz = True
-    include_speaker_notes = True
     template_id = "standard_training"
 
 
@@ -37,8 +39,26 @@ def test_outline_to_pptx_full_chain(isolated_training_env):
     assert report.summary
     assert render_info["pptx_path"].endswith(".pptx")
     assert get_job_paths("job-full-1").pptx_dir.joinpath("training_deck.pptx").exists()
-    assert get_job_paths("job-full-1").speaker_notes_path.exists()
-    assert get_job_paths("job-full-1").speaker_notes_docx_path.exists()
+    assert "notes_download_url" not in render_info
+
+
+def test_render_presentation_honors_cancel_event(isolated_training_env):
+    spec = PresentationSpec(
+        id="spec-cancel",
+        title="测试",
+        topic="测试",
+        audience="管理层",
+        duration_minutes=30,
+        style="standard_training",
+        template_id="standard_training",
+        slides=[],
+        quality_warnings=[],
+    )
+    cancel_event = Event()
+    cancel_event.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        render_presentation(spec, get_template("standard_training"), "job-cancel-1", cancel_event=cancel_event)
 
 
 def test_quality_check_flags_missing_source_for_legal_content(isolated_training_env):
