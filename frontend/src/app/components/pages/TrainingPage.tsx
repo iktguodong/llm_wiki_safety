@@ -1890,7 +1890,7 @@ export default function TrainingPage() {
             </Card>
 
             {outline && (
-              <Card className="border-slate-200">
+            <Card className="border-slate-200">
                 <CardHeader>
                   <div className="flex items-center justify-between gap-3">
                     <CardTitle className="flex items-center gap-2 text-base text-slate-900">
@@ -1904,9 +1904,11 @@ export default function TrainingPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {outline.warnings.length > 0 && (
+                  {outline.warnings.filter((warning) => !warning.includes('未绑定企业原文来源')).length > 0 && (
                     <div className="space-y-2">
-                      {outline.warnings.map((warning) => (
+                      {outline.warnings
+                        .filter((warning) => !warning.includes('未绑定企业原文来源'))
+                        .map((warning) => (
                         <div key={warning} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
                           {warning}
                         </div>

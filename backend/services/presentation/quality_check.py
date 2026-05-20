@@ -15,11 +15,9 @@ def _bullet_len(text: str) -> int:
     return len(re.sub(r"\s+", "", text))
 
 
-def _trim_bullet(text: str, limit: int = 30) -> str:
+def _normalize_bullet(text: str) -> str:
     cleaned = re.sub(r"\s+", " ", text).strip()
-    if len(re.sub(r"\s+", "", cleaned)) <= limit:
-        return cleaned
-    return cleaned[: max(1, limit - 1)].rstrip(" ，,；;:：") + "…"
+    return cleaned
 
 
 def _collect_source_refs(content_pack: ContentPack) -> list[TrainingSourceRef]:
@@ -47,7 +45,7 @@ def repair_presentation(
     shared_refs = _collect_source_refs(content_pack)
     for slide in repaired.slides:
         slide.title = slide.title.strip() or "未命名页面"
-        slide.bullets = [_trim_bullet(b, 30) for b in slide.bullets[:5] if str(b).strip()]
+        slide.bullets = [_normalize_bullet(b) for b in slide.bullets[:5] if str(b).strip()]
         if slide.slide_type == "quiz" and not slide.notes:
             slide.notes = "参考前后页内容确认答案"
         if not slide.source_refs and shared_refs and slide.slide_type in {"legal_requirement", "workflow", "risk_scene", "control_measures", "case_discussion", "checklist", "content"}:
@@ -83,8 +81,8 @@ def check_presentation(
             issues.append(QualityIssue(level="warning", code="too_many_bullets", message="每页 bullet 超过 5 条", slide_id=slide.id))
 
         for b in slide.bullets:
-            if _bullet_len(b) > 30:
-                issues.append(QualityIssue(level="warning", code="bullet_too_long", message="bullet 不宜超过 30 字", slide_id=slide.id))
+            if _bullet_len(b) > 90:
+                issues.append(QualityIssue(level="warning", code="bullet_too_long", message="bullet 建议控制在 90 字以内", slide_id=slide.id))
 
         has_legal_keywords = any(k in slide.title + " " + " ".join(slide.bullets) for k in ["法规", "制度", "职责", "阈值", "流程"])
         if has_legal_keywords and not slide.source_refs:

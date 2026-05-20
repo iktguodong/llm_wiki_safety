@@ -71,8 +71,43 @@ def _set_text(
     p = tf.paragraphs[0]
     p.alignment = align
     p.text = text
-    if p.runs:
-        _run_font(p.runs[0], cn=cn, en=en, size=size, color=color, bold=bold)
+    for paragraph in tf.paragraphs:
+        for run in paragraph.runs:
+            _run_font(run, cn=cn, en=en, size=size, color=color, bold=bold)
+    return shape
+
+
+def _set_paragraphs(
+    shape,
+    paragraphs: list[str],
+    *,
+    cn: str,
+    en: str,
+    size: int,
+    color: str,
+    bold: bool = False,
+    align=PP_ALIGN.LEFT,
+    valign=MSO_ANCHOR.TOP,
+    spacing_after: int = 6,
+):
+    tf = shape.text_frame
+    tf.clear()
+    tf.word_wrap = True
+    tf.margin_left = Pt(2)
+    tf.margin_right = Pt(2)
+    tf.margin_top = Pt(2)
+    tf.margin_bottom = Pt(2)
+    tf.vertical_anchor = valign
+    cleaned_paragraphs = [re.sub(r"\s+", " ", str(p)).strip() for p in paragraphs if str(p).strip()]
+    if not cleaned_paragraphs:
+        cleaned_paragraphs = [""]
+    for idx, paragraph_text in enumerate(cleaned_paragraphs):
+        p = tf.paragraphs[0] if idx == 0 else tf.add_paragraph()
+        p.alignment = align
+        p.text = paragraph_text
+        p.space_after = Pt(spacing_after if idx < len(cleaned_paragraphs) - 1 else 0)
+        for run in p.runs:
+            _run_font(run, cn=cn, en=en, size=size, color=color, bold=bold)
     return shape
 
 
@@ -139,12 +174,6 @@ def _wrap_display_text(text: str, *, line_width: int = 22, max_lines: int = 3) -
     lines = textwrap.wrap(cleaned, width=line_width, break_long_words=True, break_on_hyphens=False)
     if not lines:
         return cleaned
-    if len(lines) > max_lines:
-        head = lines[: max_lines - 1]
-        tail = "".join(lines[max_lines - 1 :]).strip()
-        if tail:
-            head.append(tail)
-        lines = head[:max_lines]
     return "\n".join(lines)
 
 
@@ -236,23 +265,89 @@ def _bullet_card(
         title,
         cn=tmpl.font_family_cn,
         en=tmpl.font_family_en,
-        size=max(14, tmpl.body_size - 1),
+        size=max(16, tmpl.body_size),
         color=tmpl.theme_colors["title"],
         bold=True,
         valign=MSO_ANCHOR.MIDDLE,
     )
     desc_box = slide.shapes.add_textbox(Inches(left + 0.72), Inches(top + 0.42), Inches(width - 1.0), Inches(height - 0.5))
-    desc_box.text_frame.auto_size = MSO_AUTO_SIZE.NONE
+    desc_box.text_frame.auto_size = None
+    wrap_width = 30 if height <= 1.1 else 34
     _set_text(
         desc_box,
-        _wrap_display_text(description, line_width=20 if height <= 1.1 else 24, max_lines=3),
+        _wrap_display_text(description, line_width=wrap_width),
         cn=tmpl.font_family_cn,
         en=tmpl.font_family_en,
-        size=max(12, tmpl.body_size - 2),
+        size=max(14, tmpl.body_size - 1),
         color=tmpl.theme_colors["body"],
         valign=MSO_ANCHOR.TOP,
     )
     return card
+
+
+def _render_text_page(slide, tmpl: SafetyTemplate, ss: SlideSpec):
+    _draw_frame(slide, tmpl)
+    title_box = slide.shapes.add_textbox(Inches(0.82), Inches(0.56), Inches(10.7), Inches(0.58))
+    _set_text(
+        title_box,
+        ss.title,
+        cn=tmpl.font_family_cn,
+        en=tmpl.font_family_en,
+        size=tmpl.title_size,
+        color=tmpl.theme_colors["title"],
+        bold=True,
+        valign=MSO_ANCHOR.MIDDLE,
+    )
+    if ss.slide_type and ss.slide_type != "content":
+        _badge(slide, ss.slide_type.replace("_", " "), 10.98, 0.6, 1.42, "#EEF2FF", tmpl.theme_colors["primary"], tmpl)
+
+    subtitle = (ss.subtitle or ss.key_message or "").strip()
+    if subtitle:
+        subtitle_box = slide.shapes.add_textbox(Inches(0.98), Inches(1.42), Inches(11.2), Inches(0.42))
+        _set_text(
+            subtitle_box,
+            subtitle,
+            cn=tmpl.font_family_cn,
+            en=tmpl.font_family_en,
+            size=max(16, tmpl.body_size + 1),
+            color=tmpl.theme_colors["primary"],
+            bold=True,
+            valign=MSO_ANCHOR.MIDDLE,
+        )
+
+    body_paragraphs = [p for p in (ss.body_paragraphs or ss.bullets) if str(p).strip()]
+    if not body_paragraphs:
+        body_paragraphs = ["内容待补充"]
+
+    body_card = slide.shapes.add_shape(
+        MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE,
+        Inches(0.82),
+        Inches(1.92),
+        Inches(11.72),
+        Inches(4.75),
+    )
+    body_card.fill.solid()
+    body_card.fill.fore_color.rgb = _rgb("#FFFFFF")
+    body_card.line.color.rgb = _rgb(tmpl.theme_colors["border"])
+    bar = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(0.82), Inches(1.92), Inches(0.12), Inches(4.75))
+    bar.fill.solid()
+    bar.fill.fore_color.rgb = _rgb(ACCENT_PALETTE[0])
+    bar.line.fill.background()
+
+    body_box = slide.shapes.add_textbox(Inches(1.1), Inches(2.12), Inches(11.08), Inches(4.3))
+    body_box.text_frame.auto_size = None
+    _set_paragraphs(
+        body_box,
+        body_paragraphs,
+        cn=tmpl.font_family_cn,
+        en=tmpl.font_family_en,
+        size=max(14, tmpl.body_size - 1),
+        color=tmpl.theme_colors["body"],
+        bold=False,
+        valign=MSO_ANCHOR.TOP,
+        spacing_after=8,
+    )
+    return body_card
 
 
 def _footer(slide, slide_no: int, tmpl: SafetyTemplate):
@@ -340,6 +435,11 @@ def _render_cover(slide, spec: PresentationSpec, tmpl: SafetyTemplate, ss: Slide
 
 
 def _render_content(slide, tmpl: SafetyTemplate, ss: SlideSpec):
+    if ss.visual_type == "text":
+        _render_text_page(slide, tmpl, ss)
+        _footer(slide, ss.slide_no, tmpl)
+        return
+
     _draw_frame(slide, tmpl)
     title_box = slide.shapes.add_textbox(Inches(0.82), Inches(0.56), Inches(10.6), Inches(0.58))
     _set_text(
@@ -384,7 +484,7 @@ def _render_content(slide, tmpl: SafetyTemplate, ss: SlideSpec):
             slide,
             tmpl,
             point_title.strip()[:24],
-            point_desc[:180],
+            point_desc,
             left=0.82,
             top=top + idx * (card_height + gap),
             width=11.72,

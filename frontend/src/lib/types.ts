@@ -26,7 +26,7 @@ export type SlideType =
   | 'checklist'
   | 'quiz'
   | 'summary';
-export type VisualType = 'none' | 'cards' | 'two_column' | 'risk_matrix' | 'process_flow' | 'checklist' | 'qa' | 'table';
+export type VisualType = 'none' | 'cards' | 'text' | 'two_column' | 'risk_matrix' | 'process_flow' | 'checklist' | 'qa' | 'table';
 export type SafetyLevel = 'normal' | 'attention' | 'warning' | 'critical';
 export type QualityLevel = 'info' | 'warning' | 'error';
 
@@ -244,7 +244,9 @@ export interface TrainingOutlineSlide {
   id: string;
   slide_no: number;
   title: string;
+  subtitle?: string | null;
   points: TrainingOutlinePoint[];
+  body_paragraphs: string[];
   key_points: string[];
   notes?: string | null;
   layout_hint?: string | null;
@@ -285,6 +287,7 @@ export interface SlideSpec {
   subtitle?: string | null;
   key_message?: string | null;
   bullets: string[];
+  body_paragraphs: string[];
   notes?: string | null;
   visual_type?: VisualType | null;
   source_refs: TrainingSourceRef[];

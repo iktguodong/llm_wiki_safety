@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from threading import Event
 
 import pytest
@@ -13,7 +14,7 @@ import backend.config as config_module
 from backend.services.presentation.content_pack import build_content_pack
 from backend.services.presentation.outline_builder import _build_llm_prompt, generate_outline
 from backend.services.presentation.slide_planner import plan_slides
-from backend.services.presentation.quality_check import check_presentation
+from backend.services.presentation.quality_check import check_presentation, repair_presentation
 from backend.services.presentation.pptx_renderer import render_presentation
 from backend.services.presentation.safety_templates import get_template
 from backend.services.presentation.project_store import get_job_paths, resolve_download_path
@@ -135,6 +136,162 @@ def test_render_presentation_does_not_show_core_message_block(isolated_training_
     assert "核心说明" not in slide_text
     assert "这是内部备注" not in slide_text
     assert "这里是一段更完整的说明文字" in slide_text
+
+
+def test_render_presentation_renders_text_page_with_subtitle_and_body(isolated_training_env):
+    spec = PresentationSpec(
+        id="spec-text-page",
+        title="文本页测试",
+        topic="文本页测试",
+        audience="管理层",
+        duration_minutes=30,
+        style="standard_training",
+        template_id="standard_training",
+        slides=[
+            SlideSpec(
+                id="slide-text",
+                slide_no=1,
+                slide_type="content",
+                title="现场处置方案清单与适用场景",
+                subtitle="把重点从提纲改成可直接朗读的正文",
+                bullets=[],
+                body_paragraphs=[
+                    "供受油作业事故要先控制风险源，再明确人员疏散、现场隔离和信息上报顺序，避免处置动作混乱。",
+                    "针对不同作业场景要补充班组分工和检查方式，确保每个人都知道自己的动作、时点和复核要求。",
+                ],
+                source_refs=[],
+                notes="",
+                visual_type="text",
+                safety_level="normal",
+            )
+        ],
+        quality_warnings=[],
+    )
+
+    render_info = render_presentation(spec, get_template("standard_training"), "job-text-page")
+    prs = Presentation(render_info["pptx_path"])
+    slide_text = "\n".join(shape.text for shape in prs.slides[0].shapes if hasattr(shape, "text"))
+
+    assert "把重点从提纲改成可直接朗读的正文" in slide_text
+    assert "供受油作业事故要先控制风险源" in slide_text
+    assert "信息上报顺序" in slide_text
+
+
+def test_render_presentation_keeps_long_bullet_text(isolated_training_env):
+    spec = PresentationSpec(
+        id="spec-long-bullet",
+        title="长正文测试",
+        topic="长正文测试",
+        audience="管理层",
+        duration_minutes=30,
+        style="standard_training",
+        template_id="standard_training",
+        slides=[
+            SlideSpec(
+                id="slide-long",
+                slide_no=1,
+                slide_type="content",
+                title="正文页",
+                bullets=[
+                    "要点一：这是一段很长的正文说明文字，用来验证 PPT 渲染时不会把后面的内容省略掉，而是完整写入并正确换行展示。",
+                ],
+                source_refs=[],
+                notes="",
+                visual_type="cards",
+                safety_level="normal",
+            )
+        ],
+        quality_warnings=[],
+    )
+
+    render_info = render_presentation(spec, get_template("standard_training"), "job-long-bullet")
+    prs = Presentation(render_info["pptx_path"])
+    slide_text = "\n".join(shape.text for shape in prs.slides[0].shapes if hasattr(shape, "text"))
+    normalized = re.sub(r"\s+", "", slide_text)
+
+    assert "..." not in slide_text
+    assert "…" not in slide_text
+    assert "完整写入并正确换行展示" in normalized
+
+
+def test_repair_presentation_preserves_long_bullet_text(isolated_training_env):
+    spec = PresentationSpec(
+        id="spec-repair-long-bullet",
+        title="长正文测试",
+        topic="长正文测试",
+        audience="管理层",
+        duration_minutes=30,
+        style="standard_training",
+        template_id="standard_training",
+        slides=[
+            SlideSpec(
+                id="slide-repair-long",
+                slide_no=1,
+                slide_type="content",
+                title="正文页",
+                bullets=[
+                    "要点一：领导要带头学习预案，将应急管理融入日常工作和班组检查中，确保每个环节都可执行、可检查、可复盘。",
+                ],
+                source_refs=[],
+                notes="",
+                visual_type="cards",
+                safety_level="normal",
+            )
+        ],
+        quality_warnings=[],
+    )
+    pack = build_content_pack(PromptReq())
+
+    repaired = repair_presentation(spec, pack, {})
+    assert repaired.slides[0].bullets[0].endswith("可执行、可检查、可复盘。")
+    assert "…" not in repaired.slides[0].bullets[0]
+
+    render_info = render_presentation(repaired, get_template("standard_training"), "job-repair-long-bullet")
+    prs = Presentation(render_info["pptx_path"])
+    slide_text = "\n".join(shape.text for shape in prs.slides[0].shapes if hasattr(shape, "text"))
+    normalized = re.sub(r"\s+", "", slide_text)
+
+    assert "领导要带头学习预案，将应急管理融入日常工作和班组检查中，确保每个环节都可执行、可检查、可复盘。" in normalized
+    assert "…" not in slide_text
+
+
+def test_wrapped_text_keeps_consistent_font_size(isolated_training_env):
+    spec = PresentationSpec(
+        id="spec-font-consistency",
+        title="字号一致性测试",
+        topic="字号一致性测试",
+        audience="管理层",
+        duration_minutes=30,
+        style="standard_training",
+        template_id="standard_training",
+        slides=[
+            SlideSpec(
+                id="slide-font",
+                slide_no=1,
+                slide_type="content",
+                title="正文页",
+                bullets=[
+                    "要点一：供受油作业事故的现场处置方案，并补充现场操作、检查方式和常见误区，同时结合班组演练、现场隔离、人员疏散、信息上报和后续复盘进行闭环管理。",
+                ],
+                source_refs=[],
+                notes="",
+                visual_type="cards",
+                safety_level="normal",
+            )
+        ],
+        quality_warnings=[],
+    )
+
+    render_info = render_presentation(spec, get_template("standard_training"), "job-font-consistency")
+    prs = Presentation(render_info["pptx_path"])
+    slide = prs.slides[0]
+    wrapped_shape = next(shape for shape in slide.shapes if hasattr(shape, "text") and "供受油作业事故" in shape.text)
+    runs = wrapped_shape.text_frame.paragraphs[0].runs
+
+    assert len(runs) >= 2
+    sizes = {run.font.size for run in runs}
+    assert len(sizes) == 1
+    assert None not in sizes
 
 
 def test_render_presentation_filename_uses_explicit_source_title(isolated_training_env):

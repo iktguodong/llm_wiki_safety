@@ -46,6 +46,11 @@ def _point_lines(slide: TrainingOutlineSlide) -> list[str]:
     return [re.sub(r"\s+", " ", k).strip()[:48] for k in slide.key_points[:5]]
 
 
+def _body_paragraphs(slide: TrainingOutlineSlide) -> list[str]:
+    paragraphs = [re.sub(r"\s+", " ", p).strip() for p in getattr(slide, "body_paragraphs", []) if str(p).strip()]
+    return paragraphs[:4]
+
+
 def _slide_type(st: str) -> str:
     valid = {"cover", "agenda", "content", "workflow", "risk_scene", "legal_requirement",
              "control_measures", "case_discussion", "checklist", "quiz", "summary"}
@@ -68,20 +73,22 @@ def _safety_level(st: str) -> str:
 
 def _convert_slide(slide: TrainingOutlineSlide) -> SlideSpec:
     st = _slide_type(slide.slide_type)
-    bullets = _point_lines(slide)
-    key_message = ""
-    if bullets:
+    subtitle = slide.subtitle or slide.layout_hint
+    body_paragraphs = _body_paragraphs(slide)
+    bullets = body_paragraphs or _point_lines(slide)
+    key_message = subtitle or ""
+    if not key_message and bullets:
         key_message = "；".join(bullets[:2])
-    if slide.notes:
+    if slide.notes and not key_message:
         note_text = re.sub(r"\s+", " ", slide.notes).strip()
         if note_text:
             key_message = key_message or note_text[:90]
     return SlideSpec(
         id=slide.id, slide_no=slide.slide_no, slide_type=st,
-        title=slide.title, subtitle=slide.layout_hint,
+        title=slide.title, subtitle=subtitle,
         key_message=key_message[:96] if key_message else slide.title,
-        bullets=bullets, source_refs=_normalize_refs(slide.source_refs),
-        visual_type=_visual_type(st), safety_level=_safety_level(st),
+        bullets=bullets, body_paragraphs=body_paragraphs, source_refs=_normalize_refs(slide.source_refs),
+        visual_type="text" if body_paragraphs else _visual_type(st), safety_level=_safety_level(st),
     )
 
 
@@ -111,11 +118,13 @@ def plan_slides(
             bullets=[f"受众：{outline.audience}", f"时长：{outline.duration_minutes}分钟"],
         ))
         for sec in outline.sections:
+            paragraphs = [p for p in sec.key_points[:4] if str(p).strip()]
             slides.append(SlideSpec(
                 id=f"slide-{uuid.uuid4().hex[:8]}", slide_no=len(slides)+1, slide_type="content",
-                title=sec.title, key_message=sec.goal,
-                bullets=sec.key_points[:5],
+                title=sec.title, subtitle=sec.goal, key_message=sec.goal,
+                bullets=paragraphs, body_paragraphs=paragraphs,
                 source_refs=_normalize_refs(sec.source_refs),
+                visual_type="text" if paragraphs else "cards",
             ))
         slides.append(SlideSpec(
             id=f"slide-{uuid.uuid4().hex[:8]}", slide_no=len(slides)+1, slide_type="summary",

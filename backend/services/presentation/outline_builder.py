@@ -82,7 +82,7 @@ def _split_points(text: str) -> list[str]:
     for line in re.split(r"[\n。；;]+", text):
         item = re.sub(r"\s+", " ", line).strip(" -•\t")
         if item:
-            candidates.append(item[:48])
+            candidates.append(item[:80])
     return candidates[:5]
 
 
@@ -93,8 +93,29 @@ def _point_from_text(text: str) -> TrainingOutlinePoint:
     for sep in ("：", ":", " - ", "—", "，", ","):
         if sep in cleaned:
             title, description = cleaned.split(sep, 1)
-            return TrainingOutlinePoint(title=title.strip()[:28], description=description.strip()[:96])
-    return TrainingOutlinePoint(title=cleaned[:28], description=cleaned[:96] if len(cleaned) > 28 else "")
+            return TrainingOutlinePoint(title=title.strip()[:32], description=description.strip()[:160])
+    return TrainingOutlinePoint(title=cleaned[:32], description=cleaned[:160] if len(cleaned) > 32 else "")
+
+
+def _paragraphs_from_value(value: Any) -> list[str]:
+    if isinstance(value, str):
+        chunks = [value]
+    elif isinstance(value, list):
+        chunks = [str(item) for item in value]
+    else:
+        chunks = []
+
+    paragraphs: list[str] = []
+    for chunk in chunks:
+        cleaned = re.sub(r"\s+", " ", str(chunk)).strip(" -•\t")
+        if not cleaned:
+            continue
+        if "\n" in chunk:
+            pieces = [re.sub(r"\s+", " ", part).strip(" -•\t") for part in re.split(r"\n{1,2}", chunk) if part.strip()]
+            paragraphs.extend([piece for piece in pieces if piece])
+        else:
+            paragraphs.append(cleaned)
+    return paragraphs[:4]
 
 
 def _points_from_texts(items: list[str]) -> list[TrainingOutlinePoint]:
@@ -147,25 +168,29 @@ def _build_llm_prompt(pack: ContentPack, settings: dict[str, Any]) -> str:
     audience = settings.get("audience") or pack.audience or "相关岗位人员"
     req = settings.get("requirements") or settings.get("requirement") or ""
     focus_areas = settings.get("focus_areas") or []
-    return f"""你是一位专业的安全生产培训课程设计专家。请根据以下输入材料生成培训PPT的逐页内容大纲。
+    return f"""你是一位专业的安全生产内容策划专家，擅长将材料整理为适用于培训、汇报和分享场景的PPT逐页文字稿。请根据以下输入材料生成逐页文字稿内容。
 
 ## 核心要求
 
 1. **基于材料，不编造**：严格遵守输入材料中的事实和数据，不得编造企业制度条款、事故案例、法规条文、公司名称、品牌口号、页脚文案或岗位职责。如果材料信息不足，可以概括通用安全知识，但必须标注「通用知识」。
-2. **逻辑连贯**：整体大纲应从导入→主体→总结形成完整的叙事逻辑，页面之间有递进关系。
-3. **针对性强**：内容要贴合「{audience}」的岗位特点和认知水平，重点突出与受众相关的实操内容。
-4. **要点可落地**：每个页面的要点（points）应是具体、可执行的知识点或行动项，避免空泛口号。每个点都要带一点解释性文字，而不是只写一个名词。
-5. **避免重复**：不要在标题和要点里重复同一句话，不要把同一条内容在一页里写两遍，不要输出模板化品牌词。
-6. **不要编号化表达**：不要把页面标题写成“1/2/3/4”或“第一、第二、第三”这种纯序号式表达；每页标题要有明确语义，点题即可。
+2. **逻辑连贯**：整体内容应从导入→主体→总结形成完整的叙事逻辑，页面之间有递进关系。
+3. **针对性强**：内容要贴合「{audience}」的岗位特点和认知水平，重点突出与受众相关的实操内容、管理要求和落地动作。
+4. **写成 PPT 文字稿**：每个页面必须包含 `title`、`subtitle`、`body`。`subtitle` 是一句概括性副标题，`body` 不是提纲而是可以直接放进 PPT 的段落正文。每个 body 段落至少写成 1-2 句完整表达，最好包含“是什么 / 为什么 / 怎么做 / 注意什么”中的两项以上，不要只写名词、短语或口号。
+5. **内容要够充实**：每页保留 2-4 个 body 段落，必要时可到 5 个；每个段落要写出足够展开的说明，让页面看起来像培训/汇报文字稿，而不是只列标题。
+6. **段落结构清晰**：`subtitle` 用来承接这一页的中心判断或关键结论，`body` 用来展开论证、动作要求、现场场景和注意事项。段落之间要有递进关系，不要只是同义改写。
+7. **避免重复**：不要在标题、subtitle 和 body 里重复同一句话，不要把同一条内容在一页里写两遍，不要输出模板化品牌词。
+8. **不要编号化表达**：不要把页面标题写成“1/2/3/4”或“第一、第二、第三”这种纯序号式表达；每页标题要有明确语义，点题即可。
 
 ## 输出格式要求
 
 - 只输出一个严格 JSON 对象，不要 Markdown 代码块
 - slides 必须是数组，严格生成 {content_count} 个内容页
 - 不要封面页（封面页由系统自动生成）
-- 每个 slide 包含 title 和 points 字段
-- points 是数组，每项包含 title（要点标题）和 description（一句话说明）
-- 每页 3-5 个 points，description 控制在 24-40 字之间
+- 每个 slide 包含 `title`、`subtitle`、`body` 字段
+- `subtitle` 必须有，且要比 title 更像一句结论
+- `body` 是数组，每项都是一段完整正文，建议 2-4 段；如果某页内容更复杂，可以到 5 段
+- 每个 body 段落控制在 50-90 字之间；如果某个点确实复杂，可以接近 100 字，但不要过短
+- body 段落要尽量写成可直接朗读的讲稿句子，而不是只写一句结论
 - 不要输出 "安牛工作汇报"、"安牛安全汇报" 之类的系统品牌字样
 
 ## 输入信息
@@ -184,7 +209,7 @@ def _build_llm_prompt(pack: ContentPack, settings: dict[str, Any]) -> str:
 
 ## 输出 JSON 格式
 
-{{"slides": [{{"title": "页面标题", "points": [{{"title": "要点标题", "description": "要点简述"}}]}}]}}"""
+{{"slides": [{{"title": "页面标题", "subtitle": "这一页的核心结论", "body": ["第一段正文", "第二段正文"]}}]}}"""
 
 
 def _parse_llm_slides(data: dict[str, Any], pack: ContentPack, settings: dict[str, Any]) -> TrainingOutline | None:
@@ -200,8 +225,11 @@ def _parse_llm_slides(data: dict[str, Any], pack: ContentPack, settings: dict[st
         if stype not in ("content", "workflow", "risk_scene", "legal_requirement", "control_measures", "case_discussion", "checklist", "quiz"):
             stype = "content"
         title = str(s.get("title", f"页面{idx+1}"))
+        subtitle = str(s.get("subtitle") or s.get("sub_title") or s.get("label") or "").strip() or None
         group = groups[idx] if idx < len(groups) else []
         points: list[TrainingOutlinePoint] = []
+        body_source = s.get("body") or s.get("paragraphs") or s.get("content") or s.get("text")
+        body_paragraphs = _paragraphs_from_value(body_source)
         raw_points = s.get("points") or []
         if isinstance(raw_points, list):
             for item in raw_points:
@@ -223,11 +251,11 @@ def _parse_llm_slides(data: dict[str, Any], pack: ContentPack, settings: dict[st
         refs = [_to_api_ref(ref) for c in group for ref in getattr(c, "source_refs", [])][:3]
         slides.append(TrainingOutlineSlide(
             id=f"slide-{uuid.uuid4().hex[:8]}", slide_no=len(slides)+1,
-            title=title, points=points[:5],
+            title=title, subtitle=subtitle, points=points[:5], body_paragraphs=body_paragraphs[:4],
             key_points=[f"{p.title}：{p.description}" if p.description else p.title for p in points[:5]],
             notes=_shorten(" ".join(str(getattr(c, "text", "")) for c in group), 240),
             slide_type=stype, source_refs=refs,
-            visual_type=_visual_type(stype), safety_level=_safety_level(stype),
+            visual_type="text" if (subtitle or body_paragraphs) else _visual_type(stype), safety_level=_safety_level(stype),
         ))
 
     if len(slides) < 3:
@@ -281,14 +309,14 @@ async def generate_outline(
     try:
         prompt = _build_llm_prompt(pack, settings_dict)
         messages = [
-            {
-                "role": "system",
-                "content": "你是安全生产培训课程设计专家。你的任务是基于用户提供的原始素材（直接输入文本、上传文档、知识库文档）进行综合分析，提炼关键知识点，生成结构合理、内容充实的培训PPT逐页大纲。只能使用这些来源中的信息或明确标注的通用知识；不要编造企业事实、公司名称、品牌口号、页脚文案，也不要重复同一句话。输出必须是严格 JSON。",
-            },
+        {
+            "role": "system",
+            "content": "你是安全生产内容策划专家。你的任务是基于用户提供的原始素材（直接输入文本、上传文档、知识库文档）进行综合分析，提炼关键知识点，生成结构合理、内容充实、适用于培训、汇报和分享场景的PPT逐页文字稿。只能使用这些来源中的信息或明确标注的通用知识；不要编造企业事实、公司名称、品牌口号、页脚文案，也不要重复同一句话。输出必须是严格 JSON。",
+        },
             {"role": "user", "content": prompt},
         ]
         slide_count = max(3, int(settings_dict.get("slide_count", 8)))
-        max_tokens = max(3000, slide_count * 140)
+        max_tokens = max(4500, slide_count * 260)
         logger.info("outline_llm_start", extra={
             "event": "outline_phase", "job_id": job_id,
             "slide_count": slide_count, "prompt_length": len(prompt),

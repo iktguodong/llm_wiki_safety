@@ -71,7 +71,9 @@ class TrainingOutlineSlide(BaseModel):
     id: str
     slide_no: int
     title: str
+    subtitle: Optional[str] = None
     points: list[TrainingOutlinePoint] = Field(default_factory=list)
+    body_paragraphs: list[str] = Field(default_factory=list)
     key_points: list[str] = Field(default_factory=list)
     notes: Optional[str] = None
     layout_hint: Optional[str] = None
@@ -89,7 +91,7 @@ class TrainingOutlineSlide(BaseModel):
         "summary",
     ] = "content"
     source_refs: list[SourceRef] = Field(default_factory=list)
-    visual_type: Optional[Literal["none", "cards", "two_column", "risk_matrix", "process_flow", "checklist", "qa", "table"]] = None
+    visual_type: Optional[Literal["none", "cards", "text", "two_column", "risk_matrix", "process_flow", "checklist", "qa", "table"]] = None
     safety_level: Optional[Literal["normal", "attention", "warning", "critical"]] = None
 
 
@@ -127,8 +129,9 @@ class SlideSpec(BaseModel):
     subtitle: Optional[str] = None
     key_message: Optional[str] = None
     bullets: list[str] = Field(default_factory=list)
+    body_paragraphs: list[str] = Field(default_factory=list)
     notes: Optional[str] = None
-    visual_type: Optional[Literal["none", "cards", "two_column", "risk_matrix", "process_flow", "checklist", "qa", "table"]] = None
+    visual_type: Optional[Literal["none", "cards", "text", "two_column", "risk_matrix", "process_flow", "checklist", "qa", "table"]] = None
     source_refs: list[SourceRef] = Field(default_factory=list)
     safety_level: Optional[Literal["normal", "attention", "warning", "critical"]] = None
 

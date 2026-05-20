@@ -8,7 +8,7 @@ import pytest
 import backend.config as config_module
 from backend.services.presentation.content_pack import build_content_pack
 from backend.services.presentation import outline_builder
-from backend.services.presentation.outline_builder import generate_outline
+from backend.services.presentation.outline_builder import _build_llm_prompt, generate_outline
 
 
 class PromptReq:
@@ -27,6 +27,18 @@ def test_prompt_only_outline_raises_without_llm(isolated_training_env):
     pack = build_content_pack(PromptReq())
     with pytest.raises(ValueError, match="LLM 模型不可用"):
         asyncio.run(generate_outline(pack, PromptReq()))
+
+
+def test_outline_prompt_requests_subtitle_and_body(isolated_training_env):
+    pack = build_content_pack(PromptReq())
+    prompt = _build_llm_prompt(pack, {"title": "材料标题", "audience": "公司管理层", "slide_count": 6})
+
+    assert "安全生产内容策划专家" in prompt
+    assert "培训、汇报和分享" in prompt
+    assert "subtitle" in prompt
+    assert "body" in prompt
+    assert "页面标题" in prompt
+    assert "第一段正文" in prompt
 
 
 def test_outline_generation_times_out_raises_error(isolated_training_env, monkeypatch):
