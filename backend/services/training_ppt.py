@@ -28,6 +28,7 @@ from backend.services.presentation.project_store import (
     update_job_progress,
 )
 from backend.services.presentation.quality_check import check_presentation
+from backend.services.presentation.quality_check import repair_presentation
 from backend.services.presentation.safety_templates import get_template
 from backend.services.presentation.slide_planner import plan_slides
 
@@ -164,9 +165,21 @@ class TrainingPptService:
             quality_report = check_presentation(spec, content_pack, request, cancel_event)
             _raise_if_cancelled(cancel_event)
 
+            if not quality_report.passed or quality_report.issues:
+                spec = repair_presentation(spec, content_pack, request)
+                quality_report = check_presentation(spec, content_pack, request, cancel_event)
+
             template = get_template(request.get("template_id") or request.get("style"))
             await asyncio.sleep(0)
-            render_info = await asyncio.to_thread(render_presentation, spec, template, job_id, None, cancel_event)
+            render_info = await asyncio.to_thread(
+                render_presentation,
+                spec,
+                template,
+                job_id,
+                None,
+                request.get("title") or request.get("topic") or spec.title,
+                cancel_event,
+            )
         except asyncio.CancelledError:
             update_job_progress(job_id, "已停止生成")
             raise

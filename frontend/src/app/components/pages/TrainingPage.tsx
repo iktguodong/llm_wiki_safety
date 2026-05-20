@@ -897,7 +897,6 @@ export default function TrainingPage() {
     const nextJobId = jobId || createJobId();
     const controller = setActiveGeneration('outline', nextJobId);
     setJobId(nextJobId);
-    setOutline(null);
     setPresentation(null);
     setQualityReport(null);
     setPptDownloadUrl('');
@@ -1720,14 +1719,32 @@ export default function TrainingPage() {
 
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                   <div className="min-w-0">
-                  <div className="text-sm font-medium text-slate-700">生成大纲</div>
-                  <div className="text-xs text-slate-500">可选择文档来源，也可以直接填写生成要求后生成。</div>
-                </div>
+                    <div className="text-sm font-medium text-slate-700">生成大纲</div>
+                    <div className="text-xs text-slate-500">可选择文档来源，也可以直接填写生成要求后生成。</div>
+                  </div>
                   <div className="flex flex-col items-end gap-1.5">
-                    <Button onClick={generateOutline} disabled={loadingOutline || !htmlTitle.trim() || !canGenerateOutline()} className="bg-indigo-600 hover:bg-indigo-700">
-                      {loadingOutline ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
-                      生成大纲
-                    </Button>
+                    {loadingOutline ? (
+                      <Button disabled className="h-10 shrink-0 rounded-xl bg-indigo-600 px-5 text-white hover:bg-indigo-700">
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {outline ? '正在重新生成大纲' : '正在生成大纲'}
+                      </Button>
+                    ) : outline ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button disabled className="h-10 shrink-0 rounded-xl bg-emerald-600 px-5 text-white hover:bg-emerald-700">
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                          大纲已生成（可在下方查看）
+                        </Button>
+                        <Button onClick={generateOutline} disabled={!htmlTitle.trim() || !canGenerateOutline()} variant="outline" className="h-10 shrink-0 rounded-xl border-emerald-200 bg-emerald-50 px-5 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800">
+                          <RefreshCw className="mr-2 h-4 w-4" />
+                          再次生成
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button onClick={generateOutline} disabled={!htmlTitle.trim() || !canGenerateOutline()} className="h-10 shrink-0 rounded-xl bg-indigo-600 px-5 hover:bg-indigo-700">
+                        <WandSparkles className="mr-2 h-4 w-4" />
+                        生成大纲
+                      </Button>
+                    )}
                     {loadingOutline && progressMessage && (
                       <span className="text-xs text-slate-500">{progressMessage}</span>
                     )}
@@ -1887,21 +1904,6 @@ export default function TrainingPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                      <div className="font-medium text-slate-900">页数</div>
-                      <div className="mt-1">{outline.slides.length} 页</div>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                      <div className="font-medium text-slate-900">主题</div>
-                      <div className="mt-1 truncate">{outline.topic}</div>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                      <div className="font-medium text-slate-900">时长</div>
-                      <div className="mt-1">{outline.duration_minutes} 分钟</div>
-                    </div>
-                  </div>
-
                   {outline.warnings.length > 0 && (
                     <div className="space-y-2">
                       {outline.warnings.map((warning) => (
@@ -1956,50 +1958,6 @@ export default function TrainingPage() {
                     )}
                   </div>
 
-                  {qualityReport && (
-                    <Card className="border-slate-200">
-                      <CardHeader>
-                        <CardTitle className="text-base text-slate-900">质量检查</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <div className={`rounded-lg border p-3 text-sm ${qualityReport.passed ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                          {qualityReport.summary}
-                        </div>
-                        {qualityReport.issues.length > 0 && (
-                          <div className="space-y-2">
-                            {qualityReport.issues.map((issue, idx) => (
-                              <div
-                                key={`${issue.code}-${idx}`}
-                                className={`rounded-lg border p-3 text-sm ${
-                                  issue.level === 'error'
-                                    ? 'border-rose-200 bg-rose-50 text-rose-700'
-                                    : issue.level === 'warning'
-                                      ? 'border-amber-200 bg-amber-50 text-amber-700'
-                                      : 'border-slate-200 bg-slate-50 text-slate-700'
-                                }`}
-                              >
-                                <div className="font-medium">{issue.message}</div>
-                                {issue.suggestion && <div className="mt-1 text-xs opacity-80">建议：{issue.suggestion}</div>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {presentation && (
-                    <Card className="border-slate-200">
-                      <CardHeader>
-                        <CardTitle className="text-base text-slate-900">生成结果</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3 text-sm text-slate-600">
-                        <div>标题：{presentation.title}</div>
-                        <div>风格：{presentation.style}</div>
-                        <div>页数：{presentation.slides.length}</div>
-                      </CardContent>
-                    </Card>
-                  )}
                 </CardContent>
               </Card>
             )}

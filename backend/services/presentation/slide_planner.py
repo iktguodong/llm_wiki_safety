@@ -69,10 +69,17 @@ def _safety_level(st: str) -> str:
 def _convert_slide(slide: TrainingOutlineSlide) -> SlideSpec:
     st = _slide_type(slide.slide_type)
     bullets = _point_lines(slide)
+    key_message = ""
+    if bullets:
+        key_message = "；".join(bullets[:2])
+    if slide.notes:
+        note_text = re.sub(r"\s+", " ", slide.notes).strip()
+        if note_text:
+            key_message = key_message or note_text[:90]
     return SlideSpec(
         id=slide.id, slide_no=slide.slide_no, slide_type=st,
         title=slide.title, subtitle=slide.layout_hint,
-        key_message=slide.notes or slide.title,
+        key_message=key_message[:96] if key_message else slide.title,
         bullets=bullets, source_refs=_normalize_refs(slide.source_refs),
         visual_type=_visual_type(st), safety_level=_safety_level(st),
     )

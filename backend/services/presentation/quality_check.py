@@ -7,12 +7,54 @@ import re
 from threading import Event
 from typing import Any
 
-from backend.models import PresentationSpec, QualityIssue, QualityReport
+from backend.models import PresentationSpec, QualityIssue, QualityReport, TrainingSourceRef
 from backend.services.presentation.models import ContentPack
 
 
 def _bullet_len(text: str) -> int:
     return len(re.sub(r"\s+", "", text))
+
+
+def _trim_bullet(text: str, limit: int = 30) -> str:
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    if len(re.sub(r"\s+", "", cleaned)) <= limit:
+        return cleaned
+    return cleaned[: max(1, limit - 1)].rstrip(" ，,；;:：") + "…"
+
+
+def _collect_source_refs(content_pack: ContentPack) -> list[TrainingSourceRef]:
+    refs: list[TrainingSourceRef] = []
+    seen: set[tuple[str, str | None, str | None, str | None]] = set()
+    for chunk in content_pack.chunks:
+        for ref in chunk.source_refs:
+            api_ref = ref if isinstance(ref, TrainingSourceRef) else TrainingSourceRef(**(ref.model_dump() if hasattr(ref, "model_dump") else dict(ref)))
+            key = (api_ref.source_type, api_ref.source_id, api_ref.kb_id, api_ref.document_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            refs.append(api_ref)
+            if len(refs) >= 3:
+                return refs
+    return refs
+
+
+def repair_presentation(
+    spec: PresentationSpec,
+    content_pack: ContentPack,
+    settings: Any | None = None,
+) -> PresentationSpec:
+    repaired = spec.model_copy(deep=True)
+    shared_refs = _collect_source_refs(content_pack)
+    for slide in repaired.slides:
+        slide.title = slide.title.strip() or "未命名页面"
+        slide.bullets = [_trim_bullet(b, 30) for b in slide.bullets[:5] if str(b).strip()]
+        if slide.slide_type == "quiz" and not slide.notes:
+            slide.notes = "参考前后页内容确认答案"
+        if not slide.source_refs and shared_refs and slide.slide_type in {"legal_requirement", "workflow", "risk_scene", "control_measures", "case_discussion", "checklist", "content"}:
+            slide.source_refs = shared_refs[:2]
+        if not slide.bullets:
+            slide.bullets = ["内容待补充"]
+    return repaired
 
 
 def check_presentation(

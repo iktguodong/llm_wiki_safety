@@ -207,19 +207,23 @@ def resolve_download_path(filename: str, allowed_suffix: str = ".pptx") -> Path:
     if not filename or filename != _Path(filename).name or _Path(filename).suffix.lower() != allowed_suffix.lower():
         raise ValueError(f"文件名无效，只允许下载 {allowed_suffix} 文件")
 
+    candidates: list[Path] = []
     if PRESENTATIONS_DIR.exists():
         for f in PRESENTATIONS_DIR.rglob(filename):
             try:
                 resolved = f.resolve()
                 if OUTPUT_DIR.resolve() in resolved.parents and resolved.exists() and resolved.is_file():
-                    return resolved
+                    candidates.append(resolved)
             except Exception:
                 continue
+
+    if candidates:
+        # 同名文件可能来自不同 job；优先返回最新产物，避免下载到旧 deck。
+        return max(candidates, key=lambda path: path.stat().st_mtime)
 
     candidate = OUTPUT_DIR / filename
     if candidate.exists():
         return candidate.resolve()
 
     raise FileNotFoundError("文件不存在")
-
 
