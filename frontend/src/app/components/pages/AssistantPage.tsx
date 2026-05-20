@@ -955,7 +955,13 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                       </button>
                     </div>
                     <button
-                      onClick={currentTopicLoading ? stopCurrentGeneration : sendMessage}
+                      onClick={() => {
+                        if (currentTopicLoading) {
+                          stopCurrentGeneration();
+                          return;
+                        }
+                        sendMessage();
+                      }}
                       disabled={!currentTopicLoading && !input.trim()}
                       title={currentTopicLoading ? '停止生成并丢弃本次结果' : ''}
                       className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
@@ -990,7 +996,6 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
           assistant={editing}
           knowledgeBases={knowledgeBases}
           models={allModels}
-          defaultChatModelId={defaultChatModelId}
           defaultPromptOptimizeModelId={defaultPromptOptimizeModelId}
           onClose={() => { setDialogOpen(false); setEditing(null); }}
           onSave={saveAssistant}
@@ -1004,7 +1009,6 @@ function AssistantDialog({
   assistant,
   knowledgeBases,
   models,
-  defaultChatModelId,
   defaultPromptOptimizeModelId,
   onClose,
   onSave,
@@ -1012,7 +1016,6 @@ function AssistantDialog({
   assistant: AssistantDefinition;
   knowledgeBases: ReturnType<typeof useApp>['knowledgeBases'];
   models: Array<{ id: string; name: string; type: string; providerName?: string; label?: string }>;
-  defaultChatModelId: string;
   defaultPromptOptimizeModelId: string;
   onClose: () => void;
   onSave: (assistant: AssistantDefinition) => void;

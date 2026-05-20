@@ -12,8 +12,8 @@ export type ChatMessageListMessage = {
 
 type ChatMessageListProps = {
   messages: ChatMessageListMessage[];
-  scrollRef: RefObject<HTMLDivElement>;
-  endRef: RefObject<HTMLDivElement>;
+  scrollRef: RefObject<HTMLDivElement | null>;
+  endRef: RefObject<HTMLDivElement | null>;
   onScroll: () => void;
   className?: string;
   emptyState?: ReactNode;

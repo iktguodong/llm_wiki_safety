@@ -147,7 +147,7 @@ export default function ChatPage() {
   const [draftUseWebSearch, setDraftUseWebSearch] = useState(() => currentSessionStorage.useWebSearch ?? false);
   const [useWebSearch, setUseWebSearch] = useState(() => currentSessionStorage.useWebSearch ?? false);
   const [draftContextCleared, setDraftContextCleared] = useState(() => currentSessionStorage.contextCleared ?? false);
-  const [contextCleared, setContextCleared] = useState(() => currentSessionStorage.contextCleared ?? false);
+  const [, setContextCleared] = useState(() => currentSessionStorage.contextCleared ?? false);
   const [loadingSessionIds, setLoadingSessionIds] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
@@ -365,7 +365,7 @@ export default function ChatPage() {
     if (currentConversationLoading) return;
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const nextMessages = [
+    const nextMessages: ChatMessage[] = [
       ...messagesRef.current,
       {
         role: 'assistant',

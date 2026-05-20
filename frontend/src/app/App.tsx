@@ -79,7 +79,7 @@ function AppInner() {
     return (
       <>
         <div className={currentPage === 'chat' ? 'h-full' : 'hidden'}>
-          <ChatPage activeAssistant={activeAssistant} />
+          <ChatPage />
         </div>
         <div className={currentPage === 'assistant' ? 'h-full' : 'hidden'}>
           <AssistantPage
