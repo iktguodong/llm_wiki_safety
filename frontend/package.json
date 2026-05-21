@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"vite --host 127.0.0.1 --port 5173\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "electron:build": "vite build && electron-builder",
-    "electron:publish": "vite build && electron-builder --publish always"
+    "electron:publish": "vite build && electron-builder --publish never"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
