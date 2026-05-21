@@ -42,13 +42,14 @@ venv/
 ENV/
 env/
 
-# Node.js相关（Tauri前端）
+# Node.js相关（前端与桌面壳）
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-package-lock.json
-yarn.lock
+backend-release/
+frontend/backend-release/
+frontend/release/
 
 # Tauri相关
 src-tauri/target/
@@ -90,6 +91,9 @@ knowledge-bases/
 *.orig
 MERGE_HEAD
 MERGE_MSG
+
+# 开发过程文档
+docs/
 
 # 其他
 coverage/
