@@ -1410,8 +1410,8 @@ export default function TrainingPage() {
           <TopModeCard
             active={mode === 'html'}
             disabled={isGenerationLocked}
-            title="生成精美网页"
-            subtitle="适用日常汇报培训"
+            title="生成精美网页/PDF"
+            subtitle="适用日常汇报、培训、展示"
             icon={<Globe className="h-5 w-5" />}
             onClick={() => setMode('html')}
           />
@@ -1419,7 +1419,7 @@ export default function TrainingPage() {
             active={mode === 'ppt'}
             disabled={isGenerationLocked}
             title="生成可导出的PPT"
-            subtitle="适用自由编辑修改"
+            subtitle="可自由编辑修改"
             icon={<FileText className="h-5 w-5" />}
             onClick={() => setMode('ppt')}
           />
