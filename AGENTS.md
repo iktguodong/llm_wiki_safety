@@ -14,20 +14,24 @@ Treat this as a single-context repo and read `CONTEXT.md` and `docs/adr/` if the
 
 ## Project Context
 
-`安牛（AnNiu）` is a safety-focused knowledge base assistant for turning uploaded documents into structured Wiki content, then using that content for Q&A, retrieval, and training-material generation.
+`安牛（AnNiu）` is a safety-focused knowledge base assistant for turning uploaded documents into structured Wiki content, then using that content for Q&A, retrieval, and training-material generation. It is developed by 杭州了安科技有限公司 as a public-interest safety project.
 
-The current codebase is a `FastAPI` backend plus a `React 18 + TypeScript + Vite + Tailwind/shadcn` frontend. Do not assume the older Tauri/Vue plan in `docs/DEVELOPMENT-PLAN.md` reflects the current implementation. Treat it as legacy context unless the code has clearly caught up.
+The current codebase is a **FastAPI** backend plus a **React 18 + TypeScript + Vite + Tailwind/shadcn** frontend. Do not assume the older Tauri/Vue plan in `docs/DEVELOPMENT-PLAN.md` reflects the current implementation. Treat it as legacy context unless the code has clearly caught up.
 
 ### Core product areas
 
-- Multi-knowledge-base management
-- Document upload, storage, and tracking
-- LLM-driven Wiki generation from source documents
-- Knowledge-base Q&A with citations
-- Original-document keyword search with highlights
-- Wiki quality checks / linting
-- Training outline and PPT generation
-- Model provider and model-role configuration
+- Multi-knowledge-base management (CRUD, rename, stats)
+- Document upload, storage, and tracking (PDF/DOCX/DOC/TXT/MD)
+- LLM-driven Wiki generation from source documents (parallel pipeline)
+- Knowledge-base Q&A with citations (always KB-grounded when KB is selected)
+- Original-document keyword search with highlights and page numbers
+- Wiki quality checks / linting (errors, warnings, hints)
+- Training outline, PPTX, and standalone HTML generation
+- Preset assistant definitions with custom system prompts + prompt optimization
+- Model provider and model-role configuration (3 presets: DeepSeek, SiliconFlow, 阿里云百炼)
+- Built-in document reader with highlights
+- Chat message export to DOCX
+- About page with version info and update check
 
 ### Source of truth order
 
@@ -42,43 +46,62 @@ When information conflicts, prefer:
 
 ### Backend
 
-- `backend/app.py` is the API entrypoint.
-- `backend/config.py` stores the runtime config file in `~/.anniu/config.json` and defines the knowledge-base/output directories.
-- `backend/models.py` contains the shared Pydantic schema for config, knowledge bases, documents, wiki pages, chat, search, and training.
-- `backend/services/` holds the main business logic:
-  - `knowledge_base.py` creates, lists, deletes, and stats knowledge bases.
-  - `document.py` uploads, tracks, deletes, and previews document deletion.
-  - `wiki.py` generates Wiki pages, index/log files, and lint checks.
-  - `chat.py` answers from Wiki when one or more knowledge bases are selected (`QA_PROMPT` + retrieved pages; empty retrieval still uses KB mode). When **no** knowledge base is selected, it uses web search (if enabled) or a general-domain LLM path. Relevance scoring uses only keywords with **length ≥ 3 characters**; 2-character terms are excluded from scoring to reduce spurious matches. Score contributions: title +4, summary +2, body +1, heading +0.5; pages with score 0 are omitted from the injected excerpts.
-  - `search.py` performs original-document search with snippets and highlights.
-  - `training.py` generates outlines and PPTX files.
-  - `llm.py` wraps model-provider access.
-  - `text_extraction.py` extracts text/pages from supported documents.
-- `backend/prompts/AGENTS.md` is the system-style instruction set for Wiki generation. Keep it aligned with the repo’s actual Wiki rules.
+- `backend/app.py` — API entrypoint with all routes.
+- `backend/config.py` — Runtime config file in `~/.anniu/config.json`; defines knowledge-base/output directories.
+- `backend/models.py` — Shared Pydantic v2 schema for config, knowledge bases, documents, wiki pages, chat, search, and training.
+- `backend/logging_config.py` — Logging configuration.
+- `backend/services/` — Business logic layer:
+  - `knowledge_base.py` — KB CRUD, rename, stats.
+  - `document.py` — Upload, track, delete, delete-preview.
+  - `wiki.py` — Wiki page generation (parallel pipeline), index/log files, lint checks.
+  - `chat.py` — Q&A engine. When one or more KBs selected: always wiki-backed (`QA_PROMPT` + retrieved pages; empty retrieval still uses KB mode). When **no** KB selected: web search (if enabled) or general LLM. Relevance scoring uses only keywords with **length ≥ 3 characters**; 2-character terms excluded. Score: title +4, summary +2, body +1, heading +0.5.
+  - `search.py` — Original-document keyword search with snippet highlights.
+  - `llm.py` — OpenAI-compatible LLM provider wrapper.
+  - `text_extraction.py` — PDF/DOCX/DOC/TXT/MD text/page extraction.
+  - `training_html.py` — Standalone HTML training material generation.
+  - `training_ppt.py` — PPTX training generation.
+  - `training_downloads.py` — File download resolution.
+  - `message_export.py` — Export chat messages to DOCX.
+  - `assistant_prompt.py` — LLM-driven assistant prompt optimization.
+  - `presentation/` — Training generation subsystem:
+    - `content_pack.py`, `models.py`, `outline_builder.py`, `pptx_renderer.py`, `project_store.py`, `quality_check.py`, `safety_templates.py`, `slide_planner.py`.
+- `backend/prompts/AGENTS.md` — System-style instruction set for Wiki generation. Keep aligned with the repo's actual Wiki rules.
+- `backend/tests/` — 15+ pytest test files covering chat routing, web search, auto-continuation, LLM service, wiki pipeline, presentation generation, HTML training, uploads, config, message export, and assistant optimization.
 
 ### Frontend
 
-- `frontend/src/main.tsx` boots the app.
-- `frontend/src/app/App.tsx` wires the main pages and reader overlay.
-- `frontend/src/app/components/pages/` contains the primary views:
-  - Chat
-  - Assistant
-  - Search
-  - Knowledge Base
-  - Training
-  - Settings
-- `frontend/src/lib/context.tsx` syncs app-wide knowledge-base/model state from the backend.
-- `frontend/src/lib/api.ts` is the fetch layer for the FastAPI endpoints.
-- `frontend/src/lib/types.ts` mirrors the backend models.
+- `frontend/src/main.tsx` — App bootstrap.
+- `frontend/src/app/App.tsx` — Root component with state-based page routing (no React Router; uses `currentPage` state + localStorage persistence).
+- `frontend/src/app/components/pages/` — Primary views:
+  - `ChatPage` — Q&A with streaming, KB selection, web search toggle.
+  - `AssistantPage` — Preset assistant prompt switching with chat.
+  - `SearchPage` — Full-text document search.
+  - `KnowledgeBasePage` — KB management, document upload, wiki generation, lint.
+  - `TrainingPage` — Training outline, PPTX, and HTML generation.
+  - `SettingsPage` — Model provider, API key, model-role configuration.
+  - `AboutPage` — Product info, version, check for updates.
+  - `ReaderPage` — Document viewer overlay (page nav, highlights).
+- `frontend/src/lib/` — API client (`api.ts`), TypeScript types (`types.ts`), global state context (`context.tsx`), chat utilities.
+- `frontend/src/app/data/` — Assistant definitions (`assistants.ts`) and icon map (`assistant-icons.ts`).
+
+### PageType enum (App.tsx)
+
+```
+'chat' | 'assistant' | 'search' | 'knowledge' | 'training' | 'settings' | 'about'
+```
+
+The sidebar has two groups:
+- **Main nav**: 对话, 专业助手, 原文检索, 知识库管理, PPT生成
+- **Bottom nav**: 设置, 关于
 
 ### Data directories
 
-- `knowledge-bases/<kb_id>/raw/` stores original uploads.
-- `knowledge-bases/<kb_id>/wiki/` stores generated wiki pages, including `index.md` and `log.md`.
-- `knowledge-bases/<kb_id>/meta.json` stores knowledge-base metadata.
-- `knowledge-bases/<kb_id>/raw/文档追踪.json` tracks uploaded documents, parse status, page counts, and linked wiki pages.
-- `output/` stores generated artifacts such as PPTX files.
-- `data/wiki/` and `data/raw/` contain sample/reference content.
+- `knowledge-bases/<kb_id>/raw/` — Original uploads.
+- `knowledge-bases/<kb_id>/wiki/` — Generated wiki pages including `index.md` and `log.md` (reserved files).
+- `knowledge-bases/<kb_id>/meta.json` — KB metadata and stats.
+- `knowledge-bases/<kb_id>/raw/文档追踪.json` — Document tracking.
+- `output/` — Generated PPTX and HTML files.
+- `data/` — Sample/reference content.
 
 ## Workflow Rules
 
@@ -111,21 +134,22 @@ When information conflicts, prefer:
 
 The backend currently exposes endpoints for:
 
-- Global config and current knowledge-base/model selection
-- Knowledge-base CRUD
-- Document upload, list, content extraction, highlights, and deletion previews
-- Wiki page listing, page loading, document parsing, and linting
-- Chat in streaming and sync modes
-- Search
-- Training outline generation, PPT generation, and downloads
+- **Config**: GET/PUT `/api/config`, validate, current-kb, current-model
+- **Knowledge bases**: CRUD + rename (`PUT /api/knowledge-bases/{kb_id}`)
+- **Documents**: list, upload, delete-preview, delete, content, highlights (save/load)
+- **Wiki**: list pages, get page, parse document (trigger generation), lint
+- **Chat**: streaming (`POST /api/chat` SSE), sync (`POST /api/chat/sync`), export DOCX (`POST /api/chat/export`)
+- **Search**: `POST /api/search`
+- **Training**: outline, generate (PPTX), html, progress/{job_id}, cancel/{job_id}, download/{filename}, preview/{filename}, cleanup
+- **Assistants**: list, optimize-prompt
 
 If you add or rename an endpoint, update the frontend client and any affected types together.
 
 ## Development Notes
 
-- `backend/app.py` defaults to `http://localhost:8000`.
+- `backend/app.py` defaults to `http://localhost:8000` with auto-reload.
 - The frontend expects the backend at `http://localhost:8000`.
-- The app uses local storage for some chat/session UI state, so behavior may be stateful between reloads.
+- The app uses local storage for some chat/session UI state (`anniu-current-page-v1` key), so behavior may be stateful between reloads.
 - Existing automated tests live under `backend/tests/`; add or update tests when changing backend behavior.
 
 ## When using LLM outputs
