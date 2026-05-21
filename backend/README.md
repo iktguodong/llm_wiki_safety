@@ -97,8 +97,12 @@ uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 ## 数据存储
 
 - **配置**: `~/.anniu/config.json`
-- **知识库**: `./knowledge-bases/`（运行时数据，gitignored）
-- **输出文件**: `./output/`（运行时生成物，gitignored）
+- **知识库**:
+  - 开发态：`./knowledge-bases/`（运行时数据，gitignored）
+  - 桌面发布态：`~/.anniu/knowledge-bases/`
+- **输出文件**:
+  - 开发态：`./output/`（运行时生成物，gitignored）
+  - 桌面发布态：`~/.anniu/output/`
 
 ### 支持的文档格式
 

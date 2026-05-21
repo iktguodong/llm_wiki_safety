@@ -50,6 +50,13 @@ yarn-error.log*
 backend-release/
 frontend/backend-release/
 frontend/release/
+release/
+*.blockmap
+*.dmg
+*.zip
+latest-mac.yml
+builder-debug.yml
+app-update.yml
 
 # Tauri相关
 src-tauri/target/

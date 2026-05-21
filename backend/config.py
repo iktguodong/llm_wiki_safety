@@ -5,6 +5,7 @@
 
 import json
 import os
+import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -14,9 +15,28 @@ from dataclasses import dataclass, asdict
 CONFIG_DIR = Path.home() / ".anniu"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
+PROJECT_ROOT = Path(__file__).parent.parent
+
+
+def _resolve_app_data_root() -> Path:
+    """解析运行时数据根目录。
+
+    - 开发态默认保留在仓库根目录，延续当前的本地开发习惯。
+    - 桌面发布版或显式设置 `ANNIU_APP_DATA_ROOT` 时，切换到用户目录。
+    """
+    env_root = os.environ.get("ANNIU_APP_DATA_ROOT")
+    if env_root:
+        return Path(env_root).expanduser()
+    if getattr(sys, "frozen", False):
+        return CONFIG_DIR
+    return PROJECT_ROOT
+
+
+APP_DATA_ROOT = _resolve_app_data_root()
+
 # 知识库根目录
-KB_ROOT = Path(__file__).parent.parent / "knowledge-bases"
-OUTPUT_DIR = Path(__file__).parent.parent / "output"
+KB_ROOT = APP_DATA_ROOT / "knowledge-bases"
+OUTPUT_DIR = APP_DATA_ROOT / "output"
 
 DEFAULT_MODEL_ID = "deepseek-v4-flash"
 

@@ -264,8 +264,10 @@ knowledge-bases/<kb_id>/
 ## 配置与存储位置
 
 - 配置文件：`~/.anniu/config.json`
-- 知识库根目录：`./knowledge-bases/`
-- 输出目录：`./output/`
+- 开发态知识库根目录：`./knowledge-bases/`
+- 桌面发布态知识库根目录：`~/.anniu/knowledge-bases/`
+- 开发态输出目录：`./output/`
+- 桌面发布态输出目录：`~/.anniu/output/`
 
 配置保存内容：
 
@@ -357,6 +359,25 @@ knowledge-bases/<kb_id>/
 ## 快速开始
 
 ### 1. 环境要求
+
+### 1.1 桌面客户端（Electron，v1.0.0）
+
+当前仓库已经补了 Electron 桌面壳和 GitHub Release 打包流程：
+
+- 前端入口：`frontend/`
+- 桌面主进程：`frontend/electron/main.js`
+- 发布工作流：`/.github/workflows/release-electron.yml`
+
+本地开发可先跑：
+
+```bash
+cd frontend
+npm install
+npm run electron:dev
+```
+
+当前发布链路会在 GitHub Actions 中先把后端打成可执行文件，再用 Electron 生成 macOS 安装包并发布到 GitHub Release。  
+现阶段这条流水线先覆盖 macOS；如果后续要补 Windows / Linux，可以在同一套 Electron 配置上继续扩展。
 
 - Python 3.10+
 - Node.js 18+

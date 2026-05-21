@@ -6,6 +6,7 @@ FastAPI + 所有业务API
 import asyncio
 import contextlib
 import logging
+import os
 import sys
 import uuid
 from pathlib import Path
@@ -108,6 +109,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
+        "null",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -130,6 +132,12 @@ async def _periodic_training_upload_cleanup(interval_seconds: int = 6 * 60 * 60)
                 "failed to clean expired training uploads",
                 extra={"event": "training_upload_cleanup", "status": "failed", "error": "cleanup_failed"},
             )
+
+
+@app.get("/api/health", response_model=ApiResponse)
+async def health_check():
+    """桌面端启动检测与就绪探针。"""
+    return ApiResponse(data={"status": "ok", "version": app.version})
 
 
 # ==================== 配置API ====================
@@ -673,11 +681,14 @@ async def preview_training_html(filename: str):
 # ==================== 启动入口 ====================
 
 if __name__ == "__main__":
+    host = os.environ.get("ANNIU_BACKEND_HOST", "127.0.0.1")
+    port = int(os.environ.get("ANNIU_BACKEND_PORT", "8000"))
+    reload_enabled = os.environ.get("ANNIU_RELOAD", "0") == "1"
     uvicorn.run(
-        "backend.app:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
+        app,
+        host=host,
+        port=port,
+        reload=reload_enabled,
         log_level="info",
         access_log=False
     )
