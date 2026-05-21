@@ -506,7 +506,7 @@ def collect_training_html_source_context(
             "sources": [source.model_dump() for source in sources],
             "topic": request.title,
             "audience": request.audience or "",
-            "prefer_wiki_pages": True,
+            "prefer_wiki_pages": False,
         },
         job_id,
     )
