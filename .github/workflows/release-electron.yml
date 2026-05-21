@@ -47,8 +47,20 @@ jobs:
             --specpath build/pyinstaller \
             backend/app.py
 
-      - name: Build and publish Electron release
+      - name: Build Electron app
         working-directory: frontend
+        run: npm run electron:build
+
+      - name: Publish GitHub Release assets
+        uses: softprops/action-gh-release@v2
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run electron:publish
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          files: |
+            frontend/release/*.dmg
+            frontend/release/*.zip
+            frontend/release/*.blockmap
+            frontend/release/latest-mac.yml
+          generate_release_notes: true
