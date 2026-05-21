@@ -222,9 +222,9 @@
 │                   ├── SettingsPage.tsx        # 设置页面
 │                   ├── AboutPage.tsx           # 关于页面
 │                   └── ReaderPage.tsx          # 文档阅读器
-├── knowledge-bases/                # 知识库数据（gitignored）
-├── data/                           # 样例与参考内容
-├── output/                         # 导出的 PPTX/HTML 文件
+├── knowledge-bases/                # 知识库运行时数据（gitignored）
+├── data/                           # Wiki 模板与项目级静态素材
+├── output/                         # 导出的 PPTX/HTML 等运行时文件
 ├── docs/                           # 项目文档
 │   ├── AGENTS.md
 │   ├── product-requirements.md
@@ -251,6 +251,8 @@ knowledge-bases/<kb_id>/
     ├── log.md                      # Wiki 变更日志（保留文件）
     └── *.md                        # 生成的 Wiki 页面
 ```
+
+仓库默认不再附带示例知识库内容；`data/templates/` 只保留 Wiki 页面模板，方便本地生成时复用。
 
 ## 支持的文档格式
 
