@@ -682,12 +682,21 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   return (
     <div className="h-full flex flex-col bg-slate-50">
       <div className="flex-1 min-h-0 flex">
-        {showAssistantList && (
+        {showAssistantList ? (
         <aside className="w-64 flex-shrink-0 border-r border-slate-200 bg-white/70 px-3 py-4 overflow-y-auto">
           <div className="space-y-3">
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowAssistantList(false)}
+                    className="w-6 h-6 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                    aria-label="折叠助手列表"
+                    title="折叠助手列表"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
                   <h1 className="text-sm font-medium text-slate-800">助手列表</h1>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -712,15 +721,6 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                     title="新建助手"
                   >
                     <Plus className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowAssistantList(false)}
-                    className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
-                    aria-label="折叠助手列表"
-                    title="折叠助手列表"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -786,6 +786,15 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
             })}
           </div>
         </aside>
+        ) : (
+          <button
+            onClick={() => setShowAssistantList(true)}
+            className="w-8 flex-shrink-0 border-r border-slate-200 bg-white/70 hover:bg-slate-50 transition-colors flex items-center justify-center"
+            aria-label="展开助手列表"
+            title="展开助手列表"
+          >
+            <ChevronRight className="w-4 h-4 text-slate-400" />
+          </button>
         )}
 
         <main className="flex-1 min-w-0 flex flex-col">
@@ -833,17 +842,6 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {!showAssistantList && (
-                      <button
-                        onClick={() => setShowAssistantList(true)}
-                        className="inline-flex items-center gap-2 px-3 h-9 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm"
-                        aria-label="展开助手列表"
-                        title="展开助手列表"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                        <span>展开列表</span>
-                      </button>
-                    )}
                     <button
                       onClick={() => { setEditing(selectedAssistant); setDialogOpen(true); }}
                       className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"

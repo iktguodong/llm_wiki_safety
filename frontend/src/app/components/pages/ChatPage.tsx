@@ -3,6 +3,8 @@ import {
   Send,
   X,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Layers,
   Plus,
   Globe,
@@ -149,6 +151,7 @@ export default function ChatPage() {
   const [draftContextCleared, setDraftContextCleared] = useState(() => currentSessionStorage.contextCleared ?? false);
   const [, setContextCleared] = useState(() => currentSessionStorage.contextCleared ?? false);
   const [loadingSessionIds, setLoadingSessionIds] = useState<Record<string, boolean>>({});
+  const [showSessionList, setShowSessionList] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
@@ -733,18 +736,28 @@ export default function ChatPage() {
 
       {/* Messages */}
       <div className="flex-1 min-h-0 flex">
-        <aside className="w-64 flex-shrink-0 border-r border-slate-200 bg-white/70 px-3 py-4 overflow-y-auto">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-medium text-slate-800">会话</div>
+        {showSessionList ? (
+          <aside className="w-64 flex-shrink-0 border-r border-slate-200 bg-white/70 px-3 py-4 overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-1">
                 <button
-                    onClick={newConversation}
-              title="新建对话"
-              className="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="space-y-1">
+                  onClick={() => setShowSessionList(false)}
+                  className="w-6 h-6 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                  title="折叠会话列表"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-sm font-medium text-slate-800">对话历史</span>
+              </div>
+              <button
+                onClick={newConversation}
+                title="新建对话"
+                className="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-1">
             {sessionList.map(session => (
               <div
                 key={session.id}
@@ -818,6 +831,15 @@ export default function ChatPage() {
             )}
           </div>
         </aside>
+        ) : (
+          <button
+            onClick={() => setShowSessionList(true)}
+            className="w-8 flex-shrink-0 border-r border-slate-200 bg-white/70 hover:bg-slate-50 transition-colors flex items-center justify-center"
+            title="展开会话列表"
+          >
+            <ChevronRight className="w-4 h-4 text-slate-400" />
+          </button>
+        )}
 
         <div className="flex-1 min-w-0 flex flex-col">
           <ChatMessageList
