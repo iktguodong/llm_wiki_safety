@@ -104,10 +104,15 @@
       {
         "from": "../backend-release",
         "to": "backend"
+      },
+      {
+        "from": "app-icons",
+        "to": "app-icons"
       }
     ],
     "asar": true,
     "mac": {
+      "icon": "app-icons/anniu.icns",
       "target": [
         "dmg",
         "zip"
@@ -115,11 +120,13 @@
       "category": "public.app-category.productivity"
     },
     "win": {
+      "icon": "app-icons/anniu.ico",
       "target": [
         "nsis"
       ]
     },
     "linux": {
+      "icon": "app-icons/anniu.png",
       "target": [
         "AppImage"
       ]

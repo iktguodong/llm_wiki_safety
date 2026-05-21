@@ -1,3 +1,5 @@
+import { publicAsset } from '../lib/public-assets';
+
 interface LogoMarkProps {
   className?: string;
   imageClassName?: string;
@@ -11,7 +13,7 @@ export default function LogoMark({
 }: LogoMarkProps) {
   return (
     <div className={className}>
-      <img src="/anniu-logo.png" alt={alt} className={imageClassName} />
+      <img src={publicAsset('anniu-logo.png')} alt={alt} className={imageClassName} />
     </div>
   );
 }

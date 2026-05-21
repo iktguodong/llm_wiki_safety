@@ -39,6 +39,36 @@ function resolveBackendBinaryPath() {
   return null;
 }
 
+function resolveWindowIconPath() {
+  if (app.isPackaged) {
+    if (process.platform === 'win32') {
+      const packagedIcon = path.join(process.resourcesPath, 'app-icons', 'anniu.ico');
+      if (fs.existsSync(packagedIcon)) {
+        return packagedIcon;
+      }
+    } else {
+      const packagedIcon = path.join(process.resourcesPath, 'app-icons', 'anniu.png');
+      if (fs.existsSync(packagedIcon)) {
+        return packagedIcon;
+      }
+    }
+  } else {
+    if (process.platform === 'win32') {
+      const localIcon = path.join(getProjectRoot(), 'frontend', 'app-icons', 'anniu.ico');
+      if (fs.existsSync(localIcon)) {
+        return localIcon;
+      }
+    } else {
+      const localIcon = path.join(getProjectRoot(), 'frontend', 'public', 'anniu-logo.png');
+      if (fs.existsSync(localIcon)) {
+        return localIcon;
+      }
+    }
+  }
+
+  return null;
+}
+
 async function isBackendHealthy() {
   try {
     const response = await fetch(BACKEND_HEALTH_URL, { method: 'GET' });
@@ -113,6 +143,7 @@ async function ensureBackendReady() {
 }
 
 function createMainWindow() {
+  const iconPath = resolveWindowIconPath();
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
@@ -120,6 +151,7 @@ function createMainWindow() {
     minHeight: 820,
     backgroundColor: '#F8FAFC',
     title: '安牛',
+    icon: iconPath || undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -152,6 +184,11 @@ async function bootApp() {
   if (!gotSingleInstanceLock) {
     app.quit();
     return;
+  }
+
+  const iconPath = resolveWindowIconPath();
+  if (iconPath && process.platform === 'darwin' && app.dock?.setIcon) {
+    app.dock.setIcon(iconPath);
   }
 
   app.on('second-instance', () => {
