@@ -222,9 +222,11 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   const loadingTopicIdsRef = useRef<Record<string, boolean>>({});
   const generationRef = useRef<{ id: string; controller: AbortController; topicId: string } | null>(null);
   const autoScrollEnabledRef = useRef(true);
-  const allModels = providers.flatMap(p =>
-    p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
-  );
+  const allModels = providers
+    .filter(p => p.api_key?.trim())
+    .flatMap(p =>
+      p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
+    );
   const items = useMemo(
     () => buildMergedAssistants(customAssistants, overrides, hiddenDefaultIds),
     [customAssistants, overrides, hiddenDefaultIds],

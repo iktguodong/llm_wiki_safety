@@ -605,9 +605,11 @@ export default function ChatPage() {
     }
   };
 
-  const allModels = providers.flatMap(p =>
-    p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
-  );
+  const allModels = providers
+    .filter(p => p.api_key?.trim())
+    .flatMap(p =>
+      p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
+    );
   const currentModelName = allModels.find(m => m.id === selectedModelId)?.label || selectedModelId || '默认模型';
   const totalPages = selectedKbs.reduce((sum, id) => {
     const kb = knowledgeBases.find((k: KnowledgeBase) => k.id === id);

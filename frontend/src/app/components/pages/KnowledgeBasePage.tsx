@@ -196,9 +196,11 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
   const formatDate = (value?: string) => value?.split('T')[0] || '未知';
   const formatDateTime = (value?: string) => value ? value.replace('T', ' ').slice(0, 19) : '未知';
 
-  const allModels = providers.flatMap(p =>
-    p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
-  );
+  const allModels = providers
+    .filter(p => p.api_key?.trim())
+    .flatMap(p =>
+      p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
+    );
   const currentModelName = allModels.find(m => m.id === selectedModelId)?.label || selectedModelId || defaultChatModelId || '默认模型';
 
   useEffect(() => {

@@ -87,9 +87,11 @@ export default function SettingsPage() {
   const [editingProvider, setEditingProvider] = useState<ModelProvider | null>(null);
 
   // 模型显示名称（「服务商 / 模型名」）↔ ID 映射，避免不同服务商重名冲突
-  const allModels = providers.flatMap(p =>
-    p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
-  );
+  const allModels = providers
+    .filter(p => p.api_key?.trim())
+    .flatMap(p =>
+      p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
+    );
   const allModelLabels = allModels.map(m => m.label);
   const labelToId = new Map(allModels.map(m => [m.label, m.id]));
   const idToLabel = new Map(allModels.map(m => [m.id, m.label]));
