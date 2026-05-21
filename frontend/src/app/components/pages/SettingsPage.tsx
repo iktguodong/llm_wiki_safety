@@ -317,22 +317,6 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* About */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100">
-            <div className="text-sm text-slate-900" style={{ fontWeight: 500 }}>关于</div>
-          </div>
-          <div className="px-6 py-4 flex items-center justify-between">
-            <div>
-              <div className="text-sm text-slate-900" style={{ fontWeight: 500 }}>安牛 v1.0.0</div>
-              <div className="text-xs text-slate-500 mt-0.5">企业安全知识库助手 · 基于 LLM Wiki 构建</div>
-            </div>
-            <button className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm hover:bg-slate-50 transition-colors">
-              检查更新
-            </button>
-          </div>
-        </div>
-
       </div>
 
       {/* 添加/编辑服务商 Dialog */}

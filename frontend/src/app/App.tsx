@@ -7,11 +7,12 @@ import SearchPage from './components/pages/SearchPage';
 import KnowledgeBasePage from './components/pages/KnowledgeBasePage';
 import TrainingPage from './components/pages/TrainingPage';
 import SettingsPage from './components/pages/SettingsPage';
+import AboutPage from './components/pages/AboutPage';
 import ReaderPage from './components/pages/ReaderPage';
 import AssistantPage from './components/pages/AssistantPage';
 import type { AssistantDefinition } from './data/assistants';
 
-type PageType = 'chat' | 'assistant' | 'search' | 'knowledge' | 'training' | 'settings';
+type PageType = 'chat' | 'assistant' | 'search' | 'knowledge' | 'training' | 'settings' | 'about';
 const CURRENT_PAGE_KEY = 'anniu-current-page-v1';
 
 interface ReaderContext {
@@ -31,7 +32,8 @@ function AppInner() {
         raw === 'search' ||
         raw === 'knowledge' ||
         raw === 'training' ||
-        raw === 'settings'
+        raw === 'settings' ||
+        raw === 'about'
       ) {
         return raw;
       }
@@ -93,6 +95,7 @@ function AppInner() {
           <TrainingPage />
         </div>
         {currentPage === 'settings' && <SettingsPage />}
+        {currentPage === 'about' && <AboutPage />}
       </>
     );
   };

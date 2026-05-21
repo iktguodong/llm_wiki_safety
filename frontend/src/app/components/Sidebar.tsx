@@ -1,7 +1,7 @@
-import { Bot, MessageSquare, Search, Database, GraduationCap, Settings } from 'lucide-react';
+import { Bot, MessageSquare, Search, Database, GraduationCap, Settings, Info } from 'lucide-react';
 import LogoMark from './LogoMark';
 
-type PageType = 'chat' | 'assistant' | 'search' | 'knowledge' | 'training' | 'settings';
+type PageType = 'chat' | 'assistant' | 'search' | 'knowledge' | 'training' | 'settings' | 'about';
 
 interface SidebarProps {
   currentPage: PageType;
@@ -18,6 +18,7 @@ const navItems = [
 
 const bottomItems = [
   { id: 'settings' as const, icon: Settings, label: '设置' },
+  { id: 'about' as const, icon: Info, label: '关于' },
 ];
 
 function NavButton({
