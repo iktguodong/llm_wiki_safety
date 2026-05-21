@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus,
+  ChevronDown,
   Database,
   FileText,
   Pencil,
@@ -21,7 +22,7 @@ interface KnowledgeBasePageProps {
 }
 
 export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps) {
-  const { knowledgeBases, refreshKbs, currentKbId } = useApp();
+  const { knowledgeBases, refreshKbs, currentKbId, providers, defaultChatModelId } = useApp();
   const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Record<string, DocumentInfo[]>>({});
   const [loadingDocs, setLoadingDocs] = useState<Record<string, boolean>>({});
@@ -29,6 +30,9 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
   const [lintResults, setLintResults] = useState<Record<string, { loading: boolean; result?: WikiLintResult; open: boolean }>>({});
   const [uploadGuides, setUploadGuides] = useState<Record<string, boolean>>({});
   const [pollVersion, setPollVersion] = useState(0);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [selectedModelId, setSelectedModelId] = useState(defaultChatModelId);
+  const modelRef = useRef<HTMLDivElement>(null);
   const loadingDocsRef = useRef<Record<string, boolean>>({});
 
   // silent=true：仅静默刷新数据，不切换 loadingDocs 状态，避免轮询导致整个文档列表反复闪“正在加载文档...”。
@@ -192,12 +196,55 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
   const formatDate = (value?: string) => value?.split('T')[0] || '未知';
   const formatDateTime = (value?: string) => value ? value.replace('T', ' ').slice(0, 19) : '未知';
 
+  const allModels = providers.flatMap(p =>
+    p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
+  );
+  const currentModelName = allModels.find(m => m.id === selectedModelId)?.label || selectedModelId || defaultChatModelId || '默认模型';
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (modelRef.current && !modelRef.current.contains(e.target as Node)) setModelOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   return (
     <div className="h-full flex flex-col bg-slate-50">
       {/* Header */}
       <div className="flex-shrink-0 bg-white border-b border-slate-200 px-8 py-5 flex items-center justify-between">
         <div>
-          <h1 className="text-slate-900">知识库管理</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-slate-900">知识库管理</h1>
+            <div ref={modelRef} className="relative flex items-center gap-2 flex-shrink-0">
+              <span className="text-sm text-slate-500">模型</span>
+              <button
+                onClick={() => setModelOpen(!modelOpen)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-slate-200 rounded-md hover:border-slate-300 text-slate-700 transition-colors"
+              >
+                <span>{currentModelName}</span>
+                <ChevronDown className="w-3 h-3 text-slate-400" />
+              </button>
+              {modelOpen && (
+                <div className="absolute top-full mt-1.5 left-0 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50 min-w-[180px]">
+                  {allModels.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => {
+                        setSelectedModelId(m.id);
+                        setModelOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-1.5 text-sm transition-colors hover:bg-slate-50 ${
+                        m.id === selectedModelId ? 'text-indigo-600' : 'text-slate-700'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
           <p className="text-sm text-slate-500 mt-0.5">共 {knowledgeBases.length} 个知识库</p>
         </div>
         <button onClick={handleCreateKb} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors">

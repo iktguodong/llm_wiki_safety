@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, CheckCircle2, CircleX, Download, Eye, FileText, Globe, History, Loader2, Plus, RefreshCw, Trash2, Upload, WandSparkles, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle2, ChevronDown, CircleX, Download, Eye, FileText, Globe, History, Loader2, Plus, RefreshCw, Trash2, Upload, WandSparkles, X } from 'lucide-react';
 import { useApp } from '../../../lib/context';
 import { docApi, trainingApi } from '../../../lib/api';
 import type {
@@ -581,6 +581,8 @@ export default function TrainingPage() {
     htmlGeneration,
     updateHtmlGeneration,
     resetHtmlGeneration,
+    providers,
+    defaultChatModelId,
   } = useApp();
   const persistedDraft = useMemo(readTrainingDraft, []);
   const [mode, setMode] = useState<MainMode>(() => {
@@ -626,6 +628,9 @@ export default function TrainingPage() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
   const generationRef = useRef<{ kind: GenerationKind; jobId: string; controller: AbortController } | null>(null);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [selectedModelId, setSelectedModelId] = useState(defaultChatModelId);
+  const modelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1209,11 +1214,54 @@ export default function TrainingPage() {
     }
   };
 
+  const allModels = providers.flatMap(p =>
+    p.models.map(m => ({ ...m, providerName: p.name, label: `${p.name} / ${m.name}` })),
+  );
+  const currentModelName = allModels.find(m => m.id === selectedModelId)?.label || selectedModelId || defaultChatModelId || '默认模型';
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (modelRef.current && !modelRef.current.contains(e.target as Node)) setModelOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   return (
     <div className="flex h-full flex-col bg-slate-50">
       <div className="border-b border-slate-200 bg-white px-6 py-3">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="text-slate-900">培训材料生成</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-slate-900">培训材料生成</h1>
+            <div ref={modelRef} className="relative flex items-center gap-2 flex-shrink-0">
+              <span className="text-sm text-slate-500">模型</span>
+              <button
+                onClick={() => setModelOpen(!modelOpen)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-slate-200 rounded-md hover:border-slate-300 text-slate-700 transition-colors"
+              >
+                <span>{currentModelName}</span>
+                <ChevronDown className="w-3 h-3 text-slate-400" />
+              </button>
+              {modelOpen && (
+                <div className="absolute top-full mt-1.5 left-0 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50 min-w-[180px]">
+                  {allModels.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => {
+                        setSelectedModelId(m.id);
+                        setModelOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-1.5 text-sm transition-colors hover:bg-slate-50 ${
+                        m.id === selectedModelId ? 'text-indigo-600' : 'text-slate-700'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             {(activeGenerationKind || stoppingGeneration) && (
               <Button

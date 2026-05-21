@@ -3,6 +3,7 @@ import {
   Check,
   Eraser,
   ChevronLeft,
+  ChevronDown,
   ChevronRight,
   Globe,
   MessageSquare,
@@ -212,6 +213,8 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   const [loadingTopicIds, setLoadingTopicIds] = useState<Record<string, boolean>>({});
   const [searchOpen, setSearchOpen] = useState(false);
   const [showAssistantList, setShowAssistantList] = useState(true);
+  const [modelOpen, setModelOpen] = useState(false);
+  const modelRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -232,6 +235,7 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
   const messages = currentTopic?.messages || [];
   const currentTopicLoading = currentTopic ? !!loadingTopicIds[currentTopic.id] : false;
   const activeTemporaryUploads = currentTopic?.temporaryUploads || [];
+  const currentAssistantModelName = allModels.find(m => m.id === (selectedAssistant?.default_model_id || defaultChatModelId))?.label || selectedAssistant?.default_model_id || defaultChatModelId || '默认模型';
 
   useEffect(() => {
     localStorage.setItem(ASSISTANT_CUSTOM_KEY, JSON.stringify(customAssistants));
@@ -304,6 +308,24 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
       searchInputRef.current?.focus();
     }
   }, [searchOpen]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (modelRef.current && !modelRef.current.contains(e.target as Node)) setModelOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const changeAssistantModel = (assistant: AssistantDefinition, modelId: string) => {
+    const updated = { ...assistant, default_model_id: modelId };
+    const isDefault = defaultAssistants.some(a => a.id === assistant.id);
+    if (isDefault) {
+      setOverrides(prev => ({ ...prev, [assistant.id]: updated }));
+    } else {
+      setCustomAssistants(prev => prev.map(a => a.id === assistant.id ? updated : a));
+    }
+  };
 
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -780,9 +802,34 @@ export default function AssistantPage({ activeAssistantId, onStartChat }: Assist
                         textClassName="text-base"
                       />
                       <h2 className="text-slate-900 font-medium text-lg">{selectedAssistant.name}</h2>
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-xs">
-                        {allModels.find(m => m.id === selectedAssistant.default_model_id)?.label || selectedAssistant.default_model_id || defaultChatModelId || '默认模型'}
-                      </span>
+                      <div ref={modelRef} className="relative flex items-center gap-2 flex-shrink-0 ml-1">
+                        <span className="text-sm text-slate-500">模型</span>
+                        <button
+                          onClick={() => setModelOpen(!modelOpen)}
+                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-slate-200 rounded-md hover:border-slate-300 text-slate-700 transition-colors"
+                        >
+                          <span>{currentAssistantModelName}</span>
+                          <ChevronDown className="w-3 h-3 text-slate-400" />
+                        </button>
+                        {modelOpen && (
+                          <div className="absolute top-full mt-1.5 left-0 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50 min-w-[180px]">
+                            {allModels.map((m) => (
+                              <button
+                                key={m.id}
+                                onClick={() => {
+                                  changeAssistantModel(selectedAssistant, m.id);
+                                  setModelOpen(false);
+                                }}
+                                className={`w-full text-left px-3 py-1.5 text-sm transition-colors hover:bg-slate-50 ${
+                                  m.id === (selectedAssistant.default_model_id || defaultChatModelId) ? 'text-indigo-600' : 'text-slate-700'
+                                }`}
+                              >
+                                {m.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
