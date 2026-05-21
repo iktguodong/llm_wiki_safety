@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import pytest
-import httpx
 
 from backend.models import ChatMessage
 from backend.services.chat import ChatService
 from backend.services.llm import llm_service
 from backend.services.presentation.project_store import get_upload_dir, save_upload_metadata
+
+
+@pytest.fixture(autouse=True)
+def _clear_web_cache():
+    ChatService._web_cache.clear()
 
 
 def _make_result(title: str, snippet: str) -> dict[str, str]:
@@ -57,30 +61,19 @@ def test_web_result_format_keeps_continuous_numbering():
 async def test_web_search_retries_with_simplified_query_when_first_attempt_is_challenge(monkeypatch):
     calls: list[str] = []
 
-    class FakeResponse:
-        def __init__(self, status_code: int, text: str):
-            self.status_code = status_code
-            self.text = text
-
-        def raise_for_status(self):
-            return None
-
-    async def fake_get(self, url, params=None):
-        query = (params or {}).get("q", "")
-        calls.append(query)
+    def fake_sync_ddg(question: str, max_results: int):
+        calls.append(question)
         if len(calls) == 1:
-            return FakeResponse(202, "<html><body>challenge</body></html>")
-        return FakeResponse(
-            200,
-            """
-            <div class="result">
-              <a class="result__a" href="https://example.com/legal">安全生产法第77条</a>
-              <a class="result__snippet">第77条内容摘要。</a>
-            </div>
-            """,
-        )
+            raise Exception("first attempt fails")
+        return [
+            {
+                "title": "安全生产法第77条",
+                "url": "https://example.com/legal",
+                "snippet": "第77条内容摘要。",
+            }
+        ]
 
-    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(ChatService, "_sync_ddg_search", fake_sync_ddg)
 
     results = await ChatService._web_search("请问：安全生产法第77条是什么内容？")
 

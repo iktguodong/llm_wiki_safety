@@ -3,15 +3,14 @@
 基于知识库Wiki页面回答问题
 """
 
+import asyncio
 import json
-import html as html_lib
 import logging
 import re
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-import httpx
+from cachetools import TTLCache
 
 from backend.config import get_kb_wiki_path, get_kb_index_path, get_kb_doc_track_path
 from backend.models import ChatMessage
@@ -46,6 +45,7 @@ QA_PROMPT = """你是一个专业的企业生产安全知识库问答助手。�
    - 答案必须基于提供的wiki知识
    - 如果知识中没有答案，明确说明"知识库中暂无相关信息"
    - 不要编造或推测
+   - **不要添加免责声明或建议用户自行查阅其他资料**，直接给出已有知识即可
 
 2. **资料来源在用户回答中的写法**
    - **不要**向用户展示 Wiki 自动拆分子页面用的**内部英文名/连字符 slug**、`.md` 文件名、文件路径、知识库 ID，也不要复述下方「资料片段」小节标题及其编号
@@ -78,7 +78,8 @@ WEB_QA_PROMPT = """你是一个专业的企业生产安全知识助手。请基�
 2. 如果检索结果不足以回答，请明确说明当前联网结果不足。
 3. 语言要清晰、简洁、专业，优先用自然标题、编号和列表组织内容，少用装饰性符号。
 4. 只能引用下方“联网检索结果”里真实存在的编号，编号数量可能少于或多于 3 条，禁止新增不存在的编号。
-5. 如果引用了某个结果，请在结尾统一列出你实际使用的来源编号，并尽量使用 Markdown 超链接，例如“来源：[结果1](URL)、[结果3](URL)”。
+5. 如果引用了某个结果，请在结尾统一列出你实际使用的来源编号（Markdown 超链接）。不要对每条来源写展开描述，紧凑列出即可。例如：
+   来源：[结果1](URL)、[结果3](URL)
 
 ## 用户问题
 
@@ -90,6 +91,7 @@ class ChatService:
     """问答服务"""
 
     _WEB_SEARCH_MAX_CANDIDATES = 8
+    _web_cache: TTLCache = TTLCache(maxsize=100, ttl=300)
     _WEB_SEARCH_BASE_RESULTS = 5
     _AUTO_CONTINUATION_MAX_ATTEMPTS = 4
     _AUTO_CONTINUATION_TAIL_CHARS = 240
@@ -210,25 +212,6 @@ class ChatService:
             return stem_to_label[wiki_stem]
         sources = ChatService._extract_wiki_sources_line(content)
         return sources[0] if sources else ""
-
-    @staticmethod
-    def _strip_html(text: str) -> str:
-        text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", text)
-        text = re.sub(r"<[^>]+>", " ", text)
-        text = html_lib.unescape(text)
-        return re.sub(r"\s+", " ", text).strip()
-
-    @staticmethod
-    def _normalize_web_url(raw_url: str) -> str:
-        if raw_url.startswith("//"):
-            raw_url = f"https:{raw_url}"
-        parsed = urlparse(raw_url)
-        if "duckduckgo.com" in parsed.netloc:
-            query = parse_qs(parsed.query)
-            uddg = query.get("uddg", [None])[0]
-            if uddg:
-                return unquote(uddg)
-        return raw_url
 
     @staticmethod
     def _score_web_result(question_terms: List[str], item: Dict[str, str]) -> float:
@@ -353,64 +336,57 @@ class ChatService:
 
     @staticmethod
     async def _web_search(question: str, max_results: int = _WEB_SEARCH_MAX_CANDIDATES) -> List[Dict[str, str]]:
-        """使用 DuckDuckGo HTML 结果页做轻量联网搜索。"""
-        pattern = re.compile(
-            r'(?is)<div class="result[^"]*".*?'
-            r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>.*?'
-            r'(?:<a[^>]*class="result__snippet"[^>]*>(.*?)</a>|<div[^>]*class="result__snippet"[^>]*>(.*?)</div>)'
-        )
+        """使用 DuckDuckGo 做轻量联网搜索（带缓存）。"""
+        cache_key = f"{question.strip().lower()}:{max_results}"
+        if cache_key in ChatService._web_cache:
+            return ChatService._web_cache[cache_key]
 
         queries = [question.strip()]
         simplified_question = ChatService._simplify_web_search_question(question)
         if simplified_question and simplified_question not in queries:
             queries.append(simplified_question)
 
-        async with httpx.AsyncClient(
-            timeout=10,
-            follow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0 (Codex Wiki Assistant)"},
-        ) as client:
-            for search_question in queries:
-                try:
-                    resp = await client.get("https://html.duckduckgo.com/html/", params={"q": search_question})
-                    resp.raise_for_status()
-                except Exception as exc:
-                    logger.warning(
-                        "chat web search failed",
-                        extra={"event": "chat_web_search", "status": "failed", "error": type(exc).__name__},
-                    )
-                    continue
+        for search_question in queries:
+            try:
+                results = await asyncio.to_thread(
+                    ChatService._sync_ddg_search, search_question, max_results
+                )
+            except Exception as exc:
+                logger.warning(
+                    "chat web search failed",
+                    extra={"event": "chat_web_search", "status": "failed", "error": type(exc).__name__},
+                )
+                continue
 
-                if resp.status_code != 200:
-                    logger.warning(
-                        "chat web search failed",
-                        extra={"event": "chat_web_search", "status": "failed", "error": f"http_{resp.status_code}"},
-                    )
-                    continue
-
-                results: List[Dict[str, str]] = []
-                for match in pattern.finditer(resp.text):
-                    url = ChatService._normalize_web_url(match.group(1).strip())
-                    title = ChatService._strip_html(match.group(2))
-                    snippet = ChatService._strip_html(match.group(3) or match.group(4) or "")
-                    if not title or not snippet:
-                        continue
-                    results.append({
-                        "title": title,
-                        "url": url,
-                        "snippet": snippet,
-                    })
-                    if len(results) >= max_results:
-                        break
-
-                if results:
-                    return results
+            if results:
+                ChatService._web_cache[cache_key] = results
+                return results
 
         logger.info(
             "chat web search returned no results",
             extra={"event": "chat_web_search", "status": "empty"},
         )
         return []
+
+    @staticmethod
+    def _sync_ddg_search(question: str, max_results: int) -> List[Dict[str, str]]:
+        """同步调用 duckduckgo_search，返回统一格式的结果列表。"""
+        from duckduckgo_search import DDGS
+
+        with DDGS() as ddgs:
+            results: List[Dict[str, str]] = []
+            for r in ddgs.text(question, max_results=max_results):
+                title = (r.get("title") or "").strip()
+                url = (r.get("href") or "").strip()
+                snippet = (r.get("body") or "").strip()
+                if not title or not snippet:
+                    continue
+                results.append({
+                    "title": title,
+                    "url": url,
+                    "snippet": snippet,
+                })
+            return results
 
     @staticmethod
     def _format_web_results(results: List[Dict[str, str]]) -> str:
@@ -441,7 +417,7 @@ class ChatService:
         return [
             {
                 "role": "system",
-                "content": "你是一个专业的企业生产安全知识助手。请只回答企业生产安全、职业健康、应急处置、事故预防、隐患排查治理和现场安全管理相关问题。如果问题明显依赖用户私有知识库，请说明当前未选择知识库，无法基于本地文档回答。回答要清晰、简洁、专业，优先使用自然标题、编号和列表，少用装饰性符号。你的回答要始终简洁高效，直奔主题，一针见血。"
+                "content": "你是一个专业的企业生产安全知识助手，尤其擅长企业生产安全、职业健康、应急处置、事故预防、隐患排查治理和现场安全管理等领域。回答要清晰、简洁、专业，优先使用自然标题、编号和列表，少用装饰性符号。你的回答要始终简洁高效，直奔主题，一针见血。"
             },
             {"role": "user", "content": question}
         ]
@@ -657,7 +633,7 @@ class ChatService:
                         {
                             "role": "system",
                             "content": ChatService._merge_system_prompt(
-                                "你是一个专业的企业生产安全知识助手。请基于联网检索结果回答，不要编造。只聚焦企业生产安全、职业健康、应急处置、事故预防、隐患排查治理和现场安全管理。你的回答要始终简洁高效，直奔主题，一针见血。",
+                                "你是一个专业的企业生产安全知识助手。请基于联网检索结果回答，不要编造。你尤其擅长企业生产安全、职业健康、应急处置、事故预防、隐患排查治理和现场安全管理等领域。回答要清晰、简洁、专业，优先使用自然标题、编号和列表，少用装饰性符号。你的回答要始终简洁高效，直奔主题，一针见血。",
                                 assistant_prompt
                             )
                         }
@@ -732,7 +708,7 @@ class ChatService:
             {
                 "role": "system",
                 "content": ChatService._merge_system_prompt(
-                    "你是一个专业的企业生产安全知识库问答助手。请基于知识库内容回答，不要编造。只聚焦企业生产安全、职业健康、应急处置、事故预防、隐患排查治理和现场安全管理。你的回答要始终简洁高效，直奔主题，一针见血。",
+                    "你是一个专业的企业生产安全知识库问答助手。请基于知识库内容回答，不要编造。你尤其擅长企业生产安全、职业健康、应急处置、事故预防、隐患排查治理和现场安全管理等领域。回答要清晰、简洁、专业，优先使用自然标题、编号和列表，少用装饰性符号。你的回答要始终简洁高效，直奔主题，一针见血。",
                     assistant_prompt
                 )
             },
