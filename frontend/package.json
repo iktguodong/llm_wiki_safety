@@ -113,6 +113,7 @@
     "asar": true,
     "mac": {
       "icon": "app-icons/anniu.icns",
+      "artifactName": "anniu-${version}-${arch}-mac.${ext}",
       "target": [
         "dmg",
         "zip"

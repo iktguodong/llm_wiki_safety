@@ -16,6 +16,8 @@ import {
 import { useApp } from '../../../lib/context';
 import { kbApi, docApi, wikiApi } from '../../../lib/api';
 import type { KnowledgeBase, DocumentInfo, WikiLintResult } from '../../../lib/types';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
+import { Input } from '../../components/ui/input';
 
 interface KnowledgeBasePageProps {
   openReader?: (kbId: string, docId: string, docName: string, page?: number) => void;
@@ -34,6 +36,11 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
   const [selectedModelId, setSelectedModelId] = useState(defaultChatModelId);
   const modelRef = useRef<HTMLDivElement>(null);
   const loadingDocsRef = useRef<Record<string, boolean>>({});
+
+  // prompt 对话框状态（替代 window.prompt，后者在 Electron 42 中已失效）
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [promptValue, setPromptValue] = useState('');
+  const [renameTarget, setRenameTarget] = useState<KnowledgeBase | null>(null);
 
   // silent=true：仅静默刷新数据，不切换 loadingDocs 状态，避免轮询导致整个文档列表反复闪“正在加载文档...”。
   const loadDocs = useCallback(async (kbId: string, silent: boolean = false) => {
@@ -108,28 +115,16 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
   const selectedLint = selectedKb ? lintResults[selectedKb.id] : undefined;
   const isDocsLoading = selectedKb ? loadingDocs[selectedKb.id] : false;
 
-  const handleCreateKb = async () => {
-    const name = prompt('请输入知识库名称');
-    if (!name) return;
-    try {
-      const created = await kbApi.create({ name });
-      await refreshKbs();
-      setSelectedKbId(created.id);
-    } catch (err) {
-      alert('创建失败: ' + (err instanceof Error ? err.message : '未知错误'));
-    }
+  const handleCreateKb = () => {
+    setRenameTarget(null);
+    setPromptValue('');
+    setPromptOpen(true);
   };
 
   const handleRenameKb = async (kb: KnowledgeBase) => {
-    const nextName = prompt('请输入新的知识库名称', kb.name)?.trim();
-    if (!nextName || nextName === kb.name) return;
-
-    try {
-      await kbApi.update(kb.id, { name: nextName });
-      await refreshKbs();
-    } catch (err) {
-      alert('修改失败: ' + (err instanceof Error ? err.message : '未知错误'));
-    }
+    setRenameTarget(kb);
+    setPromptValue(kb.name);
+    setPromptOpen(true);
   };
 
   const handleUpload = async (kbId: string, file: File) => {
@@ -193,6 +188,27 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
     }
   };
 
+  const handlePromptConfirm = async () => {
+    const name = promptValue.trim();
+    if (!name) return;
+
+    try {
+      if (renameTarget) {
+        await kbApi.update(renameTarget.id, { name });
+        await refreshKbs();
+      } else {
+        const created = await kbApi.create({ name });
+        await refreshKbs();
+        setSelectedKbId(created.id);
+      }
+    } catch (err) {
+      alert(renameTarget ? '修改失败: ' + (err instanceof Error ? err.message : '未知错误') : '创建失败: ' + (err instanceof Error ? err.message : '未知错误'));
+    } finally {
+      setPromptOpen(false);
+      setRenameTarget(null);
+    }
+  };
+
   const formatDate = (value?: string) => value?.split('T')[0] || '未知';
   const formatDateTime = (value?: string) => value ? value.replace('T', ' ').slice(0, 19) : '未知';
 
@@ -212,7 +228,7 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
   }, []);
 
   return (
-    <div className="h-full flex flex-col bg-slate-50">
+    <><div className="h-full flex flex-col bg-slate-50">
       {/* Header */}
       <div className="flex-shrink-0 bg-white border-b border-slate-200 px-8 py-5 flex items-center justify-between">
         <div>
@@ -596,5 +612,39 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
         </div>
       </div>
     </div>
+
+      {/* 知识库名称输入对话框（替代已废弃的 window.prompt） */}
+      <Dialog open={promptOpen} onOpenChange={(open) => { if (!open) setRenameTarget(null); setPromptOpen(open); }}>
+        <DialogContent className="sm:max-w-md" onKeyDown={(e) => { if (e.key === 'Enter' && promptValue.trim()) void handlePromptConfirm(); }}>
+          <DialogHeader>
+            <DialogTitle>{renameTarget ? '修改知识库名称' : '创建知识库'}</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={promptValue}
+            onChange={(e) => setPromptValue(e.target.value)}
+            placeholder="请输入知识库名称"
+            autoFocus
+            className="mt-2"
+          />
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => { setPromptOpen(false); setRenameTarget(null); }}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => void handlePromptConfirm()}
+              disabled={!promptValue.trim()}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+            >
+              确定
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
