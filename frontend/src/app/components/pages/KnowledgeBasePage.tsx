@@ -121,10 +121,16 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
     setPromptOpen(true);
   };
 
-  const handleRenameKb = async (kb: KnowledgeBase) => {
+  const handleRenameKb = (kb: KnowledgeBase) => {
     setRenameTarget(kb);
     setPromptValue(kb.name);
     setPromptOpen(true);
+  };
+
+  const closePrompt = () => {
+    setPromptOpen(false);
+    setRenameTarget(null);
+    setPromptValue('');
   };
 
   const handleUpload = async (kbId: string, file: File) => {
@@ -201,11 +207,9 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
         await refreshKbs();
         setSelectedKbId(created.id);
       }
+      closePrompt();
     } catch (err) {
       alert(renameTarget ? '修改失败: ' + (err instanceof Error ? err.message : '未知错误') : '创建失败: ' + (err instanceof Error ? err.message : '未知错误'));
-    } finally {
-      setPromptOpen(false);
-      setRenameTarget(null);
     }
   };
 
@@ -614,35 +618,42 @@ export default function KnowledgeBasePage({ openReader }: KnowledgeBasePageProps
     </div>
 
       {/* 知识库名称输入对话框（替代已废弃的 window.prompt） */}
-      <Dialog open={promptOpen} onOpenChange={(open) => { if (!open) setRenameTarget(null); setPromptOpen(open); }}>
-        <DialogContent className="sm:max-w-md" onKeyDown={(e) => { if (e.key === 'Enter' && promptValue.trim()) void handlePromptConfirm(); }}>
+      <Dialog open={promptOpen} onOpenChange={(open) => { if (open) setPromptOpen(true); else closePrompt(); }}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{renameTarget ? '修改知识库名称' : '创建知识库'}</DialogTitle>
           </DialogHeader>
-          <Input
-            value={promptValue}
-            onChange={(e) => setPromptValue(e.target.value)}
-            placeholder="请输入知识库名称"
-            autoFocus
-            className="mt-2"
-          />
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => { setPromptOpen(false); setRenameTarget(null); }}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              onClick={() => void handlePromptConfirm()}
-              disabled={!promptValue.trim()}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
-            >
-              确定
-            </button>
-          </DialogFooter>
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handlePromptConfirm();
+            }}
+          >
+            <Input
+              value={promptValue}
+              onChange={(e) => setPromptValue(e.target.value)}
+              placeholder="请输入知识库名称"
+              autoFocus
+              className="mt-2"
+            />
+            <DialogFooter>
+              <button
+                type="button"
+                onClick={closePrompt}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                disabled={!promptValue.trim()}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+              >
+                确定
+              </button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </>
